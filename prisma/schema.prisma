@@ -249,7 +249,7 @@ model Payment {
   orderId           String        @unique @db.Uuid
   provider          String
   providerPaymentId String?       @unique
-  providerEventId   String        @unique
+  providerEventId   String?       @unique
   status            PaymentStatus @default(CREATED)
   amountFen         Int
   currency          String        @default("CNY") @db.Char(3)

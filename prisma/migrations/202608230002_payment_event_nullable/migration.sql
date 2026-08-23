@@ -1,0 +1,1 @@
+ALTER TABLE "Payment" ALTER COLUMN "providerEventId" DROP NOT NULL;
