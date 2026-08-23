@@ -1,0 +1,9 @@
+:root { font-family: Inter, "Microsoft YaHei", sans-serif; color: #20352c; background: #f3f1e9; }
+* { box-sizing: border-box; } body { margin: 0; }
+.shell { min-height: 100vh; display: grid; grid-template-columns: 260px 1fr; }
+aside { padding: 28px; background: #173f33; color: white; } aside h1 { margin-bottom: 4px; }
+select, input { width: 100%; padding: 10px; margin: 8px 0 16px; border-radius: 8px; border: 1px solid #b9c7c0; }
+nav { display: grid; gap: 8px; } button { border: 0; border-radius: 9px; padding: 11px 14px; cursor: pointer; background: #dcae54; color: #172b24; font-weight: 700; }
+nav button { text-align: left; background: transparent; color: white; } nav button:hover { background: #285848; }
+main { padding: 40px; max-width: 1100px; } .card { background: white; padding: 22px; border-radius: 16px; margin: 14px 0; box-shadow: 0 6px 24px #173f3312; }
+small { color: #61746c; }
