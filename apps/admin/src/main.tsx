@@ -2,6 +2,7 @@ import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { navigationForRole, type OperatorRole } from './features/access.js';
 import { OperatorView } from './routes.js';
+import { DemoApp } from './demo/DemoApp.js';
 import './styles.css';
 
 function Console() {
@@ -21,4 +22,5 @@ function Console() {
       resolve={() => { setResolved(true); record('部分退款解决投诉'); }}/></main></div>;
 }
 
-createRoot(document.getElementById('root')!).render(<StrictMode><Console/></StrictMode>);
+const operatorFixture = new URLSearchParams(window.location.search).get('fixture') === 'operator-flow';
+createRoot(document.getElementById('root')!).render(<StrictMode>{operatorFixture ? <Console/> : <DemoApp/>}</StrictMode>);
