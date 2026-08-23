@@ -1,5 +1,6 @@
 {
   "pages": [
+    "pages/home/index",
     "pages/owner/order-create/index",
     "pages/owner/order-detail/index",
     "pages/owner/report/index",

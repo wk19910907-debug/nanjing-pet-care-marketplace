@@ -1,0 +1,21 @@
+<view class="page">
+  <view class="hero"><view class="mode">本地体验模式</view><text class="eyebrow">南京安心宠</text><text class="title">上门喂猫 · 遛狗</text><text class="subtitle">宠主提交订单，平台匹配认证人员</text></view>
+  <view class="roles"><button class="{{role==='OWNER'?'active':''}}" data-role="OWNER" bindtap="setRole">宠主</button><button class="{{role==='OPERATOR'?'active':''}}" data-role="OPERATOR" bindtap="setRole">平台运营</button><button class="{{role==='PROVIDER'?'active':''}}" data-role="PROVIDER" bindtap="setRole">服务人员</button></view>
+
+  <view wx:if="{{role==='OWNER'}}" class="card">
+    <block wx:if="{{!order}}"><text class="section-title">预约上门服务</text><view class="service-switch"><button class="{{draft.serviceType==='CAT_FEEDING'?'selected':''}}" data-value="CAT_FEEDING" bindtap="chooseService">上门喂猫 ¥32</button><button class="{{draft.serviceType==='DOG_WALKING'?'selected':''}}" data-value="DOG_WALKING" bindtap="chooseService">遛狗 ¥37</button></view>
+      <text class="label">宠物昵称</text><input value="{{draft.petName}}" data-field="petName" bindinput="changeDraft" placeholder="例如：团子"/>
+      <text class="label">服务区域</text><input value="{{draft.district}}" data-field="district" bindinput="changeDraft"/>
+      <text class="label">详细地址</text><input value="{{draft.address}}" data-field="address" bindinput="changeDraft" placeholder="请勿填写门锁密码"/>
+      <text class="label">上门时间</text><input value="{{draft.scheduledAt}}" data-field="scheduledAt" bindinput="changeDraft"/>
+      <button class="primary" bindtap="submitOrder">提交订单</button>
+    </block>
+    <block wx:else><view class="order-head"><text class="section-title">{{order.petName}} · {{order.serviceType==='CAT_FEEDING'?'上门喂猫':'遛狗'}}</text><text class="status">{{statusLabel}}</text></view><text class="line">{{order.district}} · {{order.address}}</text><text class="line">{{order.scheduledAt}} · {{priceText}}</text><text wx:if="{{order.providerName}}" class="line">服务人员：{{order.providerName}}</text><view wx:if="{{order.report}}" class="report"><text>服务报告</text><text>{{order.report.notes}}</text></view><button wx:if="{{order.status==='WAITING_CONFIRMATION'}}" class="primary" bindtap="confirm">确认完成</button></block>
+  </view>
+
+  <view wx:if="{{role==='OPERATOR'}}" class="card"><text class="section-title">平台匹配中心</text><view wx:if="{{!order}}" class="empty">暂无订单，请先由宠主提交。</view><block wx:else><text class="line">订单 {{order.id}} · {{order.petName}}</text><text class="status standalone">{{statusLabel}}</text><view wx:if="{{order.status==='WAITING_MATCH'}}" class="provider"><text>王小宁 · 建邺区 · 已认证</text><button class="primary" bindtap="assign">确认匹配</button></view><text wx:else class="line">当前订单已完成平台匹配。</text></block></view>
+
+  <view wx:if="{{role==='PROVIDER'}}" class="card"><text class="section-title">王小宁的服务任务</text><view wx:if="{{!order || !order.providerName}}" class="empty">暂无已匹配任务。</view><block wx:else><text class="line">{{order.petName}} · {{order.address}}</text><text class="status standalone">{{statusLabel}}</text><button wx:if="{{order.status==='WAITING_SERVICE'}}" class="primary" bindtap="start">开始服务</button><view wx:if="{{order.status==='IN_SERVICE'}}" class="checklist"><view><text>已完成喂食换水</text><switch checked="{{report.fed}}" data-field="fed" bindchange="toggleReport"/></view><view><text>已清理宠物区域</text><switch checked="{{report.cleaned}}" data-field="cleaned" bindchange="toggleReport"/></view><text class="label">服务记录</text><textarea value="{{report.notes}}" data-field="notes" bindinput="changeReport" placeholder="记录宠物状态和完成事项"/><button class="primary" bindtap="submitReport">提交服务报告</button></view></block></view>
+
+  <button class="reset" bindtap="reset">恢复体验数据</button><text class="safe">数据仅保存在当前开发者工具中，请勿填写真实敏感信息</text>
+</view>
