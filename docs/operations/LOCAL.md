@@ -2,7 +2,7 @@
 
 ## Fastest usable experience
 
-On Windows, double-click `start-local.cmd`, then open `http://127.0.0.1:4173`.
+On Windows, double-click `start-local.cmd`, then open `http://127.0.0.1:43123`.
 This starts the browser-based owner, platform and provider workflow without external infrastructure.
 Data is stored in browser local storage and can be reset from the page.
 

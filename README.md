@@ -6,7 +6,7 @@
 
 Windows 用户直接双击根目录的 `start-local.cmd`，等待终端显示启动成功，然后在 Chrome 打开：
 
-<http://127.0.0.1:4173>
+<http://127.0.0.1:43123>
 
 也可以在 Node.js 22 和 pnpm 10 环境中执行：
 

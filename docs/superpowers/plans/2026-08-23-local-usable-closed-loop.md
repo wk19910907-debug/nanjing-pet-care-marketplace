@@ -196,11 +196,11 @@ git commit -m "feat: add local mini program service loop"
 - Modify: `C:/Users/Administrator/Documents/Obsidian Vault/01-Projects/pet-home-service-platform/2026-08-23-implementation-progress.md`
 
 **Interfaces:**
-- Produces: `pnpm dev` at `http://127.0.0.1:4173` and exact mini program import instructions.
+- Produces: `pnpm dev` at `http://127.0.0.1:43123` and exact mini program import instructions.
 
 - [ ] **Step 1: Add root launch commands**
 
-`dev` runs `pnpm --filter @pet/admin dev --port 4173`; `build` runs the admin production build.
+`dev` runs `pnpm --filter @pet/admin dev --port 43123 --strictPort`; `build` runs the admin production build.
 
 - [ ] **Step 2: Document the exact five-step user journey**
 
@@ -220,7 +220,7 @@ Expected: every command exits 0, all tests pass, and `git diff --check` prints n
 
 - [ ] **Step 4: Start the app and verify the page responds**
 
-Run `pnpm dev`, open `http://127.0.0.1:4173`, and repeat the full Playwright role sequence against the live page.
+Run `pnpm dev`, open `http://127.0.0.1:43123`, and repeat the full Playwright role sequence against the live page.
 
 - [ ] **Step 5: Commit**
 

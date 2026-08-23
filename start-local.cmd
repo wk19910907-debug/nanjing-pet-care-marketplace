@@ -12,7 +12,7 @@ cd /d "%~dp0"
 if not exist "node_modules" call pnpm install --frozen-lockfile
 if errorlevel 1 pause & exit /b 1
 echo.
-echo Nanjing Pet Care is starting at http://127.0.0.1:4173
+echo Nanjing Pet Care is starting at http://127.0.0.1:43123
 echo Keep this window open while using the product.
 echo.
 call pnpm dev
