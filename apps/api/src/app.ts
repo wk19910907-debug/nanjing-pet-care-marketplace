@@ -3,10 +3,12 @@ import { ZodError } from 'zod';
 import { registerOrderRoutes, type OrderRoutesDependencies } from './orders/routes.js';
 import { registerPetRoutes, type PetRoutesDependencies } from './pets/routes.js';
 import { registerDispatchRoutes, type DispatchRoutesDependencies } from './dispatch/routes.js';
+import { registerFulfillmentRoutes, type FulfillmentRoutesDependencies } from './fulfillment/routes.js';
 
 type AppDependencies = PetRoutesDependencies
   & Partial<Omit<OrderRoutesDependencies, 'auth'>>
-  & Partial<Omit<DispatchRoutesDependencies, 'auth'>>;
+  & Partial<Omit<DispatchRoutesDependencies, 'auth'>>
+  & Partial<Omit<FulfillmentRoutesDependencies, 'auth'>>;
 
 export function createApp(dependencies: AppDependencies) {
   const app = Fastify({ logger: false });
@@ -32,6 +34,17 @@ export function createApp(dependencies: AppDependencies) {
     if (error instanceof Error && error.message === 'PROVIDER_NOT_FOUND') {
       return reply.code(404).send({ code: 'PROVIDER_NOT_FOUND' });
     }
+    if (error instanceof Error && [
+      'FULFILLMENT_NOT_ALLOWED', 'FULFILLMENT_CONFLICT', 'CHECK_IN_OUTSIDE_WINDOW',
+    ].includes(error.message)) {
+      return reply.code(409).send({ code: error.message });
+    }
+    if (error instanceof Error && [
+      'CHECKLIST_INCOMPLETE', 'EVIDENCE_REQUIRED', 'CHECK_IN_REQUIRED', 'AFTER_STATE_REQUIRED',
+      'MEDIA_TYPE_NOT_ALLOWED', 'MEDIA_TOO_LARGE', 'UPLOAD_NOT_VERIFIED',
+    ].includes(error.message)) {
+      return reply.code(400).send({ code: error.message });
+    }
     return reply.send(error);
   });
   void app.register(registerPetRoutes, dependencies);
@@ -48,6 +61,11 @@ export function createApp(dependencies: AppDependencies) {
       auth: dependencies.auth,
       providers: dependencies.providers,
       dispatch: dependencies.dispatch,
+    });
+  }
+  if (dependencies.fulfillment) {
+    void app.register(registerFulfillmentRoutes, {
+      auth: dependencies.auth, fulfillment: dependencies.fulfillment,
     });
   }
   return app;
