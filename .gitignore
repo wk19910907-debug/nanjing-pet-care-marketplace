@@ -3,4 +3,6 @@ node_modules/
 .env
 dist/
 coverage/
+.pnpm-store/
+*.log
 
