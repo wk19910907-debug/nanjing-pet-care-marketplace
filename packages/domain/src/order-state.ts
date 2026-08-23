@@ -1,0 +1,37 @@
+import type { OrderStatus } from '@pet/contracts';
+
+export type OrderCommand =
+  | 'PAYMENT_VERIFIED'
+  | 'PROVIDER_ASSIGNED'
+  | 'CHECKED_IN'
+  | 'REPORT_SUBMITTED'
+  | 'OWNER_CONFIRMED'
+  | 'AUTO_CONFIRMED'
+  | 'CANCEL'
+  | 'DISPATCH_EXHAUSTED'
+  | 'OPEN_DISPUTE'
+  | 'REQUEST_REFUND'
+  | 'REFUND_SUCCEEDED';
+
+const transitions = new Map<string, OrderStatus>([
+  ['PENDING_PAYMENT:PAYMENT_VERIFIED', 'PENDING_DISPATCH'],
+  ['PENDING_DISPATCH:PROVIDER_ASSIGNED', 'PENDING_SERVICE'],
+  ['PENDING_SERVICE:CHECKED_IN', 'IN_SERVICE'],
+  ['IN_SERVICE:REPORT_SUBMITTED', 'PENDING_CONFIRMATION'],
+  ['PENDING_CONFIRMATION:OWNER_CONFIRMED', 'COMPLETED'],
+  ['PENDING_CONFIRMATION:AUTO_CONFIRMED', 'COMPLETED'],
+  ['PENDING_PAYMENT:CANCEL', 'CANCELLED'],
+  ['PENDING_DISPATCH:CANCEL', 'CANCELLED'],
+  ['PENDING_DISPATCH:DISPATCH_EXHAUSTED', 'DISPATCH_FAILED'],
+  ['PENDING_CONFIRMATION:OPEN_DISPUTE', 'DISPUTED'],
+  ['DISPUTED:REQUEST_REFUND', 'REFUND_PENDING'],
+  ['REFUND_PENDING:REFUND_SUCCEEDED', 'REFUNDED'],
+]);
+
+export function transitionOrder(current: OrderStatus, command: OrderCommand): OrderStatus {
+  const next = transitions.get(`${current}:${command}`);
+  if (!next) {
+    throw new Error(`INVALID_ORDER_TRANSITION:${current}:${command}`);
+  }
+  return next;
+}
