@@ -1,0 +1,326 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ActorRole {
+  OWNER
+  PROVIDER
+  REVIEWER
+  DISPATCHER
+  SUPPORT
+  ADMIN
+}
+
+enum ServiceType {
+  CAT_FEEDING
+  DOG_WALKING
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PENDING_DISPATCH
+  PENDING_SERVICE
+  IN_SERVICE
+  PENDING_CONFIRMATION
+  COMPLETED
+  CANCELLED
+  REFUND_PENDING
+  REFUNDED
+  DISPUTED
+  DISPATCH_FAILED
+  EXPIRED
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  CREATED
+  SUCCEEDED
+  FAILED
+  REFUND_PENDING
+  PARTIALLY_REFUNDED
+  REFUNDED
+}
+
+enum DisputeStatus {
+  OPEN
+  RESOLVED_NO_REFUND
+  RESOLVED_PARTIAL_REFUND
+  RESOLVED_FULL_REFUND
+}
+
+model User {
+  id               String           @id @default(uuid()) @db.Uuid
+  phoneHash        String?          @unique
+  wechatOpenId     String?          @unique
+  role             ActorRole
+  createdAt        DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @db.Timestamptz(3)
+  providerProfile  ProviderProfile?
+  pets             Pet[]
+  addresses        ServiceAddress[]
+  ownerOrders      Order[]          @relation("OwnerOrders")
+  disputesOpened   Dispute[]        @relation("DisputeOpenedBy")
+  disputesResolved Dispute[]        @relation("DisputeResolvedBy")
+  auditEvents      AuditEvent[]
+}
+
+model ProviderProfile {
+  id                  String               @id @default(uuid()) @db.Uuid
+  userId              String               @unique @db.Uuid
+  reviewStatus        ReviewStatus         @default(PENDING)
+  serviceTypes        ServiceType[]
+  catExperienceMonths Int                  @default(0)
+  dogExperienceMonths Int                  @default(0)
+  serviceZone         String
+  latitude            Decimal              @db.Decimal(9, 6)
+  longitude           Decimal              @db.Decimal(9, 6)
+  radiusKm            Decimal              @db.Decimal(5, 2)
+  completionRateBps   Int                  @default(0)
+  ratingMilli         Int                  @default(0)
+  activeOrderLimit    Int                  @default(1)
+  acceptsInvitations  Boolean              @default(true)
+  createdAt           DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime             @updatedAt @db.Timestamptz(3)
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  assignedOrders      Order[]
+  invitations         DispatchInvitation[]
+  reports             FulfillmentReport[]
+  settlements         Settlement[]
+
+  @@index([reviewStatus, acceptsInvitations])
+  @@index([serviceZone])
+}
+
+model Pet {
+  id             String      @id @default(uuid()) @db.Uuid
+  ownerId        String      @db.Uuid
+  name           String
+  species        ServiceType
+  birthYear      Int?
+  weightGrams    Int?
+  temperament    String?
+  sensitiveNotes Bytes?
+  keyVersion     Int?
+  createdAt      DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime    @updatedAt @db.Timestamptz(3)
+  owner          User        @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  orders         OrderPet[]
+
+  @@index([ownerId])
+}
+
+model ServiceAddress {
+  id                   String   @id @default(uuid()) @db.Uuid
+  ownerId              String   @db.Uuid
+  city                 String
+  district             String
+  serviceZone          String
+  latitude             Decimal  @db.Decimal(9, 6)
+  longitude            Decimal  @db.Decimal(9, 6)
+  detailCiphertext     Bytes
+  detailNonce          Bytes
+  detailAuthTag        Bytes
+  accessCiphertext     Bytes?
+  accessNonce          Bytes?
+  accessAuthTag        Bytes?
+  encryptionKeyVersion Int
+  createdAt            DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime @updatedAt @db.Timestamptz(3)
+  owner                User     @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  orders               Order[]
+
+  @@index([ownerId])
+  @@index([city, district, serviceZone])
+}
+
+model Order {
+  id                 String               @id @default(uuid()) @db.Uuid
+  ownerId            String               @db.Uuid
+  addressId          String               @db.Uuid
+  assignedProviderId String?              @db.Uuid
+  idempotencyKey     String
+  serviceType        ServiceType
+  status             OrderStatus          @default(PENDING_PAYMENT)
+  startsAt           DateTime             @db.Timestamptz(3)
+  durationMinutes    Int
+  notes              String               @default("") @db.VarChar(500)
+  quoteSnapshot      Json
+  totalFen           Int
+  currency           String               @default("CNY") @db.Char(3)
+  version            Int                  @default(0)
+  createdAt          DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime             @updatedAt @db.Timestamptz(3)
+  owner              User                 @relation("OwnerOrders", fields: [ownerId], references: [id], onDelete: Restrict)
+  address            ServiceAddress       @relation(fields: [addressId], references: [id], onDelete: Restrict)
+  assignedProvider   ProviderProfile?     @relation(fields: [assignedProviderId], references: [id], onDelete: Restrict)
+  pets               OrderPet[]
+  invitations        DispatchInvitation[]
+  report             FulfillmentReport?
+  payment            Payment?
+  refunds            Refund[]
+  settlement         Settlement?
+  disputes           Dispute[]
+
+  @@unique([idempotencyKey, ownerId])
+  @@index([status, startsAt])
+  @@index([ownerId, createdAt])
+  @@index([assignedProviderId, startsAt])
+}
+
+model OrderPet {
+  orderId String @db.Uuid
+  petId   String @db.Uuid
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  pet     Pet    @relation(fields: [petId], references: [id], onDelete: Restrict)
+
+  @@id([orderId, petId])
+}
+
+model DispatchInvitation {
+  id          String           @id @default(uuid()) @db.Uuid
+  orderId     String           @db.Uuid
+  providerId  String           @db.Uuid
+  wave        Int
+  status      InvitationStatus @default(PENDING)
+  expiresAt   DateTime         @db.Timestamptz(3)
+  respondedAt DateTime?        @db.Timestamptz(3)
+  createdAt   DateTime         @default(now()) @db.Timestamptz(3)
+  order       Order            @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  provider    ProviderProfile  @relation(fields: [providerId], references: [id], onDelete: Restrict)
+
+  @@unique([orderId, providerId, wave])
+  @@index([status, expiresAt])
+  @@index([providerId, status])
+}
+
+model FulfillmentReport {
+  id           String          @id @default(uuid()) @db.Uuid
+  orderId      String          @unique @db.Uuid
+  providerId   String          @db.Uuid
+  checkedInAt  DateTime        @db.Timestamptz(3)
+  checkedOutAt DateTime?       @db.Timestamptz(3)
+  checklist    Json?
+  beforeState  Json?
+  afterState   Json?
+  notes        String?         @db.VarChar(1000)
+  submittedAt  DateTime?       @db.Timestamptz(3)
+  createdAt    DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime        @updatedAt @db.Timestamptz(3)
+  order        Order           @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  provider     ProviderProfile @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  media        MediaEvidence[]
+}
+
+model MediaEvidence {
+  id         String            @id @default(uuid()) @db.Uuid
+  reportId   String            @db.Uuid
+  objectKey  String            @unique
+  mimeType   String
+  sizeBytes  Int
+  sha256     String
+  capturedAt DateTime          @db.Timestamptz(3)
+  createdAt  DateTime          @default(now()) @db.Timestamptz(3)
+  report     FulfillmentReport @relation(fields: [reportId], references: [id], onDelete: Restrict)
+
+  @@index([reportId])
+}
+
+model Payment {
+  id                String        @id @default(uuid()) @db.Uuid
+  orderId           String        @unique @db.Uuid
+  provider          String
+  providerPaymentId String?       @unique
+  providerEventId   String        @unique
+  status            PaymentStatus @default(CREATED)
+  amountFen         Int
+  currency          String        @default("CNY") @db.Char(3)
+  createdAt         DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime      @updatedAt @db.Timestamptz(3)
+  order             Order         @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  refunds           Refund[]
+}
+
+model Refund {
+  id               String        @id @default(uuid()) @db.Uuid
+  orderId          String        @db.Uuid
+  paymentId        String        @db.Uuid
+  providerRefundId String?       @unique
+  amountFen        Int
+  reason           String
+  status           PaymentStatus @default(REFUND_PENDING)
+  createdAt        DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime      @updatedAt @db.Timestamptz(3)
+  order            Order         @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  payment          Payment       @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  @@index([orderId, status])
+}
+
+model Settlement {
+  id            String          @id @default(uuid()) @db.Uuid
+  orderId       String          @unique @db.Uuid
+  providerId    String          @db.Uuid
+  grossFen      Int
+  commissionFen Int
+  providerFen   Int
+  commissionBps Int
+  availableAt   DateTime?       @db.Timestamptz(3)
+  paidAt        DateTime?       @db.Timestamptz(3)
+  createdAt     DateTime        @default(now()) @db.Timestamptz(3)
+  order         Order           @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  provider      ProviderProfile @relation(fields: [providerId], references: [id], onDelete: Restrict)
+
+  @@index([providerId, availableAt, paidAt])
+}
+
+model Dispute {
+  id           String        @id @default(uuid()) @db.Uuid
+  orderId      String        @db.Uuid
+  openedById   String        @db.Uuid
+  resolvedById String?       @db.Uuid
+  status       DisputeStatus @default(OPEN)
+  reason       String
+  resolution   String?
+  refundFen    Int?
+  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
+  resolvedAt   DateTime?     @db.Timestamptz(3)
+  order        Order         @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  openedBy     User          @relation("DisputeOpenedBy", fields: [openedById], references: [id], onDelete: Restrict)
+  resolvedBy   User?         @relation("DisputeResolvedBy", fields: [resolvedById], references: [id], onDelete: Restrict)
+
+  @@index([orderId, status])
+}
+
+model AuditEvent {
+  id         String    @id @default(uuid()) @db.Uuid
+  actorId    String?   @db.Uuid
+  actorRole  ActorRole
+  action     String
+  entityType String
+  entityId   String    @db.Uuid
+  metadata   Json
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  actor      User?     @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorId, createdAt])
+}
