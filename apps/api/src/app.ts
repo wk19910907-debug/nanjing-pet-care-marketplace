@@ -4,11 +4,13 @@ import { registerOrderRoutes, type OrderRoutesDependencies } from './orders/rout
 import { registerPetRoutes, type PetRoutesDependencies } from './pets/routes.js';
 import { registerDispatchRoutes, type DispatchRoutesDependencies } from './dispatch/routes.js';
 import { registerFulfillmentRoutes, type FulfillmentRoutesDependencies } from './fulfillment/routes.js';
+import { registerDisputeRoutes, type DisputeRoutesDependencies } from './disputes/routes.js';
 
 type AppDependencies = PetRoutesDependencies
   & Partial<Omit<OrderRoutesDependencies, 'auth'>>
   & Partial<Omit<DispatchRoutesDependencies, 'auth'>>
-  & Partial<Omit<FulfillmentRoutesDependencies, 'auth'>>;
+  & Partial<Omit<FulfillmentRoutesDependencies, 'auth'>>
+  & Partial<Omit<DisputeRoutesDependencies, 'auth'>>;
 
 export function createApp(dependencies: AppDependencies) {
   const app = Fastify({ logger: false });
@@ -45,6 +47,11 @@ export function createApp(dependencies: AppDependencies) {
     ].includes(error.message)) {
       return reply.code(400).send({ code: error.message });
     }
+    if (error instanceof Error && [
+      'CONFIRMATION_NOT_ALLOWED', 'CANCELLATION_NOT_ALLOWED', 'DISPUTE_NOT_ALLOWED',
+    ].includes(error.message)) {
+      return reply.code(409).send({ code: error.message });
+    }
     return reply.send(error);
   });
   void app.register(registerPetRoutes, dependencies);
@@ -66,6 +73,12 @@ export function createApp(dependencies: AppDependencies) {
   if (dependencies.fulfillment) {
     void app.register(registerFulfillmentRoutes, {
       auth: dependencies.auth, fulfillment: dependencies.fulfillment,
+    });
+  }
+  if (dependencies.settlements && dependencies.refunds && dependencies.disputes) {
+    void app.register(registerDisputeRoutes, {
+      auth: dependencies.auth, settlements: dependencies.settlements,
+      refunds: dependencies.refunds, disputes: dependencies.disputes,
     });
   }
   return app;
