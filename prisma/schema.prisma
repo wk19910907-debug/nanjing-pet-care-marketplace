@@ -103,11 +103,23 @@ model ProviderProfile {
   user                User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
   assignedOrders      Order[]
   invitations         DispatchInvitation[]
+  availability        ProviderAvailability[]
   reports             FulfillmentReport[]
   settlements         Settlement[]
 
   @@index([reviewStatus, acceptsInvitations])
   @@index([serviceZone])
+}
+
+model ProviderAvailability {
+  id         String          @id @default(uuid()) @db.Uuid
+  providerId String          @db.Uuid
+  startsAt   DateTime        @db.Timestamptz(3)
+  endsAt     DateTime        @db.Timestamptz(3)
+  createdAt  DateTime        @default(now()) @db.Timestamptz(3)
+  provider   ProviderProfile @relation(fields: [providerId], references: [id], onDelete: Restrict)
+
+  @@index([providerId, startsAt, endsAt])
 }
 
 model Pet {

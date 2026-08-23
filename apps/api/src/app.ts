@@ -2,8 +2,11 @@ import Fastify from 'fastify';
 import { ZodError } from 'zod';
 import { registerOrderRoutes, type OrderRoutesDependencies } from './orders/routes.js';
 import { registerPetRoutes, type PetRoutesDependencies } from './pets/routes.js';
+import { registerDispatchRoutes, type DispatchRoutesDependencies } from './dispatch/routes.js';
 
-type AppDependencies = PetRoutesDependencies & Partial<Omit<OrderRoutesDependencies, 'auth'>>;
+type AppDependencies = PetRoutesDependencies
+  & Partial<Omit<OrderRoutesDependencies, 'auth'>>
+  & Partial<Omit<DispatchRoutesDependencies, 'auth'>>;
 
 export function createApp(dependencies: AppDependencies) {
   const app = Fastify({ logger: false });
@@ -23,6 +26,12 @@ export function createApp(dependencies: AppDependencies) {
     if (error instanceof Error && error.message === 'PAYMENT_VERIFICATION_FAILED') {
       return reply.code(400).send({ code: 'PAYMENT_VERIFICATION_FAILED' });
     }
+    if (error instanceof Error && ['DISPATCH_NOT_ALLOWED', 'DISPATCH_CONFLICT'].includes(error.message)) {
+      return reply.code(409).send({ code: error.message });
+    }
+    if (error instanceof Error && error.message === 'PROVIDER_NOT_FOUND') {
+      return reply.code(404).send({ code: 'PROVIDER_NOT_FOUND' });
+    }
     return reply.send(error);
   });
   void app.register(registerPetRoutes, dependencies);
@@ -32,6 +41,13 @@ export function createApp(dependencies: AppDependencies) {
       quotes: dependencies.quotes,
       orders: dependencies.orders,
       payments: dependencies.payments,
+    });
+  }
+  if (dependencies.providers && dependencies.dispatch) {
+    void app.register(registerDispatchRoutes, {
+      auth: dependencies.auth,
+      providers: dependencies.providers,
+      dispatch: dependencies.dispatch,
     });
   }
   return app;
