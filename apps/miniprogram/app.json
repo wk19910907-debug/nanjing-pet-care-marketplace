@@ -1,0 +1,17 @@
+{
+  "pages": [
+    "pages/owner/order-create/index",
+    "pages/owner/order-detail/index",
+    "pages/owner/report/index",
+    "pages/provider/invitations/index",
+    "pages/provider/service/index",
+    "pages/provider/earnings/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "南京安心宠",
+    "navigationBarBackgroundColor": "#39715b",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#f6f4ec"
+  },
+  "style": "v2"
+}

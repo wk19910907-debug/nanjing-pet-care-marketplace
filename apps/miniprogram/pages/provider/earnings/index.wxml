@@ -1,0 +1,1 @@
+<view class="page"><view class="card" wx:for="{{settlements}}" wx:key="id"><text>订单收入 ¥{{item.providerFen / 100}}</text><text class="muted">{{item.availableAt ? '可提现' : '待确认或争议冻结'}}</text></view></view>
