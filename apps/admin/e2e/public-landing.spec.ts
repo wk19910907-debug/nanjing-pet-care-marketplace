@@ -78,3 +78,15 @@ test('shows a transparent quote and updates the service price', async ({ page })
   await expect(quote.getByText('¥37', { exact: true })).toBeVisible();
   await expect(quote.getByText('体验参考价，不会产生真实费用')).toBeVisible();
 });
+
+test('carries the public quote into the owner order form', async ({ page }) => {
+  await page.goto('/?fixture=service-loop');
+  const quote = page.getByRole('region', { name: '体验报价' });
+  await quote.getByLabel('服务类型').selectOption('DOG_WALKING');
+  await quote.getByLabel('服务区域').selectOption('秦淮区');
+  await quote.getByRole('button', { name: '按此方案体验下单' }).click();
+  const form = page.locator('.order-form');
+  await expect(form.getByLabel('服务类型')).toHaveValue('DOG_WALKING');
+  await expect(form.getByLabel('服务区域')).toHaveValue('秦淮区');
+  await expect(page.getByRole('button', { name: '宠主', exact: true })).toHaveClass(/active/);
+});

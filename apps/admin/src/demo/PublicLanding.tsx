@@ -5,6 +5,7 @@ import type { PublicQuoteSelection } from './publicQuote.js';
 type PublicLandingProps = {
   children: ReactNode;
   onStartOrder: () => void;
+  onQuoteStartOrder: () => void;
   quoteSelection: PublicQuoteSelection;
   onQuoteChange: (selection: PublicQuoteSelection) => void;
 };
@@ -16,7 +17,7 @@ const safeguards = [
   ['异常订单处理', '产品已设计投诉冻结与退款流程；正式运营前仍需配备真实客服资源。'],
 ] as const;
 
-export function PublicLanding({ children, onStartOrder, quoteSelection, onQuoteChange }: PublicLandingProps) {
+export function PublicLanding({ children, onStartOrder, onQuoteStartOrder, quoteSelection, onQuoteChange }: PublicLandingProps) {
   return <>
     <section className="hero">
       <div>
@@ -36,7 +37,7 @@ export function PublicLanding({ children, onStartOrder, quoteSelection, onQuoteC
         <article className="price-card"><span>上门喂猫</span><strong>¥32</strong><small>体验参考价 / 次</small><p>喂食换水、清理宠物区域并提交服务记录。</p></article>
         <article className="price-card"><span>上门遛狗</span><strong>¥37</strong><small>体验参考价 / 次</small><p>按约定时段完成遛狗清单并提交状态报告。</p></article>
       </div>
-      <PublicQuote selection={quoteSelection} onChange={onQuoteChange} onStartOrder={onStartOrder} />
+      <PublicQuote selection={quoteSelection} onChange={onQuoteChange} onStartOrder={onQuoteStartOrder} />
     </section>
 
     <section className="landing-section safeguards" aria-labelledby="safeguards-title">

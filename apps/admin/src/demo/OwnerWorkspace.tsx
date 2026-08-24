@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
+import type { OrderPrefill } from './DemoApp.js';
 import type { DemoOrder, DemoState, OrderDraft } from './workflow.js';
 
 const statusText = {
@@ -17,8 +18,12 @@ export function OrderCard(props: { order: DemoOrder; providerName?: string | und
   </article>;
 }
 
-export function OwnerWorkspace(props: { state: DemoState; create(draft: OrderDraft): void; confirm(orderId: string): void }) {
+export function OwnerWorkspace(props: { state: DemoState; prefill?: OrderPrefill | undefined; create(draft: OrderDraft): void; confirm(orderId: string): void }) {
   const [draft, setDraft] = useState<OrderDraft>({ serviceType: 'CAT_FEEDING', petName: '', district: '建邺区', address: '', scheduledAt: '2026-08-24T19:00', notes: '' });
+  useEffect(() => {
+    if (!props.prefill) return;
+    setDraft((item) => ({ ...item, serviceType: props.prefill!.serviceType, district: props.prefill!.district }));
+  }, [props.prefill?.requestKey]);
   const change = <K extends keyof OrderDraft>(key: K, value: OrderDraft[K]) => setDraft((item) => ({ ...item, [key]: value }));
   const submit = (event: FormEvent) => { event.preventDefault(); props.create(draft); };
   return <section className="workspace"><div className="section-title"><div><span className="eyebrow">OWNER</span><h2>预约上门服务</h2></div><p>提交需求后，由平台匹配已认证服务人员。</p></div>

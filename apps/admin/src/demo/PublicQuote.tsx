@@ -27,7 +27,7 @@ export function PublicQuote({ selection, onChange, onStartOrder }: PublicQuotePr
           {serviceOptions.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
         </select>
       </label>
-      <label>体验区域
+      <label>服务区域
         <select value={selection.district} onChange={(event) => onChange({ ...selection, district: event.target.value as PublicQuoteSelection['district'] })}>
           {PUBLIC_DISTRICTS.map((district) => <option key={district} value={district}>{district}</option>)}
         </select>
