@@ -85,6 +85,7 @@ const providers: DemoProvider[] = [
 
 const districts = ['建邺区', '鼓楼区', '玄武区', '秦淮区'];
 const serviceTypes: ServiceType[] = ['CAT_FEEDING', 'DOG_WALKING'];
+const activeProviderStatuses: DemoStatus[] = ['WAITING_SERVICE', 'IN_SERVICE', 'WAITING_CONFIRMATION'];
 
 function createSeedProviders(): DemoProvider[] {
   return providers.map((provider) => ({ ...provider, services: [...provider.services] }));
@@ -189,6 +190,25 @@ export function eligibleProvidersForOrder(state: DemoState, order: DemoOrder): D
     && provider.services.includes(order.serviceType));
 }
 
+export function preferredProviderId(state: DemoState, requestedProviderId?: string): string | undefined {
+  if (requestedProviderId && state.providers.some((provider) => provider.id === requestedProviderId && provider.verified)) {
+    return requestedProviderId;
+  }
+  const activeOrder = [...state.orders].reverse().find((order) =>
+    order.providerId
+    && activeProviderStatuses.includes(order.status)
+    && state.providers.some((provider) => provider.id === order.providerId && provider.verified));
+  if (activeOrder?.providerId) return activeOrder.providerId;
+  if (state.providers.some((provider) => provider.id === 'provider-wang' && provider.verified)) return 'provider-wang';
+  return state.providers.find((provider) => provider.verified)?.id;
+}
+
+function requireAssignedProvider(state: DemoState, order: DemoOrder, providerId: string): void {
+  const provider = state.providers.find((item) => item.id === providerId && item.verified);
+  if (!provider) throw new Error('请选择已认证服务人员');
+  if (order.providerId !== providerId) throw new Error('只能操作分配给自己的订单');
+}
+
 export function createOrder(state: DemoState, draft: OrderDraft): DemoState {
   const createdAt = new Date().toISOString();
   const order: DemoOrder = {
@@ -227,16 +247,18 @@ export function assignOrder(state: DemoState, orderId: string, providerId: strin
   return withOrder(state, { ...order, providerId, status: 'WAITING_SERVICE' }, 'ORDER_ASSIGNED');
 }
 
-export function startService(state: DemoState, orderId: string): DemoState {
+export function startService(state: DemoState, orderId: string, providerId: string): DemoState {
   const order = requireOrder(state, orderId);
   if (order.status === 'WAITING_MATCH') throw new Error('订单尚未匹配服务人员');
+  requireAssignedProvider(state, order, providerId);
   if (order.status !== 'WAITING_SERVICE') throw new Error('订单当前不可开始服务');
   return withOrder(state, { ...order, status: 'IN_SERVICE' }, 'SERVICE_STARTED');
 }
 
-export function submitReport(state: DemoState, orderId: string, report: ServiceReport): DemoState {
+export function submitReport(state: DemoState, orderId: string, providerId: string, report: ServiceReport): DemoState {
   const order = requireOrder(state, orderId);
   if (order.status !== 'IN_SERVICE') throw new Error('订单当前不可提交报告');
+  requireAssignedProvider(state, order, providerId);
   if (!report.fedAndWatered || !report.areaCleaned) throw new Error('请完成全部服务清单');
   const notes = required(report.notes, '服务记录');
   return withOrder(state, {
