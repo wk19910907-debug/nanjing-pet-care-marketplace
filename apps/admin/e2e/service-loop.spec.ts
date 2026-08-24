@@ -5,7 +5,7 @@ test('owner, platform and provider complete one order', async ({ page }) => {
 
   await page.getByRole('button', { name: '宠主', exact: true }).click();
   await page.getByLabel('宠物昵称').fill('团子');
-  await page.getByLabel('服务区域').selectOption('建邺区');
+  await page.locator('.order-form').getByLabel('服务区域').selectOption('建邺区');
   await page.getByLabel('详细地址').fill('测试小区 1 栋');
   await page.getByLabel('上门时间').fill('2026-08-24T19:00');
   await page.getByRole('button', { name: '提交订单' }).click();
