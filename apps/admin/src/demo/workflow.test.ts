@@ -78,8 +78,10 @@ describe('local demo workflow', () => {
   });
 
   it('selects the provider on the newest active order and safely falls back', () => {
-    let state = createOrder(createInitialState(), { ...draft, district: '鼓楼区' });
-    state = assignOrder(state, state.orders[0]!.id, 'provider-chen');
+    let state = createOrder(createInitialState(), draft);
+    state = assignOrder(state, state.orders[0]!.id, 'provider-wang');
+    state = createOrder(state, { ...draft, district: '鼓楼区' });
+    state = assignOrder(state, state.orders[1]!.id, 'provider-chen');
     expect(preferredProviderId(state)).toBe('provider-chen');
     expect(preferredProviderId(createInitialState())).toBe('provider-wang');
     expect(preferredProviderId({ ...createInitialState(), providers: [] })).toBeUndefined();
@@ -95,6 +97,23 @@ describe('local demo workflow', () => {
     const inService = structuredClone(state);
     expect(() => submitReport(state, state.orders[0]!.id, 'provider-chen', completeReport)).toThrow('只能操作分配给自己的订单');
     expect(state).toEqual(inService);
+  });
+
+  it('rejects an unknown provider starting an assigned order without mutation', () => {
+    let state = createOrder(createInitialState(), draft);
+    state = assignOrder(state, state.orders[0]!.id, 'provider-wang');
+    const beforeStart = structuredClone(state);
+    expect(() => startService(state, state.orders[0]!.id, 'provider-unknown')).toThrow('请选择已认证服务人员');
+    expect(state).toEqual(beforeStart);
+  });
+
+  it('rejects an unknown provider reporting an assigned order without mutation', () => {
+    let state = createOrder(createInitialState(), draft);
+    state = assignOrder(state, state.orders[0]!.id, 'provider-wang');
+    state = startService(state, state.orders[0]!.id, 'provider-wang');
+    const beforeReport = structuredClone(state);
+    expect(() => submitReport(state, state.orders[0]!.id, 'provider-unknown', completeReport)).toThrow('请选择已认证服务人员');
+    expect(state).toEqual(beforeReport);
   });
 
   it('persists state and falls back safely when saved JSON is damaged', () => {
