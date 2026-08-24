@@ -84,12 +84,21 @@ describe('local demo workflow', () => {
 
   it('keeps pending applicants out of matching until one-time approval', () => {
     let state = submitProviderApplication(createInitialState(), application);
-    expect(state.providerApplications[0]).toMatchObject({ status: 'PENDING' });
+    expect(state.providerApplications[0]).toMatchObject({ status: 'PENDING', createdAt: expect.any(String) });
     expect(state.providers.map((item) => item.name)).not.toContain('小林');
 
     state = approveProviderApplication(state, state.providerApplications[0]!.id);
-    expect(state.providerApplications[0]).toMatchObject({ status: 'APPROVED' });
-    expect(state.providers.at(-1)).toMatchObject({ name: '小林', district: '秦淮区', verified: true });
+    expect(state.providerApplications[0]).toMatchObject({
+      status: 'APPROVED',
+      reviewedAt: expect.any(String),
+      providerId: expect.any(String),
+    });
+    expect(state.providers.at(-1)).toMatchObject({
+      id: state.providerApplications[0]!.providerId,
+      name: '小林',
+      district: '秦淮区',
+      verified: true,
+    });
     expect(() => approveProviderApplication(state, state.providerApplications[0]!.id)).toThrow('申请已完成审核');
   });
 
@@ -107,6 +116,7 @@ describe('local demo workflow', () => {
     const restored = loadDemoState(storage);
 
     expect(eligibleProvidersForOrder(restored, restored.orders[0]!).map((provider) => provider.name)).toEqual(['小林']);
+    expect(restored.providers.filter((provider) => provider.id === state.providerApplications[0]!.providerId)).toHaveLength(1);
   });
 
   it('gives each approved application a stable unique provider ID', () => {
@@ -121,8 +131,8 @@ describe('local demo workflow', () => {
     state = approveProviderApplication(state, state.providerApplications[1]!.id);
 
     expect(state.providers.slice(-2).map((item) => item.id)).toEqual([
-      'provider-application-1',
-      'provider-application-2',
+      state.providerApplications[0]!.providerId,
+      state.providerApplications[1]!.providerId,
     ]);
   });
 
@@ -135,6 +145,9 @@ describe('local demo workflow', () => {
     state = approveProviderApplication(orderState, orderState.providerApplications[0]!.id);
     expect(eligibleProvidersForOrder(state, state.orders.at(-1)!).map((item) => item.name)).toEqual(['小林']);
     expect(() => assignOrder(state, order.id, 'provider-wang')).toThrow('服务人员不在订单服务区域');
+    const sameDistrictWrongService = createOrder(state, { ...draft, district: '秦淮区', serviceType: 'CAT_FEEDING' });
+    expect(() => assignOrder(sameDistrictWrongService, sameDistrictWrongService.orders.at(-1)!.id, state.providerApplications[0]!.providerId!))
+      .toThrow('服务人员不支持该服务');
   });
 
   it('requires every provider application field and at least one supported service', () => {
@@ -169,5 +182,68 @@ describe('local demo workflow', () => {
 
     values.set('nanjing-pet-care-demo-v1', JSON.stringify(legacyState));
     expect(loadDemoState(storage)).toMatchObject({ ...state, providerApplications: [] });
+  });
+
+  it('drops invalid approved applications without discarding valid version-1 orders or providers', () => {
+    const values = new Map<string, string>();
+    const storage: DemoStorage = {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value),
+    };
+    const state = createOrder(createInitialState(), draft);
+    values.set('nanjing-pet-care-demo-v1', JSON.stringify({
+      ...state,
+      providerApplications: [{
+        id: 'provider-application-invalid-approved',
+        name: '小林',
+        district: '秦淮区',
+        services: [],
+        experience: application.experience,
+        status: 'APPROVED',
+        createdAt: '2026-08-24T10:00:00.000Z',
+        reviewedAt: '2026-08-24T11:00:00.000Z',
+        providerId: 'provider-invalid-approved',
+      }],
+    }));
+
+    const restored = loadDemoState(storage);
+    expect(restored.providerApplications).toEqual([]);
+    expect(restored.orders).toEqual(state.orders);
+    expect(restored.providers).toEqual(state.providers);
+  });
+
+  it('drops invalid pending applications without crashing or discarding valid version-1 orders', () => {
+    const values = new Map<string, string>();
+    const storage: DemoStorage = {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value),
+    };
+    const state = createOrder(createInitialState(), draft);
+    values.set('nanjing-pet-care-demo-v1', JSON.stringify({
+      ...state,
+      providerApplications: [{
+        id: 'provider-application-invalid-pending',
+        name: '小林',
+        district: '秦淮区',
+        services: ['DOG_WALKING'],
+        experience: application.experience,
+        status: 'PENDING',
+        createdAt: null,
+      }],
+    }));
+
+    const restored = loadDemoState(storage);
+    expect(restored.providerApplications).toEqual([]);
+    expect(restored.orders).toEqual(state.orders);
+    expect(restored.providers).toEqual(state.providers);
+  });
+
+  it('deduplicates provider application services in the domain layer', () => {
+    const state = submitProviderApplication(createInitialState(), {
+      ...application,
+      services: ['DOG_WALKING', 'DOG_WALKING'],
+    });
+
+    expect(state.providerApplications[0]!.services).toEqual(['DOG_WALKING']);
   });
 });

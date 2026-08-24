@@ -19,6 +19,9 @@ export type ProviderApplicationDraft = {
 export type ProviderApplication = ProviderApplicationDraft & {
   id: string;
   status: ProviderApplicationStatus;
+  createdAt: string;
+  reviewedAt?: string;
+  providerId?: string;
 };
 
 export type OrderDraft = {
@@ -117,7 +120,7 @@ function requireDistrict(district: string): string {
 function requireServices(services: readonly ServiceType[]): ServiceType[] {
   if (!services.length) throw new Error('请选择至少一项服务');
   if (services.some((service) => !serviceTypes.includes(service))) throw new Error('服务类型无效');
-  return [...services];
+  return [...new Set(services)];
 }
 
 export function submitProviderApplication(state: DemoState, draft: ProviderApplicationDraft): DemoState {
@@ -140,6 +143,7 @@ export function submitProviderApplication(state: DemoState, draft: ProviderAppli
       services,
       experience,
       status: 'PENDING',
+      createdAt: new Date().toISOString(),
     }],
   };
 }
@@ -148,9 +152,10 @@ export function approveProviderApplication(state: DemoState, applicationId: stri
   const application = state.providerApplications.find((item) => item.id === applicationId);
   if (!application) throw new Error('未找到服务人员申请');
   if (application.status !== 'PENDING') throw new Error('申请已完成审核');
+  const providerId = `provider-${application.id}`;
 
   const provider: DemoProvider = {
-    id: application.id,
+    id: providerId,
     name: application.name,
     district: application.district,
     services: [...application.services],
@@ -160,7 +165,12 @@ export function approveProviderApplication(state: DemoState, applicationId: stri
     ...state,
     providers: [...state.providers, provider],
     providerApplications: state.providerApplications.map((item) =>
-      item.id === applicationId ? { ...item, status: 'APPROVED' } : item),
+      item.id === applicationId ? {
+        ...item,
+        status: 'APPROVED',
+        reviewedAt: new Date().toISOString(),
+        providerId,
+      } : item),
   };
 }
 
@@ -238,27 +248,83 @@ export function saveDemoState(storage: DemoStorage, state: DemoState): void {
   storage.setItem(DEMO_STORAGE_KEY, JSON.stringify(state));
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function normalizedString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function normalizedTimestamp(value: unknown): string | null {
+  if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) return null;
+  return value;
+}
+
+function normalizedServices(value: unknown): ServiceType[] | null {
+  if (!Array.isArray(value) || value.length === 0 || value.some((service) => typeof service !== 'string' || !serviceTypes.includes(service as ServiceType))) {
+    return null;
+  }
+  return [...new Set(value as ServiceType[])];
+}
+
+function normalizeProviderApplication(value: unknown): ProviderApplication | null {
+  if (!isRecord(value)) return null;
+  const id = normalizedString(value.id);
+  const name = normalizedString(value.name);
+  const district = normalizedString(value.district);
+  const experience = normalizedString(value.experience);
+  const createdAt = normalizedTimestamp(value.createdAt);
+  const services = normalizedServices(value.services);
+  if (!id || !name || !district || !experience || !createdAt || !services || !districts.includes(district)) return null;
+
+  if (value.status === 'PENDING') {
+    return { id, name, district, services, experience, status: 'PENDING', createdAt };
+  }
+  if (value.status !== 'APPROVED') return null;
+
+  const reviewedAt = normalizedTimestamp(value.reviewedAt);
+  const providerId = normalizedString(value.providerId);
+  if (!reviewedAt || !providerId) return null;
+  return { id, name, district, services, experience, status: 'APPROVED', createdAt, reviewedAt, providerId };
+}
+
+function normalizeProviderApplications(value: unknown): ProviderApplication[] {
+  if (!Array.isArray(value)) return [];
+  const applications = value.map(normalizeProviderApplication);
+  if (applications.some((application) => application === null)) return [];
+  const normalized = applications as ProviderApplication[];
+  const applicationIds = new Set(normalized.map((application) => application.id));
+  const providerIds = normalized.flatMap((application) => application.status === 'APPROVED' && application.providerId ? [application.providerId] : []);
+  if (applicationIds.size !== normalized.length || new Set(providerIds).size !== providerIds.length || providerIds.some((providerId) => providers.some((provider) => provider.id === providerId))) {
+    return [];
+  }
+  return normalized;
+}
+
 export function loadDemoState(storage: DemoStorage): DemoState {
   const saved = storage.getItem(DEMO_STORAGE_KEY);
   if (!saved) return createInitialState();
   try {
-    const parsed = JSON.parse(saved) as DemoState;
-    if (parsed.version !== 1 || !Array.isArray(parsed.orders) || !Array.isArray(parsed.audit)) {
+    const parsed = JSON.parse(saved) as unknown;
+    if (!isRecord(parsed) || parsed.version !== 1 || !Array.isArray(parsed.orders) || !Array.isArray(parsed.audit)) {
       return createInitialState();
     }
-    const providerApplications = Array.isArray(parsed.providerApplications) ? parsed.providerApplications : [];
-    const approvedProviders = providerApplications.filter((application) => application.status === 'APPROVED').map((application) => ({
-      id: application.id,
+    const providerApplications = normalizeProviderApplications(parsed.providerApplications);
+    const approvedProviders = providerApplications.flatMap((application) => application.status === 'APPROVED' && application.providerId ? [{
+      id: application.providerId,
       name: application.name,
       district: application.district,
       services: [...application.services],
       verified: true as const,
-    }));
+    }] : []);
+    const approvedProviderIds = new Set(approvedProviders.map((provider) => provider.id));
+    const savedProviders = Array.isArray(parsed.providers) ? parsed.providers as DemoProvider[] : providers;
     return {
       ...parsed,
-      providers: [...providers, ...approvedProviders],
+      providers: [...savedProviders.filter((provider) => !approvedProviderIds.has(provider.id)), ...approvedProviders],
       providerApplications,
-    };
+    } as DemoState;
   } catch {
     return createInitialState();
   }

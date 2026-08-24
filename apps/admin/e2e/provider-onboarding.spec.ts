@@ -136,7 +136,7 @@ test('submits a safe provider application without personal identity fields', asy
   await panel.getByLabel('经验说明').fill('有两年养犬经验，熟悉牵引和基础清洁。');
   await panel.getByRole('button', { name: '提交审核申请' }).click();
   await expect(panel.getByText('待平台审核')).toBeVisible();
-  await expect(panel.getByLabel(/手机号|身份证|银行卡/)).toHaveCount(0);
+  await expect(panel.getByLabel(/手机号|微信|联系方式|身份证|证件照片|证书|背景调查|合同|支付|银行卡/)).toHaveCount(0);
 });
 
 test('approves an applicant before including them in eligible order matching', async ({ page }) => {
