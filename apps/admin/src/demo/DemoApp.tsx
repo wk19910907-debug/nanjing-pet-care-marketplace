@@ -18,7 +18,7 @@ export function DemoApp() {
   const [orderPrefill, setOrderPrefill] = useState<OrderPrefill>();
   const orderPrefillRequestKey = useRef(0);
   const apply = (operation: (current: DemoState) => DemoState, message: string): boolean => { try { const next = operation(state); setState(next); saveDemoState(window.localStorage, next); setNotice(message); return true; } catch (error) { setNotice(error instanceof Error ? error.message : '操作失败，请重试'); return false; } };
-  const reset = () => { const next = createInitialState(); setState(next); saveDemoState(window.localStorage, next); setOrderPrefill(undefined); setRole('OWNER'); setNotice('体验数据已恢复。'); };
+  const reset = () => { const next = createInitialState(); setState(next); setSelectedProviderId(preferredProviderId(next)); saveDemoState(window.localStorage, next); setOrderPrefill(undefined); setRole('OWNER'); setNotice('体验数据已恢复。'); };
   const startOrderExperience = () => {
     setRole('OWNER');
     window.requestAnimationFrame(() => {

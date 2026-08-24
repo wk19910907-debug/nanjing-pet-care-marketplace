@@ -58,3 +58,15 @@ test('lets the matched approved provider complete only their own task after relo
   await page.getByRole('button', { name: '确认完成' }).click();
   await expect(page.getByText('服务已完成', { exact: true })).toBeVisible();
 });
+
+test('restores the default provider identity after resetting the experience', async ({ page }) => {
+  await page.goto('/?fixture=provider-onboarding');
+  await page.getByRole('button', { name: '服务人员', exact: true }).click();
+  const identity = page.getByLabel('体验服务人员身份');
+  await identity.selectOption('provider-chen');
+  await expect(identity).toHaveValue('provider-chen');
+
+  await page.getByRole('button', { name: '恢复体验数据' }).click();
+  await page.getByRole('button', { name: '服务人员', exact: true }).click();
+  await expect(page.getByLabel('体验服务人员身份')).toHaveValue('provider-wang');
+});
