@@ -69,3 +69,12 @@ test('keeps the landing page usable at phone width', async ({ page }) => {
   expect(second).not.toBeNull();
   expect(second!.y).toBeGreaterThan(first!.y + first!.height);
 });
+
+test('shows a transparent quote and updates the service price', async ({ page }) => {
+  await page.goto('/?fixture=service-loop');
+  const quote = page.getByRole('region', { name: '体验报价' });
+  await expect(quote.getByText('¥32', { exact: true })).toBeVisible();
+  await quote.getByLabel('服务类型').selectOption('DOG_WALKING');
+  await expect(quote.getByText('¥37', { exact: true })).toBeVisible();
+  await expect(quote.getByText('体验参考价，不会产生真实费用')).toBeVisible();
+});

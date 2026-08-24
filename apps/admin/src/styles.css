@@ -35,6 +35,11 @@ textarea { min-height: 86px; resize: vertical; }.demo-shell { min-height: 100vh;
 .price-card strong { margin-top: 10px; color: #28634f; font-size: 36px; }
 .price-card small { color: #9a681c; font-weight: 800; }
 .price-card p,.safeguard-grid p,.faq p { color: #60736b; line-height: 1.7; }
+.public-quote { display: grid; grid-template-columns: 1.2fr 1.5fr .85fr; gap: 16px; align-items: end; margin-top: 20px; padding: 24px; border-radius: 20px; background: #dfe9d9; }
+.public-quote h2 { margin: 8px 0; font-size: 26px; }.public-quote p { margin: 0; color: #60736b; }
+.quote-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }.quote-controls label { font-weight: 800; }
+.quote-decision { display: grid; gap: 8px; }.quote-summary span,.quote-summary strong { display: block; }.quote-summary span { color: #60736b; font-size: 13px; }.quote-summary strong { color: #28634f; font-size: 32px; }
+.quote-action { min-height: 44px; white-space: nowrap; }
 .safeguards { padding-top: 46px; padding-bottom: 46px; }
 .safeguard-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
 .safeguard-grid article { padding: 20px; border-radius: 16px; background: #dfe9d9; }
@@ -52,7 +57,7 @@ textarea { min-height: 86px; resize: vertical; }.demo-shell { min-height: 100vh;
   .role-tabs button { white-space: nowrap; }
   .role-tabs .reset { margin-left: 0; }
   .section-title { display: block; }
-  .order-form,.match-panel,.summary-grid,.price-grid,.safeguard-grid { grid-template-columns: 1fr; }
+  .order-form,.match-panel,.summary-grid,.price-grid,.safeguard-grid,.public-quote,.quote-controls { grid-template-columns: 1fr; }
   .workspace { padding: 20px; }
   .topbar { padding: 0 18px; }
   .demo-badge { font-size: 11px; }

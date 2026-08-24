@@ -3,6 +3,7 @@ import { OperatorWorkspace } from './OperatorWorkspace.js';
 import { OwnerWorkspace } from './OwnerWorkspace.js';
 import { ProviderWorkspace } from './ProviderWorkspace.js';
 import { PublicLanding } from './PublicLanding.js';
+import type { PublicQuoteSelection } from './publicQuote.js';
 import { assignOrder, confirmOrder, createInitialState, createOrder, loadDemoState, saveDemoState, startService, submitReport, type DemoState, type OrderDraft, type ServiceReport } from './workflow.js';
 
 type Role = 'OWNER' | 'OPERATOR' | 'PROVIDER';
@@ -11,6 +12,7 @@ export function DemoApp() {
   const [state, setState] = useState<DemoState>(() => fixture === 'service-loop' ? createInitialState() : loadDemoState(window.localStorage));
   const [role, setRole] = useState<Role>('OWNER');
   const [notice, setNotice] = useState('可以从宠主下单开始体验完整流程。');
+  const [quoteSelection, setQuoteSelection] = useState<PublicQuoteSelection>({ serviceType: 'CAT_FEEDING', district: '建邺区' });
   const apply = (operation: (current: DemoState) => DemoState, message: string) => { try { const next = operation(state); setState(next); saveDemoState(window.localStorage, next); setNotice(message); } catch (error) { setNotice(error instanceof Error ? error.message : '操作失败，请重试'); } };
   const reset = () => { const next = createInitialState(); setState(next); saveDemoState(window.localStorage, next); setRole('OWNER'); setNotice('体验数据已恢复。'); };
   const startOrderExperience = () => {
@@ -20,7 +22,7 @@ export function DemoApp() {
     });
   };
   return <div className="demo-shell"><header className="topbar"><div className="brand"><span className="brand-mark">宠</span><div><strong>南京安心宠</strong><small>上门喂猫 · 遛狗</small></div></div><div className="demo-badge">安全体验版</div></header>
-    <PublicLanding onStartOrder={startOrderExperience}>
+    <PublicLanding onStartOrder={startOrderExperience} quoteSelection={quoteSelection} onQuoteChange={setQuoteSelection}>
     <nav id="order-experience" className="role-tabs" aria-label="体验身份"><button className={role === 'OWNER' ? 'active' : ''} onClick={() => setRole('OWNER')}>宠主</button><button className={role === 'OPERATOR' ? 'active' : ''} onClick={() => setRole('OPERATOR')}>平台运营</button><button className={role === 'PROVIDER' ? 'active' : ''} onClick={() => setRole('PROVIDER')}>服务人员</button><button className="reset" onClick={reset}>恢复体验数据</button></nav>
     <div className="notice" role="status">{notice}</div><main className="demo-main">
       {role === 'OWNER' && <OwnerWorkspace state={state} create={(draft: OrderDraft) => apply((current) => createOrder(current, draft), '订单已提交，等待平台匹配。')} confirm={(id) => apply((current) => confirmOrder(current, id), '订单已确认完成。')}/>} 
