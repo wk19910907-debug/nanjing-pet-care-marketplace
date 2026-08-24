@@ -21,3 +21,21 @@ test('publishes truthful search and sharing metadata', async ({ page }) => {
     'https://wk19910907-debug.github.io/nanjing-pet-care-marketplace/',
   );
 });
+
+test('explains the offer and moves visitors into owner ordering', async ({ page }) => {
+  await page.goto('/?fixture=service-loop');
+
+  await expect(page.getByRole('heading', { name: '两项核心服务，价格先说清楚' })).toBeVisible();
+  const catCard = page.locator('.price-card').filter({ hasText: '上门喂猫' });
+  const dogCard = page.locator('.price-card').filter({ hasText: '上门遛狗' });
+  await expect(catCard.getByText('¥32', { exact: true })).toBeVisible();
+  await expect(dogCard.getByText('¥37', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '平台把匹配和履约过程管起来' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '常见问题' })).toBeVisible();
+
+  await page.getByRole('button', { name: '平台运营', exact: true }).click();
+  await page.getByRole('button', { name: '立即体验下单' }).click();
+
+  await expect(page.getByRole('button', { name: '宠主', exact: true })).toHaveClass(/active/);
+  await expect(page.getByRole('heading', { name: '预约上门服务' })).toBeVisible();
+});
