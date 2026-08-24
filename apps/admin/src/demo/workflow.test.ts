@@ -7,6 +7,7 @@ import {
   createOrder,
   eligibleProvidersForOrder,
   loadDemoState,
+  preferredProviderId,
   saveDemoState,
   startService,
   submitProviderApplication,
@@ -24,6 +25,12 @@ const draft: OrderDraft = {
   notes: '胆子较小，请轻声开门。',
 };
 
+const completeReport = {
+  fedAndWatered: true,
+  areaCleaned: true,
+  notes: '团子进食正常，饮水和猫砂均已处理。',
+};
+
 const application = {
   name: '小林',
   district: '秦淮区',
@@ -39,13 +46,9 @@ describe('local demo workflow', () => {
     expect(state.orders.at(-1)).toMatchObject({ status: 'WAITING_MATCH', priceFen: 3200 });
     state = assignOrder(state, orderId, 'provider-wang');
     expect(state.orders.at(-1)!.status).toBe('WAITING_SERVICE');
-    state = startService(state, orderId);
+    state = startService(state, orderId, 'provider-wang');
     expect(state.orders.at(-1)!.status).toBe('IN_SERVICE');
-    state = submitReport(state, orderId, {
-      fedAndWatered: true,
-      areaCleaned: true,
-      notes: '团子进食正常，饮水和猫砂均已处理。',
-    });
+    state = submitReport(state, orderId, 'provider-wang', completeReport);
     expect(state.orders.at(-1)!.status).toBe('WAITING_CONFIRMATION');
     state = confirmOrder(state, orderId);
 
@@ -59,13 +62,39 @@ describe('local demo workflow', () => {
     const created = createOrder(createInitialState(), draft);
     const orderId = created.orders.at(-1)!.id;
 
-    expect(() => startService(created, orderId)).toThrow('订单尚未匹配服务人员');
-    const started = startService(assignOrder(created, orderId, 'provider-wang'), orderId);
-    expect(() => submitReport(started, orderId, {
+    expect(() => startService(created, orderId, 'provider-wang')).toThrow('订单尚未匹配服务人员');
+    const started = startService(assignOrder(created, orderId, 'provider-wang'), orderId, 'provider-wang');
+    expect(() => submitReport(started, orderId, 'provider-wang', {
       fedAndWatered: true,
       areaCleaned: false,
       notes: '已喂食',
     })).toThrow('请完成全部服务清单');
+  });
+
+  it('selects an explicit verified provider before an active-task fallback', () => {
+    let state = createOrder(createInitialState(), draft);
+    state = assignOrder(state, state.orders[0]!.id, 'provider-wang');
+    expect(preferredProviderId(state, 'provider-chen')).toBe('provider-chen');
+  });
+
+  it('selects the provider on the newest active order and safely falls back', () => {
+    let state = createOrder(createInitialState(), { ...draft, district: '鼓楼区' });
+    state = assignOrder(state, state.orders[0]!.id, 'provider-chen');
+    expect(preferredProviderId(state)).toBe('provider-chen');
+    expect(preferredProviderId(createInitialState())).toBe('provider-wang');
+    expect(preferredProviderId({ ...createInitialState(), providers: [] })).toBeUndefined();
+  });
+
+  it('rejects another provider starting or reporting an assigned order without mutation', () => {
+    let state = createOrder(createInitialState(), draft);
+    state = assignOrder(state, state.orders[0]!.id, 'provider-wang');
+    const before = structuredClone(state);
+    expect(() => startService(state, state.orders[0]!.id, 'provider-chen')).toThrow('只能操作分配给自己的订单');
+    expect(state).toEqual(before);
+    state = startService(state, state.orders[0]!.id, 'provider-wang');
+    const inService = structuredClone(state);
+    expect(() => submitReport(state, state.orders[0]!.id, 'provider-chen', completeReport)).toThrow('只能操作分配给自己的订单');
+    expect(state).toEqual(inService);
   });
 
   it('persists state and falls back safely when saved JSON is damaged', () => {
