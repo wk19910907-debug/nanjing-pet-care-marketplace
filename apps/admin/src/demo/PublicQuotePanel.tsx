@@ -34,7 +34,7 @@ export function PublicQuote({ selection, onChange, onStartOrder }: PublicQuotePr
       </label>
     </div>
     <div className="quote-decision">
-      <div className="quote-summary"><span>体验参考价 / 次</span><strong>{quote.priceLabel}</strong></div>
+      <div className="quote-summary" role="status" aria-live="polite"><span>体验参考价 / 次</span><strong>{quote.priceLabel}</strong></div>
       <button className="quote-action" onClick={onStartOrder}>按此方案体验下单</button>
     </div>
   </section>;

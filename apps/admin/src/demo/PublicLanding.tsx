@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { PublicQuote } from './PublicQuote.tsx';
+import { PublicQuote } from './PublicQuotePanel.js';
 import type { PublicQuoteSelection } from './publicQuote.js';
 
 type PublicLandingProps = {

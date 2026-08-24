@@ -75,11 +75,29 @@ test('keeps the landing page usable at phone width', async ({ page }) => {
   expect(first).not.toBeNull();
   expect(second).not.toBeNull();
   expect(second!.y).toBeGreaterThan(first!.y + first!.height);
+
+  const quote = page.getByRole('region', { name: '体验报价' });
+  const serviceControl = await quote.getByLabel('服务类型').boundingBox();
+  const districtControl = await quote.getByLabel('服务区域').boundingBox();
+  const summary = await quote.locator('.quote-summary').boundingBox();
+  const action = await quote.getByRole('button', { name: '按此方案体验下单' }).boundingBox();
+
+  expect(serviceControl).not.toBeNull();
+  expect(districtControl).not.toBeNull();
+  expect(summary).not.toBeNull();
+  expect(action).not.toBeNull();
+  expect(districtControl!.y).toBeGreaterThan(serviceControl!.y + serviceControl!.height);
+  expect(summary!.y).toBeGreaterThan(districtControl!.y + districtControl!.height);
+  expect(action!.y).toBeGreaterThan(summary!.y + summary!.height);
+  expect(action!.height).toBeGreaterThanOrEqual(44);
 });
 
 test('shows a transparent quote and updates the service price', async ({ page }) => {
   await page.goto('/?fixture=service-loop');
   const quote = page.getByRole('region', { name: '体验报价' });
+  const summary = quote.locator('.quote-summary');
+  await expect(summary).toHaveAttribute('role', 'status');
+  await expect(summary).toHaveAttribute('aria-live', 'polite');
   await expect(quote.getByText('¥32', { exact: true })).toBeVisible();
   await quote.getByLabel('服务类型').selectOption('DOG_WALKING');
   await expect(quote.getByText('¥37', { exact: true })).toBeVisible();
