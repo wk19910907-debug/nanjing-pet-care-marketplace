@@ -39,3 +39,33 @@ test('explains the offer and moves visitors into owner ordering', async ({ page 
   await expect(page.getByRole('button', { name: '宠主', exact: true })).toHaveClass(/active/);
   await expect(page.getByRole('heading', { name: '预约上门服务' })).toBeVisible();
 });
+
+test('lays out pricing side by side on desktop', async ({ page }) => {
+  await page.goto('/?fixture=service-loop');
+  const cards = page.locator('.price-card');
+  const first = await cards.nth(0).boundingBox();
+  const second = await cards.nth(1).boundingBox();
+
+  expect(first).not.toBeNull();
+  expect(second).not.toBeNull();
+  expect(Math.abs(first!.y - second!.y)).toBeLessThan(2);
+  await expect(page.getByRole('button', { name: '立即体验下单' })).toHaveCSS('min-height', '44px');
+});
+
+test('keeps the landing page usable at phone width', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/?fixture=service-loop');
+
+  const widths = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    scroll: document.documentElement.scrollWidth,
+  }));
+  expect(widths.scroll).toBeLessThanOrEqual(widths.client);
+
+  const cards = page.locator('.price-card');
+  const first = await cards.nth(0).boundingBox();
+  const second = await cards.nth(1).boundingBox();
+  expect(first).not.toBeNull();
+  expect(second).not.toBeNull();
+  expect(second!.y).toBeGreaterThan(first!.y + first!.height);
+});
