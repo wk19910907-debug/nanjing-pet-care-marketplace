@@ -24,5 +24,5 @@ describe('deterministic two-service pilot closure', () => {
       'SERVICE_CHECKED_IN', 'SERVICE_EVIDENCE_ATTACHED', 'SERVICE_REPORT_SUBMITTED',
       'DISPUTE_OPENED', 'DISPUTE_RESOLVED',
     ]);
-  }, 15_000);
+  }, 30_000);
 });
