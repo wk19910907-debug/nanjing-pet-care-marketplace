@@ -97,7 +97,7 @@ test('keeps populated provider review and matching controls usable on desktop', 
   const applicationCard = applicationPanel.locator('.application-card');
   const name = await applicationPanel.getByLabel('体验昵称').boundingBox();
   const district = await applicationPanel.getByLabel('服务区域').boundingBox();
-  expect(applicationCard).toHaveCount(1);
+  await expect(applicationCard).toHaveCount(1);
   expect(name).not.toBeNull();
   expect(district).not.toBeNull();
   expect(Math.abs(name!.y - district!.y)).toBeLessThan(2);
