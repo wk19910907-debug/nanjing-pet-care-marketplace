@@ -1,0 +1,6 @@
+page { background: #f6f4ec; color: #21332b; font-size: 30rpx; }
+.page { padding: 32rpx; }
+.card { background: #fff; border-radius: 24rpx; padding: 28rpx; margin-bottom: 24rpx; }
+.primary { background: #39715b; color: #fff; border-radius: 999rpx; }
+.danger { color: #a33b32; }
+.muted { color: #6f7d76; font-size: 26rpx; }

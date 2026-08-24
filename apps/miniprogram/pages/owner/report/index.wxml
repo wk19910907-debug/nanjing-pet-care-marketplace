@@ -1,0 +1,1 @@
+<view class="page"><view class="card">服务前后状态、检查表、照片和短视频将在此展示</view><textarea placeholder="如服务存在问题，请描述" bindinput="onReason"/><button class="danger" bindtap="dispute">提交投诉</button></view>

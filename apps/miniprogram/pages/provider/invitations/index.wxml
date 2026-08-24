@@ -1,0 +1,1 @@
+<view class="page"><view class="card" wx:for="{{invitations}}" wx:key="id"><text>{{item.serviceZone}} · {{item.serviceType}}</text><text>{{item.countdown.seconds}} 秒</text><button class="primary" disabled="{{item.countdown.expired}}" data-id="{{item.id}}" bindtap="accept">接受邀请</button></view></view>

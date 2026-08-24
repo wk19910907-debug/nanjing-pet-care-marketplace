@@ -1,0 +1,1 @@
+<view class="page"><view class="card">按服务清单逐项确认；完整地址仅在服务时间窗口开放。</view><button bindtap="checkIn">到场签到</button><button bindtap="upload">上传照片或短视频</button><view wx:for="{{readiness.missing}}" wx:key="*this" class="danger">待完成：{{item}}</view><button class="primary" disabled="{{!readiness.ready}}" bindtap="submit">提交服务报告</button></view>
