@@ -130,6 +130,15 @@ test('submits a safe provider application without personal identity fields', asy
   await page.goto('/?fixture=provider-onboarding');
   await page.getByRole('button', { name: '服务人员', exact: true }).click();
   const panel = page.getByRole('region', { name: '申请成为服务人员' });
+  const controls = panel.locator('form input, form select, form textarea');
+  await expect(controls).toHaveCount(5);
+  await expect(panel.getByLabel('体验昵称')).toHaveCount(1);
+  await expect(panel.getByLabel('服务区域')).toHaveCount(1);
+  await expect(panel.getByLabel('上门喂猫')).toHaveCount(1);
+  await expect(panel.getByLabel('上门遛狗')).toHaveCount(1);
+  await expect(panel.getByLabel('经验说明')).toHaveCount(1);
+  await expect(controls.evaluateAll((items) => items.map((item) => `${item.tagName}:${item instanceof HTMLInputElement ? item.type : ''}`)))
+    .resolves.toEqual(['INPUT:text', 'SELECT:', 'INPUT:checkbox', 'INPUT:checkbox', 'TEXTAREA:']);
   await panel.getByLabel('体验昵称').fill('小林');
   await panel.getByLabel('服务区域').selectOption('秦淮区');
   await panel.getByLabel('上门遛狗').check();

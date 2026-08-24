@@ -86,8 +86,12 @@ const providers: DemoProvider[] = [
 const districts = ['建邺区', '鼓楼区', '玄武区', '秦淮区'];
 const serviceTypes: ServiceType[] = ['CAT_FEEDING', 'DOG_WALKING'];
 
+function createSeedProviders(): DemoProvider[] {
+  return providers.map((provider) => ({ ...provider, services: [...provider.services] }));
+}
+
 export function createInitialState(): DemoState {
-  return { version: 1, orders: [], providers, providerApplications: [], audit: [] };
+  return { version: 1, orders: [], providers: createSeedProviders(), providerApplications: [], audit: [] };
 }
 
 function requireOrder(state: DemoState, orderId: string): DemoOrder {
@@ -153,6 +157,10 @@ export function approveProviderApplication(state: DemoState, applicationId: stri
   if (!application) throw new Error('未找到服务人员申请');
   if (application.status !== 'PENDING') throw new Error('申请已完成审核');
   const providerId = `provider-${application.id}`;
+  if (state.providers.some((provider) => provider.id === providerId)
+    || state.providerApplications.some((item) => item.id !== applicationId && item.status === 'APPROVED' && item.providerId === providerId)) {
+    throw new Error('服务人员 ID 已存在');
+  }
 
   const provider: DemoProvider = {
     id: providerId,
@@ -257,8 +265,13 @@ function normalizedString(value: unknown): string | null {
 }
 
 function normalizedTimestamp(value: unknown): string | null {
-  if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) return null;
-  return value;
+  if (typeof value !== 'string') return null;
+  try {
+    const date = new Date(value);
+    return Number.isNaN(date.valueOf()) ? null : date.toISOString();
+  } catch {
+    return null;
+  }
 }
 
 function normalizedServices(value: unknown): ServiceType[] | null {
@@ -295,7 +308,7 @@ function normalizeProviderApplications(value: unknown): ProviderApplication[] {
   if (applications.some((application) => application === null)) return [];
   const normalized = applications as ProviderApplication[];
   const applicationIds = new Set(normalized.map((application) => application.id));
-  const providerIds = normalized.flatMap((application) => application.status === 'APPROVED' && application.providerId ? [application.providerId] : []);
+  const providerIds = normalized.map((application) => application.status === 'APPROVED' ? application.providerId! : `provider-${application.id}`);
   if (applicationIds.size !== normalized.length || new Set(providerIds).size !== providerIds.length || providerIds.some((providerId) => providers.some((provider) => provider.id === providerId))) {
     return [];
   }
@@ -318,11 +331,9 @@ export function loadDemoState(storage: DemoStorage): DemoState {
       services: [...application.services],
       verified: true as const,
     }] : []);
-    const approvedProviderIds = new Set(approvedProviders.map((provider) => provider.id));
-    const savedProviders = Array.isArray(parsed.providers) ? parsed.providers as DemoProvider[] : providers;
     return {
       ...parsed,
-      providers: [...savedProviders.filter((provider) => !approvedProviderIds.has(provider.id)), ...approvedProviders],
+      providers: [...createSeedProviders(), ...approvedProviders],
       providerApplications,
     } as DemoState;
   } catch {

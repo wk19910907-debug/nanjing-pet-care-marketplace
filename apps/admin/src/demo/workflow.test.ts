@@ -238,6 +238,121 @@ describe('local demo workflow', () => {
     expect(restored.providers).toEqual(state.providers);
   });
 
+  it('rebuilds providers from seeds and approved applications instead of persisted provider records', () => {
+    const values = new Map<string, string>();
+    const storage: DemoStorage = {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value),
+    };
+    let state = submitProviderApplication(createInitialState(), application);
+    state = approveProviderApplication(state, state.providerApplications[0]!.id);
+    state = createOrder(state, { ...draft, district: '秦淮区', serviceType: 'DOG_WALKING' });
+    const expectedProviderIds = [...createInitialState().providers.map((provider) => provider.id), state.providerApplications[0]!.providerId];
+
+    for (const persistedProviders of [
+      [],
+      [null],
+      [{ id: 'provider-fake', name: '伪造人员', district: '秦淮区', services: ['DOG_WALKING'], verified: true }],
+    ]) {
+      values.set('nanjing-pet-care-demo-v1', JSON.stringify({ ...state, providers: persistedProviders }));
+      const restored = loadDemoState(storage);
+      expect(restored.orders).toEqual(state.orders);
+      expect(restored.providers.map((provider) => provider.id)).toEqual(expectedProviderIds);
+      expect(eligibleProvidersForOrder(restored, restored.orders[0]!).map((provider) => provider.name)).toEqual(['小林']);
+    }
+  });
+
+  it('does not allow persisted verified providers to bypass pending application review', () => {
+    const values = new Map<string, string>();
+    const storage: DemoStorage = {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value),
+    };
+    let state = submitProviderApplication(createInitialState(), application);
+    state = createOrder(state, { ...draft, district: '秦淮区', serviceType: 'DOG_WALKING' });
+    values.set('nanjing-pet-care-demo-v1', JSON.stringify({
+      ...state,
+      providers: [{ id: 'provider-fake', name: '伪造人员', district: '秦淮区', services: ['DOG_WALKING'], verified: true }],
+    }));
+
+    const restored = loadDemoState(storage);
+    expect(restored.orders).toEqual(state.orders);
+    expect(restored.providers.map((provider) => provider.id)).toEqual(createInitialState().providers.map((provider) => provider.id));
+    expect(eligibleProvidersForOrder(restored, restored.orders[0]!)).toEqual([]);
+  });
+
+  it('rejects application provider-ID collisions from pending and approved saved applications', () => {
+    const values = new Map<string, string>();
+    const storage: DemoStorage = {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value),
+    };
+    const state = createOrder(createInitialState(), draft);
+    const pending = {
+      id: 'wang', name: '小林', district: '秦淮区', services: ['DOG_WALKING'] as const, experience: application.experience,
+      status: 'PENDING' as const, createdAt: '2026-08-24T10:00:00.000Z',
+    };
+    values.set('nanjing-pet-care-demo-v1', JSON.stringify({ ...state, providerApplications: [pending] }));
+    expect(loadDemoState(storage).providerApplications).toEqual([]);
+
+    values.set('nanjing-pet-care-demo-v1', JSON.stringify({
+      ...state,
+      providerApplications: [
+        { ...pending, id: 'pending', createdAt: '2026-08-24T10:00:00.000Z' },
+        {
+          ...pending,
+          id: 'approved',
+          status: 'APPROVED',
+          createdAt: '2026-08-24T10:05:00.000Z',
+          reviewedAt: '2026-08-24T11:00:00.000Z',
+          providerId: 'provider-pending',
+        },
+      ],
+    }));
+    expect(loadDemoState(storage).providerApplications).toEqual([]);
+  });
+
+  it('rejects approval when the derived provider ID collides with existing providers or approvals', () => {
+    const pending = {
+      id: 'wang', name: '小林', district: '秦淮区', services: ['DOG_WALKING'] as const, experience: application.experience,
+      status: 'PENDING' as const, createdAt: '2026-08-24T10:00:00.000Z',
+    };
+    expect(() => approveProviderApplication({ ...createInitialState(), providerApplications: [pending] }, pending.id))
+      .toThrow('服务人员 ID 已存在');
+
+    const approved = {
+      ...pending,
+      id: 'approved',
+      status: 'APPROVED' as const,
+      reviewedAt: '2026-08-24T11:00:00.000Z',
+      providerId: 'provider-pending',
+    };
+    const pendingWithConflict = { ...pending, id: 'pending' };
+    expect(() => approveProviderApplication({
+      ...createInitialState(),
+      providerApplications: [approved, pendingWithConflict],
+    }, pendingWithConflict.id)).toThrow('服务人员 ID 已存在');
+  });
+
+  it('canonicalizes parseable provider application timestamps on load', () => {
+    const values = new Map<string, string>();
+    const storage: DemoStorage = {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value),
+    };
+    let state = submitProviderApplication(createInitialState(), application);
+    state = approveProviderApplication(state, state.providerApplications[0]!.id);
+    const saved = JSON.parse(JSON.stringify(state));
+    saved.providerApplications[0].createdAt = '2026-08-24T18:00:00+08:00';
+    saved.providerApplications[0].reviewedAt = '2026-08-24T19:00:00+08:00';
+    values.set('nanjing-pet-care-demo-v1', JSON.stringify(saved));
+
+    expect(loadDemoState(storage).providerApplications[0]).toMatchObject({
+      createdAt: '2026-08-24T10:00:00.000Z',
+      reviewedAt: '2026-08-24T11:00:00.000Z',
+    });
+  });
+
   it('deduplicates provider application services in the domain layer', () => {
     const state = submitProviderApplication(createInitialState(), {
       ...application,
