@@ -7,6 +7,20 @@ export type DemoStatus =
 
 export type ServiceType = 'CAT_FEEDING' | 'DOG_WALKING';
 
+export type ProviderApplicationStatus = 'PENDING' | 'APPROVED';
+
+export type ProviderApplicationDraft = {
+  name: string;
+  district: string;
+  services: readonly ServiceType[];
+  experience: string;
+};
+
+export type ProviderApplication = ProviderApplicationDraft & {
+  id: string;
+  status: ProviderApplicationStatus;
+};
+
 export type OrderDraft = {
   serviceType: ServiceType;
   petName: string;
@@ -50,6 +64,7 @@ export type DemoState = {
   version: 1;
   orders: DemoOrder[];
   providers: DemoProvider[];
+  providerApplications: ProviderApplication[];
   audit: AuditEntry[];
 };
 
@@ -65,8 +80,11 @@ const providers: DemoProvider[] = [
   { id: 'provider-chen', name: '陈安安', district: '鼓楼区', services: ['CAT_FEEDING', 'DOG_WALKING'], verified: true },
 ];
 
+const districts = ['建邺区', '鼓楼区', '玄武区', '秦淮区'];
+const serviceTypes: ServiceType[] = ['CAT_FEEDING', 'DOG_WALKING'];
+
 export function createInitialState(): DemoState {
-  return { version: 1, orders: [], providers, audit: [] };
+  return { version: 1, orders: [], providers, providerApplications: [], audit: [] };
 }
 
 function requireOrder(state: DemoState, orderId: string): DemoOrder {
@@ -88,6 +106,69 @@ function required(value: string, label: string): string {
   const cleaned = value.trim();
   if (!cleaned) throw new Error(`请填写${label}`);
   return cleaned;
+}
+
+function requireDistrict(district: string): string {
+  const cleaned = required(district, '服务区域');
+  if (!districts.includes(cleaned)) throw new Error('服务区域无效');
+  return cleaned;
+}
+
+function requireServices(services: readonly ServiceType[]): ServiceType[] {
+  if (!services.length) throw new Error('请选择至少一项服务');
+  if (services.some((service) => !serviceTypes.includes(service))) throw new Error('服务类型无效');
+  return [...services];
+}
+
+export function submitProviderApplication(state: DemoState, draft: ProviderApplicationDraft): DemoState {
+  const name = required(draft.name, '姓名');
+  const district = requireDistrict(draft.district);
+  const experience = required(draft.experience, '服务经验');
+  const services = requireServices(draft.services);
+  const hasDuplicate = (item: Pick<ProviderApplicationDraft, 'name' | 'district'>) =>
+    item.name === name && item.district === district;
+
+  if (state.providers.some(hasDuplicate)) throw new Error('该服务人员已存在');
+  if (state.providerApplications.some(hasDuplicate)) throw new Error('该服务人员已提交申请');
+
+  return {
+    ...state,
+    providerApplications: [...state.providerApplications, {
+      id: `provider-application-${state.providerApplications.length + 1}`,
+      name,
+      district,
+      services,
+      experience,
+      status: 'PENDING',
+    }],
+  };
+}
+
+export function approveProviderApplication(state: DemoState, applicationId: string): DemoState {
+  const application = state.providerApplications.find((item) => item.id === applicationId);
+  if (!application) throw new Error('未找到服务人员申请');
+  if (application.status !== 'PENDING') throw new Error('申请已完成审核');
+
+  const provider: DemoProvider = {
+    id: application.id,
+    name: application.name,
+    district: application.district,
+    services: [...application.services],
+    verified: true,
+  };
+  return {
+    ...state,
+    providers: [...state.providers, provider],
+    providerApplications: state.providerApplications.map((item) =>
+      item.id === applicationId ? { ...item, status: 'APPROVED' } : item),
+  };
+}
+
+export function eligibleProvidersForOrder(state: DemoState, order: DemoOrder): DemoProvider[] {
+  return state.providers.filter((provider) =>
+    provider.verified
+    && provider.district === order.district
+    && provider.services.includes(order.serviceType));
 }
 
 export function createOrder(state: DemoState, draft: OrderDraft): DemoState {
@@ -121,7 +202,10 @@ export function assignOrder(state: DemoState, orderId: string, providerId: strin
   if (order.status !== 'WAITING_MATCH') throw new Error('订单当前不可匹配');
   const provider = state.providers.find((item) => item.id === providerId && item.verified);
   if (!provider) throw new Error('请选择已认证服务人员');
-  if (!provider.services.includes(order.serviceType)) throw new Error('服务人员不支持该服务');
+  if (!eligibleProvidersForOrder(state, order).some((item) => item.id === providerId)) {
+    if (provider.district !== order.district) throw new Error('服务人员不在订单服务区域');
+    throw new Error('服务人员不支持该服务');
+  }
   return withOrder(state, { ...order, providerId, status: 'WAITING_SERVICE' }, 'ORDER_ASSIGNED');
 }
 
@@ -162,7 +246,11 @@ export function loadDemoState(storage: DemoStorage): DemoState {
     if (parsed.version !== 1 || !Array.isArray(parsed.orders) || !Array.isArray(parsed.audit)) {
       return createInitialState();
     }
-    return { ...parsed, providers };
+    return {
+      ...parsed,
+      providers,
+      providerApplications: Array.isArray(parsed.providerApplications) ? parsed.providerApplications : [],
+    };
   } catch {
     return createInitialState();
   }
