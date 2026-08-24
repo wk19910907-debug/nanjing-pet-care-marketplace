@@ -30,7 +30,7 @@
 - Produces: `ProviderApplicationStatus`, `ProviderApplicationDraft`, `ProviderApplication`, `submitProviderApplication`, `approveProviderApplication`, and `eligibleProvidersForOrder`.
 - Preserves: `DemoState.version === 1`, existing order interfaces, seeded providers, and storage key.
 
-- [ ] **Step 1: Add failing workflow tests**
+- [x] **Step 1: Add failing workflow tests**
 
 Add focused tests that prove:
 
@@ -66,13 +66,13 @@ it('filters matching candidates by verified status, service and district', () =>
 
 Also test required fields, at least one valid service, duplicate name/district rejection, and legacy saved state normalization to `providerApplications: []`.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run: `pnpm --filter @pet/admin test -- src/demo/workflow.test.ts`
 
 Expected: FAIL because the new types/functions/state field do not exist.
 
-- [ ] **Step 3: Implement the minimal domain model and rules**
+- [x] **Step 3: Implement the minimal domain model and rules**
 
 Add the specified types and `providerApplications` to `DemoState`. Initialize it to `[]`. Validate fixed districts and service types, trim strings, reject duplicates, create deterministic application/provider IDs, and enforce one-time approval.
 
@@ -89,13 +89,13 @@ export function eligibleProvidersForOrder(state: DemoState, order: DemoOrder): D
 
 Make `assignOrder` call this selector. Normalize legacy parsed state with `providerApplications: Array.isArray(parsed.providerApplications) ? parsed.providerApplications : []`.
 
-- [ ] **Step 4: Run focused and complete admin tests**
+- [x] **Step 4: Run focused and complete admin tests**
 
 Run: `pnpm --filter @pet/admin test -- src/demo/workflow.test.ts && pnpm --filter @pet/admin test`
 
 Expected: all new workflow tests and all existing admin tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add apps/admin/src/demo/workflow.ts apps/admin/src/demo/workflow.test.ts
@@ -115,7 +115,7 @@ git commit -m "feat: add provider application workflow"
 - Consumes: `ProviderApplicationDraft`, `DemoState.providerApplications`, and `submitProviderApplication` from Task 1.
 - Produces: `ProviderApplicationPanel({ applications, submit })` and a persisted application transition in `DemoApp`.
 
-- [ ] **Step 1: Add a failing provider-side Playwright test**
+- [x] **Step 1: Add a failing provider-side Playwright test**
 
 ```ts
 test('submits a safe provider application without personal identity fields', async ({ page }) => {
@@ -132,19 +132,19 @@ test('submits a safe provider application without personal identity fields', asy
 });
 ```
 
-- [ ] **Step 2: Run the focused E2E test and verify RED**
+- [x] **Step 2: Run the focused E2E test and verify RED**
 
 Run: `pnpm --filter @pet/admin test:e2e -- --grep "submits a safe provider application"`
 
 Expected: FAIL because the application region is absent.
 
-- [ ] **Step 3: Implement the application panel and state integration**
+- [x] **Step 3: Implement the application panel and state integration**
 
 The panel owns its draft form state, renders the four fixed district options and two service checkboxes, emits a `ProviderApplicationDraft`, resets only after successful submission, and lists applications newest-first with `待平台审核` or `审核通过 · 已进入匹配池`.
 
 `ProviderWorkspace` renders the panel above the existing verified-provider task list. `DemoApp` passes an application callback that applies `submitProviderApplication` and shows `申请已提交，等待平台审核。`.
 
-- [ ] **Step 4: Add responsive styles and run GREEN**
+- [x] **Step 4: Add responsive styles and run GREEN**
 
 Add `.provider-application`, `.application-form`, `.service-choice-group`, `.application-list`, and `.application-card` styles. Use two form columns on desktop, one column on mobile, and minimum 44-pixel primary actions.
 
@@ -152,7 +152,7 @@ Run: `pnpm --filter @pet/admin test:e2e -- --grep "submits a safe provider appli
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add apps/admin/src/demo/ProviderApplicationPanel.tsx apps/admin/src/demo/ProviderWorkspace.tsx apps/admin/src/demo/DemoApp.tsx apps/admin/src/styles.css apps/admin/e2e/provider-onboarding.spec.ts
@@ -172,7 +172,7 @@ git commit -m "feat: add provider application experience"
 - Consumes: applications, `approveProviderApplication`, and `eligibleProvidersForOrder` from Task 1.
 - Produces: `ProviderReviewQueue({ applications, approve })`; provider approval callback from `DemoApp`; order dropdowns containing only eligible providers.
 
-- [ ] **Step 1: Add a failing end-to-end approval and matching test**
+- [x] **Step 1: Add a failing end-to-end approval and matching test**
 
 Extend the application setup from Task 2, then:
 
@@ -188,13 +188,13 @@ await expect(page.getByLabel('匹配服务人员')).toContainText('小林 · 秦
 
 Add a second order or selector assertion proving the approved Qinhuai dog walker does not appear for a Jianye cat-feeding order.
 
-- [ ] **Step 2: Run the focused E2E test and verify RED**
+- [x] **Step 2: Run the focused E2E test and verify RED**
 
 Run: `pnpm --filter @pet/admin test:e2e -- --grep "approves an applicant"`
 
 Expected: FAIL because review and eligibility UI are absent.
 
-- [ ] **Step 3: Implement review queue and eligibility-aware matching**
+- [x] **Step 3: Implement review queue and eligibility-aware matching**
 
 Render `ProviderReviewQueue` before the order list. Pending cards show declared information and an `审核通过：{name}` button; approved cards show the approved state without another action.
 
@@ -202,13 +202,13 @@ For each waiting order, derive candidates using `eligibleProvidersForOrder`. Whe
 
 `DemoApp` applies `approveProviderApplication` and displays `审核通过，申请人已进入匹配池。`.
 
-- [ ] **Step 4: Run focused and all provider onboarding E2E tests**
+- [x] **Step 4: Run focused and all provider onboarding E2E tests**
 
 Run: `pnpm --filter @pet/admin test:e2e -- apps/admin/e2e/provider-onboarding.spec.ts`
 
 Expected: provider application, pending exclusion, approval, eligible matching, and mismatched exclusion all pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add apps/admin/src/demo/ProviderReviewQueue.tsx apps/admin/src/demo/OperatorWorkspace.tsx apps/admin/src/demo/DemoApp.tsx apps/admin/src/styles.css apps/admin/e2e/provider-onboarding.spec.ts
@@ -225,11 +225,11 @@ git commit -m "feat: review providers before order matching"
 - Consumes: completed provider application and review loop.
 - Produces: accurate public-demo documentation and deployment evidence.
 
-- [ ] **Step 1: Document the supply-side demo boundary**
+- [x] **Step 1: Document the supply-side demo boundary**
 
 Add a README bullet describing application → platform review → eligible matching, and explicitly state that it is browser-local and accepts no real contact or identity documents.
 
-- [ ] **Step 2: Run full verification under Node.js 22.22.2**
+- [x] **Step 2: Run full verification under Node.js 22.22.2**
 
 Use a newly created temporary PostgreSQL database, apply all migrations, then run:
 
@@ -243,7 +243,7 @@ git diff --check
 
 Expected: all commands pass; delete only the temporary verification database afterward.
 
-- [ ] **Step 3: Complete plan checkboxes and commit documentation**
+- [x] **Step 3: Complete plan checkboxes and commit documentation**
 
 ```powershell
 git add README.md docs/superpowers/plans/2026-08-24-provider-onboarding.md

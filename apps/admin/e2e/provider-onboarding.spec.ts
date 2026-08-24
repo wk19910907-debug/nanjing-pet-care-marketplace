@@ -1,5 +1,27 @@
 import { expect, test } from '@playwright/test';
 
+test('keeps provider onboarding within a phone viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/?fixture=provider-onboarding');
+  await page.getByRole('button', { name: '服务人员', exact: true }).click();
+
+  const widths = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    scroll: document.documentElement.scrollWidth,
+  }));
+  expect(widths.scroll).toBeLessThanOrEqual(widths.client);
+
+  const panel = page.getByRole('region', { name: '申请成为服务人员' });
+  const name = await panel.getByLabel('体验昵称').boundingBox();
+  const district = await panel.getByLabel('服务区域').boundingBox();
+  const action = await panel.getByRole('button', { name: '提交审核申请' }).boundingBox();
+  expect(name).not.toBeNull();
+  expect(district).not.toBeNull();
+  expect(action).not.toBeNull();
+  expect(district!.y).toBeGreaterThan(name!.y + name!.height);
+  expect(action!.height).toBeGreaterThanOrEqual(44);
+});
+
 test('submits a safe provider application without personal identity fields', async ({ page }) => {
   await page.goto('/?fixture=provider-onboarding');
   await page.getByRole('button', { name: '服务人员', exact: true }).click();
