@@ -24,6 +24,38 @@ textarea { min-height: 86px; resize: vertical; }.demo-shell { min-height: 100vh;
 .service-panel { display: grid; gap: 10px; }.check { display: flex; align-items: center; gap: 10px; font-weight: 700; }.check input { width: 20px; height: 20px; margin: 0; }
 .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 22px 0; }.summary-grid div { padding: 18px; background: #f4f7f3; border-radius: 14px; }.summary-grid strong,.summary-grid span { display: block; }.summary-grid strong { font-size: 28px; }.summary-grid span { color: #6b7b74; margin-top: 4px; }
 .empty { padding: 28px; border: 1px dashed #bdc9c1; border-radius: 14px; text-align: center; color: #697a73; } footer { padding: 24px; text-align: center; color: #7b8882; font-size: 13px; }
+.hero-cta { margin-top: 12px; min-height: 44px; padding-inline: 24px; }
+.landing-section { max-width: 1160px; margin: 0 auto; padding: 34px 24px; }
+.landing-section h2 { margin: 8px 0 10px; font-size: clamp(26px, 4vw, 40px); }
+.section-lead { margin: 0 0 22px; color: #60736b; }
+.price-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.price-card { padding: 24px; border: 1px solid #dfe7df; border-radius: 20px; background: #fff; box-shadow: 0 14px 36px #173f330d; }
+.price-card span,.price-card strong,.price-card small { display: block; }
+.price-card span { font-weight: 900; }
+.price-card strong { margin-top: 10px; color: #28634f; font-size: 36px; }
+.price-card small { color: #9a681c; font-weight: 800; }
+.price-card p,.safeguard-grid p,.faq p { color: #60736b; line-height: 1.7; }
+.safeguards { padding-top: 46px; padding-bottom: 46px; }
+.safeguard-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
+.safeguard-grid article { padding: 20px; border-radius: 16px; background: #dfe9d9; }
+.safeguard-grid strong { display: block; margin-bottom: 8px; }
+.faq { padding-top: 0; padding-bottom: 64px; }
+.faq details { margin-top: 10px; padding: 16px 18px; border: 1px solid #dfe7df; border-radius: 14px; background: #fff; }
+.faq summary { cursor: pointer; font-weight: 900; }
+.faq p { margin-bottom: 0; }
 /* Legacy operator console retained for its audited fixture. */
 .shell { min-height: 100vh; display: grid; grid-template-columns: 260px 1fr; }.shell aside { padding: 28px; background: #173f33; color: white; }.shell aside h1 { margin-bottom: 4px; }.shell nav { display: grid; gap: 8px; }.shell nav button { text-align: left; background: transparent; color: white; }.shell main { padding: 40px; max-width: 1100px; }.shell .card { background: white; padding: 22px; border-radius: 16px; margin: 14px 0; }
-@media (max-width: 760px) { .hero { grid-template-columns: 1fr; padding-top: 34px; }.hero h1 { letter-spacing: -1px; }.role-tabs { overflow-x: auto; }.role-tabs button { white-space: nowrap; }.role-tabs .reset { margin-left: 0; }.section-title { display: block; }.order-form,.match-panel,.summary-grid { grid-template-columns: 1fr; }.workspace { padding: 20px; }.topbar { padding: 0 18px; }.demo-badge { font-size: 11px; } }
+@media (max-width: 760px) {
+  .hero { grid-template-columns: 1fr; padding-top: 34px; }
+  .hero h1 { letter-spacing: -1px; }
+  .role-tabs { overflow-x: auto; }
+  .role-tabs button { white-space: nowrap; }
+  .role-tabs .reset { margin-left: 0; }
+  .section-title { display: block; }
+  .order-form,.match-panel,.summary-grid,.price-grid,.safeguard-grid { grid-template-columns: 1fr; }
+  .workspace { padding: 20px; }
+  .topbar { padding: 0 18px; }
+  .demo-badge { font-size: 11px; }
+  .landing-section { padding-top: 26px; padding-bottom: 26px; }
+  .hero-cta { width: 100%; }
+}
