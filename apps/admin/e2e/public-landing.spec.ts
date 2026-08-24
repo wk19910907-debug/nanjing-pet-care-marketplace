@@ -41,7 +41,14 @@ test('explains the offer and moves visitors into owner ordering', async ({ page 
 });
 
 test('lays out pricing side by side on desktop', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/?fixture=service-loop');
+  const widths = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    scroll: document.documentElement.scrollWidth,
+  }));
+  expect(widths.scroll).toBeLessThanOrEqual(widths.client);
+
   const cards = page.locator('.price-card');
   const first = await cards.nth(0).boundingBox();
   const second = await cards.nth(1).boundingBox();
