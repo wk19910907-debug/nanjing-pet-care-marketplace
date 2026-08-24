@@ -18,11 +18,12 @@ export function OrderCard(props: { order: DemoOrder; providerName?: string | und
   </article>;
 }
 
-export function OwnerWorkspace(props: { state: DemoState; prefill?: OrderPrefill | undefined; create(draft: OrderDraft): void; confirm(orderId: string): void }) {
+export function OwnerWorkspace(props: { state: DemoState; prefill?: OrderPrefill | undefined; consumePrefill(): void; create(draft: OrderDraft): void; confirm(orderId: string): void }) {
   const [draft, setDraft] = useState<OrderDraft>({ serviceType: 'CAT_FEEDING', petName: '', district: '建邺区', address: '', scheduledAt: '2026-08-24T19:00', notes: '' });
   useEffect(() => {
     if (!props.prefill) return;
     setDraft((item) => ({ ...item, serviceType: props.prefill!.serviceType, district: props.prefill!.district }));
+    props.consumePrefill();
   }, [props.prefill?.requestKey]);
   const change = <K extends keyof OrderDraft>(key: K, value: OrderDraft[K]) => setDraft((item) => ({ ...item, [key]: value }));
   const submit = (event: FormEvent) => { event.preventDefault(); props.create(draft); };

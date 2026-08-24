@@ -90,3 +90,32 @@ test('carries the public quote into the owner order form', async ({ page }) => {
   await expect(form.getByLabel('服务区域')).toHaveValue('秦淮区');
   await expect(page.getByRole('button', { name: '宠主', exact: true })).toHaveClass(/active/);
 });
+
+test('consumes quote prefills without blocking a repeated quote', async ({ page }) => {
+  await page.goto('/?fixture=service-loop');
+  const quote = page.getByRole('region', { name: '体验报价' });
+  const form = page.locator('.order-form');
+  await quote.getByLabel('服务类型').selectOption('DOG_WALKING');
+  await quote.getByLabel('服务区域').selectOption('秦淮区');
+  await quote.getByRole('button', { name: '按此方案体验下单' }).click();
+  await expect(form.getByLabel('服务类型')).toHaveValue('DOG_WALKING');
+
+  await page.getByRole('button', { name: '平台运营', exact: true }).click();
+  await page.getByRole('button', { name: '恢复体验数据' }).click();
+  await expect(form.getByLabel('服务类型')).toHaveValue('CAT_FEEDING');
+  await expect(form.getByLabel('服务区域')).toHaveValue('建邺区');
+
+  await quote.getByRole('button', { name: '按此方案体验下单' }).click();
+  await expect(form.getByLabel('服务类型')).toHaveValue('DOG_WALKING');
+  await expect(form.getByLabel('服务区域')).toHaveValue('秦淮区');
+  await form.getByLabel('服务类型').selectOption('CAT_FEEDING');
+  await form.getByLabel('服务区域').selectOption('建邺区');
+  await quote.getByRole('button', { name: '按此方案体验下单' }).click();
+  await expect(form.getByLabel('服务类型')).toHaveValue('DOG_WALKING');
+  await expect(form.getByLabel('服务区域')).toHaveValue('秦淮区');
+
+  await page.getByRole('button', { name: '平台运营', exact: true }).click();
+  await page.getByRole('button', { name: '立即体验下单' }).click();
+  await expect(form.getByLabel('服务类型')).toHaveValue('CAT_FEEDING');
+  await expect(form.getByLabel('服务区域')).toHaveValue('建邺区');
+});
