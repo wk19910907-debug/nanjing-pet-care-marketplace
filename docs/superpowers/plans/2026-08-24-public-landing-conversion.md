@@ -254,9 +254,9 @@ export function DemoApp() {
     <PublicLanding onStartOrder={startOrderExperience}>
       <nav id="order-experience" className="role-tabs" aria-label="体验身份"><button className={role === 'OWNER' ? 'active' : ''} onClick={() => setRole('OWNER')}>宠主</button><button className={role === 'OPERATOR' ? 'active' : ''} onClick={() => setRole('OPERATOR')}>平台运营</button><button className={role === 'PROVIDER' ? 'active' : ''} onClick={() => setRole('PROVIDER')}>服务人员</button><button className="reset" onClick={reset}>恢复体验数据</button></nav>
       <div className="notice" role="status">{notice}</div><main className="demo-main">
-        {role === 'OWNER' && <OwnerWorkspace state={state} create={(draft: OrderDraft) => apply((current) => createOrder(current, draft), '订单已提交，等待平台匹配。')} confirm={(id) => apply((current) => confirmOrder(current, id), '订单已确认完成。')}/>} 
-        {role === 'OPERATOR' && <OperatorWorkspace state={state} assign={(id, providerId) => apply((current) => assignOrder(current, id, providerId), '已完成匹配并通知服务人员。')}/>} 
-        {role === 'PROVIDER' && <ProviderWorkspace state={state} providerId="provider-wang" start={(id) => apply((current) => startService(current, id), '服务已开始，请完成清单。')} report={(id, report: ServiceReport) => apply((current) => submitReport(current, id, report), '报告已提交，等待宠主确认。')}/>} 
+        {role === 'OWNER' && <OwnerWorkspace state={state} create={(draft: OrderDraft) => apply((current) => createOrder(current, draft), '订单已提交，等待平台匹配。')} confirm={(id) => apply((current) => confirmOrder(current, id), '订单已确认完成。')}/>}
+        {role === 'OPERATOR' && <OperatorWorkspace state={state} assign={(id, providerId) => apply((current) => assignOrder(current, id, providerId), '已完成匹配并通知服务人员。')}/>}
+        {role === 'PROVIDER' && <ProviderWorkspace state={state} providerId="provider-wang" start={(id) => apply((current) => startService(current, id), '服务已开始，请完成清单。')} report={(id, report: ServiceReport) => apply((current) => submitReport(current, id, report), '报告已提交，等待宠主确认。')}/>}
       </main>
     </PublicLanding>
     <footer>体验数据只保存在当前浏览器 · 当前不承接真实订单 · 请勿填写真实门锁密码或敏感信息</footer></div>;
