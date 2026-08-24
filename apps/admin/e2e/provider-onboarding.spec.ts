@@ -86,6 +86,15 @@ test('keeps submitted applications and operator matching controls usable at phon
   expect(matchAction).not.toBeNull();
   expect(matchAction!.height).toBeGreaterThanOrEqual(44);
   await expectNoHorizontalOverflow(page);
+
+  await matchPanel.getByRole('button', { name: '确认匹配' }).click();
+  await page.getByRole('button', { name: '服务人员', exact: true }).click();
+  const identity = page.getByLabel('体验服务人员身份');
+  await expect(identity).toHaveValue('provider-provider-application-1');
+  const identityBox = await identity.boundingBox();
+  expect(identityBox).not.toBeNull();
+  expect(identityBox!.height).toBeGreaterThanOrEqual(44);
+  await expectNoHorizontalOverflow(page);
 });
 
 test('keeps populated provider review and matching controls usable on desktop', async ({ page }) => {
@@ -123,6 +132,15 @@ test('keeps populated provider review and matching controls usable on desktop', 
   expect(Math.abs(firstSummary!.y - secondSummary!.y)).toBeLessThan(2);
   expect(matchAction!.x).toBeGreaterThan(select!.x + select!.width);
   expect(matchAction!.height).toBeGreaterThanOrEqual(44);
+  await expectNoHorizontalOverflow(page);
+
+  await matchPanel.getByRole('button', { name: '确认匹配' }).click();
+  await page.getByRole('button', { name: '服务人员', exact: true }).click();
+  const identity = page.getByLabel('体验服务人员身份');
+  await expect(identity).toHaveValue('provider-provider-application-1');
+  const identityBox = await identity.boundingBox();
+  expect(identityBox).not.toBeNull();
+  expect(identityBox!.height).toBeGreaterThanOrEqual(44);
   await expectNoHorizontalOverflow(page);
 });
 
