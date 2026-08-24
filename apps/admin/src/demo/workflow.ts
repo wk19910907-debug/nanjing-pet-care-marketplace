@@ -246,10 +246,18 @@ export function loadDemoState(storage: DemoStorage): DemoState {
     if (parsed.version !== 1 || !Array.isArray(parsed.orders) || !Array.isArray(parsed.audit)) {
       return createInitialState();
     }
+    const providerApplications = Array.isArray(parsed.providerApplications) ? parsed.providerApplications : [];
+    const approvedProviders = providerApplications.filter((application) => application.status === 'APPROVED').map((application) => ({
+      id: application.id,
+      name: application.name,
+      district: application.district,
+      services: [...application.services],
+      verified: true as const,
+    }));
     return {
       ...parsed,
-      providers,
-      providerApplications: Array.isArray(parsed.providerApplications) ? parsed.providerApplications : [],
+      providers: [...providers, ...approvedProviders],
+      providerApplications,
     };
   } catch {
     return createInitialState();

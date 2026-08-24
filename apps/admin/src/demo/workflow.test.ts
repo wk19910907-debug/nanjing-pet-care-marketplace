@@ -93,6 +93,22 @@ describe('local demo workflow', () => {
     expect(() => approveProviderApplication(state, state.providerApplications[0]!.id)).toThrow('申请已完成审核');
   });
 
+  it('preserves approved applicants in the matching pool after reload', () => {
+    const values = new Map<string, string>();
+    const storage: DemoStorage = {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value),
+    };
+    let state = submitProviderApplication(createInitialState(), application);
+    state = createOrder(state, { ...draft, district: '秦淮区', serviceType: 'DOG_WALKING' });
+    state = approveProviderApplication(state, state.providerApplications[0]!.id);
+
+    saveDemoState(storage, state);
+    const restored = loadDemoState(storage);
+
+    expect(eligibleProvidersForOrder(restored, restored.orders[0]!).map((provider) => provider.name)).toEqual(['小林']);
+  });
+
   it('gives each approved application a stable unique provider ID', () => {
     let state = submitProviderApplication(createInitialState(), application);
     state = submitProviderApplication(state, {

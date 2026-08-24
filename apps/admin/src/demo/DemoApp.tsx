@@ -4,7 +4,7 @@ import { OwnerWorkspace } from './OwnerWorkspace.js';
 import { ProviderWorkspace } from './ProviderWorkspace.js';
 import { PublicLanding } from './PublicLanding.js';
 import type { PublicQuoteSelection } from './publicQuote.js';
-import { assignOrder, confirmOrder, createInitialState, createOrder, loadDemoState, saveDemoState, startService, submitProviderApplication, submitReport, type DemoState, type OrderDraft, type ProviderApplicationDraft, type ServiceReport } from './workflow.js';
+import { approveProviderApplication, assignOrder, confirmOrder, createInitialState, createOrder, loadDemoState, saveDemoState, startService, submitProviderApplication, submitReport, type DemoState, type OrderDraft, type ProviderApplicationDraft, type ServiceReport } from './workflow.js';
 
 type Role = 'OWNER' | 'OPERATOR' | 'PROVIDER';
 export type OrderPrefill = PublicQuoteSelection & { requestKey: number };
@@ -35,7 +35,7 @@ export function DemoApp() {
       {role === 'OWNER' && (
         <OwnerWorkspace state={state} prefill={orderPrefill} consumePrefill={() => setOrderPrefill(undefined)} create={(draft: OrderDraft) => apply((current) => createOrder(current, draft), '订单已提交，等待平台匹配。')} confirm={(id) => apply((current) => confirmOrder(current, id), '订单已确认完成。')} />
       )}
-      {role === 'OPERATOR' && <OperatorWorkspace state={state} assign={(id, providerId) => apply((current) => assignOrder(current, id, providerId), '已完成匹配并通知服务人员。')}/>} 
+      {role === 'OPERATOR' && <OperatorWorkspace state={state} approve={(id) => { apply((current) => approveProviderApplication(current, id), '审核通过，申请人已进入匹配池。'); }} assign={(id, providerId) => apply((current) => assignOrder(current, id, providerId), '已完成匹配并通知服务人员。')}/>}
       {role === 'PROVIDER' && <ProviderWorkspace state={state} providerId="provider-wang" submitApplication={(draft: ProviderApplicationDraft) => apply((current) => submitProviderApplication(current, draft), '申请已提交，等待平台审核。')} start={(id) => apply((current) => startService(current, id), '服务已开始，请完成清单。')} report={(id, report: ServiceReport) => apply((current) => submitReport(current, id, report), '报告已提交，等待宠主确认。')}/>}
     </main>
     </PublicLanding><footer>体验数据只保存在当前浏览器 · 当前不承接真实订单 · 请勿填写真实门锁密码或敏感信息</footer></div>;
