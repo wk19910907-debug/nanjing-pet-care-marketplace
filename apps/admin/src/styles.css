@@ -18,9 +18,10 @@ textarea { min-height: 86px; resize: vertical; }.demo-shell { min-height: 100vh;
 .demo-main { max-width: 1160px; margin: 0 auto; padding: 26px 24px 72px; }.workspace { background: #fff; padding: 28px; border-radius: 24px; box-shadow: 0 16px 50px #173f3311; }
 .section-title { display: flex; justify-content: space-between; gap: 24px; align-items: end; border-bottom: 1px solid #edf0ed; padding-bottom: 20px; }.section-title h2 { margin: 5px 0 0; }.section-title p { color: #697a73; }
 .order-form { margin: 24px 0 34px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }.order-form label { font-weight: 700; }.order-form .wide { grid-column: 1/-1; }.primary { font-size: 16px; }
+.provider-application,.review-queue { margin-bottom: 34px; padding-bottom: 34px; border-bottom: 1px solid #edf0ed; }.provider-application .section-title,.review-queue .section-title { margin-bottom: 24px; }.application-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }.application-form label,.service-choice-group { font-weight: 700; }.application-form .wide { grid-column: 1/-1; }.service-choice-group { display: flex; flex-wrap: wrap; gap: 12px 18px; margin: 0; padding: 12px; border: 1px solid #cbd7cf; border-radius: 10px; }.service-choice-group legend { padding: 0 4px; }.service-choice-group .check { font-weight: 700; }.application-list { display: grid; gap: 12px; margin-top: 22px; }.application-card { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px; border: 1px solid #e5ebe6; border-radius: 14px; background: #f8faf7; }.application-card p { margin: 6px 0 0; color: #60736b; }.review-status { color: #28634f; font-weight: 800; white-space: nowrap; }
 .orders { display: grid; gap: 14px; }.order-card { padding: 20px; background: #f8faf7; border: 1px solid #e5ebe6; border-radius: 16px; }.order-head { display: flex; justify-content: space-between; gap: 14px; align-items: center; }
 .order-card p { color: #60736b; margin: 9px 0; }.status { padding: 6px 10px; border-radius: 999px; background: #f1dfac; font-size: 13px; white-space: nowrap; }.status-completed { background: #cce8d7; }.status-in_service { background: #cde2ee; }
-.report,.match-panel,.service-panel { margin-top: 14px; padding: 15px; background: white; border-radius: 12px; }.match-panel { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }.match-panel select { margin-bottom: 0; }
+.report,.match-panel,.service-panel { margin-top: 14px; padding: 15px; background: white; border-radius: 12px; }.match-panel { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }.match-panel select { margin-bottom: 0; }.match-empty { display: block; color: #697a73; font-weight: 700; }
 .service-panel { display: grid; gap: 10px; }.check { display: flex; align-items: center; gap: 10px; font-weight: 700; }.check input { width: 20px; height: 20px; margin: 0; }
 .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 22px 0; }.summary-grid div { padding: 18px; background: #f4f7f3; border-radius: 14px; }.summary-grid strong,.summary-grid span { display: block; }.summary-grid strong { font-size: 28px; }.summary-grid span { color: #6b7b74; margin-top: 4px; }
 .empty { padding: 28px; border: 1px dashed #bdc9c1; border-radius: 14px; text-align: center; color: #697a73; } footer { padding: 24px; text-align: center; color: #7b8882; font-size: 13px; }
@@ -57,7 +58,8 @@ textarea { min-height: 86px; resize: vertical; }.demo-shell { min-height: 100vh;
   .role-tabs button { white-space: nowrap; }
   .role-tabs .reset { margin-left: 0; }
   .section-title { display: block; }
-  .order-form,.match-panel,.summary-grid,.price-grid,.safeguard-grid,.public-quote,.quote-controls { grid-template-columns: 1fr; }
+  .order-form,.application-form,.match-panel,.summary-grid,.price-grid,.safeguard-grid,.public-quote,.quote-controls { grid-template-columns: 1fr; }
+  .application-card { align-items: flex-start; flex-direction: column; }
   .workspace { padding: 20px; }
   .topbar { padding: 0 18px; }
   .demo-badge { font-size: 11px; }
