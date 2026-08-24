@@ -28,7 +28,7 @@
 - Produces: `PUBLIC_DISTRICTS`, `PublicQuoteSelection`, `getPublicQuote(serviceType): { priceFen: number; priceLabel: string }`.
 - Consumes: `ServiceType` from `workflow.ts`.
 
-- [ ] **Step 1: Write the failing model tests**
+- [x] **Step 1: Write the failing model tests**
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -46,13 +46,13 @@ describe('public quote', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test and verify RED**
+- [x] **Step 2: Run the test and verify RED**
 
 Run: `pnpm --filter @pet/admin test -- src/demo/publicQuote.test.ts`
 
 Expected: FAIL because `publicQuote.js` does not exist.
 
-- [ ] **Step 3: Implement the minimal typed model**
+- [x] **Step 3: Implement the minimal typed model**
 
 ```ts
 import type { ServiceType } from './workflow.js';
@@ -71,13 +71,13 @@ export function getPublicQuote(serviceType: ServiceType) {
 }
 ```
 
-- [ ] **Step 4: Run the focused and admin tests**
+- [x] **Step 4: Run the focused and admin tests**
 
 Run: `pnpm --filter @pet/admin test -- src/demo/publicQuote.test.ts && pnpm --filter @pet/admin test`
 
 Expected: 15 admin tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add apps/admin/src/demo/publicQuote.ts apps/admin/src/demo/publicQuote.test.ts
@@ -96,7 +96,7 @@ git commit -m "feat: add public quote model"
 - Consumes: `PublicQuoteSelection`, `PUBLIC_DISTRICTS`, and `getPublicQuote` from Task 1.
 - Produces: controlled `PublicQuote({ selection, onChange, onStartOrder })` component.
 
-- [ ] **Step 1: Add a failing Playwright test for quote rendering and updates**
+- [x] **Step 1: Add a failing Playwright test for quote rendering and updates**
 
 ```ts
 test('shows a transparent quote and updates the service price', async ({ page }) => {
@@ -109,27 +109,27 @@ test('shows a transparent quote and updates the service price', async ({ page })
 });
 ```
 
-- [ ] **Step 2: Run the focused E2E test and verify RED**
+- [x] **Step 2: Run the focused E2E test and verify RED**
 
 Run: `pnpm --filter @pet/admin test:e2e -- --grep "shows a transparent quote"`
 
 Expected: FAIL because the `体验报价` region is absent.
 
-- [ ] **Step 3: Implement `PublicQuote` and render it from `PublicLanding`**
+- [x] **Step 3: Implement `PublicQuote` and render it from `PublicLanding`**
 
 Create a controlled component with native service and district selects, a live price summary, the exact disclosure `体验参考价，不会产生真实费用`, and a `按此方案体验下单` button. Extend `PublicLandingProps` with the quote selection/change/start interfaces and render the component after the price grid.
 
-- [ ] **Step 4: Add responsive styles**
+- [x] **Step 4: Add responsive styles**
 
 Add `.public-quote`, `.quote-controls`, `.quote-summary`, and `.quote-action` styles. Use a three-column desktop grid and collapse to one column inside the existing mobile media query. Maintain a minimum button height of `44px`.
 
-- [ ] **Step 5: Run the focused E2E test and verify GREEN**
+- [x] **Step 5: Run the focused E2E test and verify GREEN**
 
 Run: `pnpm --filter @pet/admin test:e2e -- --grep "shows a transparent quote"`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add apps/admin/src/demo/PublicQuote.tsx apps/admin/src/demo/PublicLanding.tsx apps/admin/src/styles.css apps/admin/e2e/public-landing.spec.ts
@@ -147,7 +147,7 @@ git commit -m "feat: add interactive public experience quote"
 - `DemoApp` produces `OrderPrefill = PublicQuoteSelection & { requestKey: number }`.
 - `OwnerWorkspace` consumes optional `prefill?: OrderPrefill` and applies it when `requestKey` changes.
 
-- [ ] **Step 1: Add a failing Playwright prefill test**
+- [x] **Step 1: Add a failing Playwright prefill test**
 
 ```ts
 test('carries the public quote into the owner order form', async ({ page }) => {
@@ -163,13 +163,13 @@ test('carries the public quote into the owner order form', async ({ page }) => {
 });
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run: `pnpm --filter @pet/admin test:e2e -- --grep "carries the public quote"`
 
 Expected: FAIL because the quote action does not prefill the owner form.
 
-- [ ] **Step 3: Implement keyed prefill coordination**
+- [x] **Step 3: Implement keyed prefill coordination**
 
 In `DemoApp`, own `quoteSelection` and `orderPrefill`; increment `requestKey` on every quote action, then reuse the existing role switch and scroll behavior. Pass `orderPrefill` to `OwnerWorkspace`.
 
@@ -186,13 +186,13 @@ useEffect(() => {
 }, [props.prefill?.requestKey]);
 ```
 
-- [ ] **Step 4: Run focused and complete public landing E2E tests**
+- [x] **Step 4: Run focused and complete public landing E2E tests**
 
 Run: `pnpm --filter @pet/admin test:e2e -- --grep "public quote|carries the public quote|landing page|pricing"`
 
 Expected: all matching tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add apps/admin/src/demo/DemoApp.tsx apps/admin/src/demo/OwnerWorkspace.tsx apps/admin/e2e/public-landing.spec.ts
@@ -209,11 +209,11 @@ git commit -m "feat: prefill orders from public quotes"
 - Consumes: the completed quote-to-order feature.
 - Produces: user-facing scope documentation and completed plan checkboxes.
 
-- [ ] **Step 1: Document the public quote path**
+- [x] **Step 1: Document the public quote path**
 
 Add a README bullet explaining that visitors can select a service and experience district, view a non-binding reference price, and carry those choices into the browser-local demo order form.
 
-- [ ] **Step 2: Run all verification under Node.js 22**
+- [x] **Step 2: Run all verification under Node.js 22**
 
 Run the repository's Node.js 22 runtime, then:
 
@@ -226,13 +226,13 @@ pnpm --filter @pet/admin test:e2e
 
 Expected: typecheck passes, all Vitest tests pass, production build succeeds, and all Playwright tests pass.
 
-- [ ] **Step 3: Mark plan checkboxes complete and inspect the diff**
+- [x] **Step 3: Mark plan checkboxes complete and inspect the diff**
 
 Run: `git diff --check && git status --short`
 
 Expected: no whitespace errors and only intended documentation changes remain.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```powershell
 git add README.md docs/superpowers/plans/2026-08-24-public-quote-prefill.md
