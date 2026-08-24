@@ -34,7 +34,7 @@
 - Produces: `startService(state: DemoState, orderId: string, providerId: string): DemoState`.
 - Produces: `submitReport(state: DemoState, orderId: string, providerId: string, report: ServiceReport): DemoState`.
 
-- [ ] **Step 1: Write failing domain tests**
+- [x] **Step 1: Write failing domain tests**
 
 Add focused tests to `workflow.test.ts` that express the exact selection and authorization rules:
 
@@ -68,7 +68,7 @@ it('rejects another provider starting or reporting an assigned order without mut
 
 Update every existing `startService` and `submitReport` test call to pass the assigned provider ID explicitly. Keep the original state-transition and incomplete-report assertions.
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run:
 
@@ -78,7 +78,7 @@ Run:
 
 Expected: fail because `preferredProviderId` is not exported and the existing fulfillment interfaces do not accept/enforce `providerId`.
 
-- [ ] **Step 3: Implement the minimal domain behavior**
+- [x] **Step 3: Implement the minimal domain behavior**
 
 Add to `workflow.ts`:
 
@@ -107,7 +107,7 @@ function requireAssignedProvider(state: DemoState, order: DemoOrder, providerId:
 
 Change `startService` and `submitReport` to call `requireAssignedProvider` before changing state. Update `DemoApp` temporarily to pass `'provider-wang'` at both existing callback call sites so TypeScript remains green; Task 2 replaces these fixed arguments with the selected identity.
 
-- [ ] **Step 4: Verify GREEN and regression coverage**
+- [x] **Step 4: Verify GREEN and regression coverage**
 
 Run the focused test again, then:
 
@@ -119,7 +119,7 @@ git diff --check
 
 Expected: all admin unit tests and typecheck pass; no whitespace errors.
 
-- [ ] **Step 5: Commit Task 1**
+- [x] **Step 5: Commit Task 1**
 
 ```powershell
 git add apps/admin/src/demo/workflow.ts apps/admin/src/demo/workflow.test.ts apps/admin/src/demo/DemoApp.tsx
@@ -142,7 +142,7 @@ git commit -m "feat: authorize provider task actions"
 - Produces: `ProviderWorkspace` props `providerId?: string`, `selectProvider(providerId: string): void`, `start(orderId: string, providerId: string): void`, `report(orderId: string, providerId: string, report: ServiceReport): void`.
 - Produces: browser flow where platform assignment selects the matched provider identity and reload derives the provider on the newest active order.
 
-- [ ] **Step 1: Write the failing browser identity flow**
+- [x] **Step 1: Write the failing browser identity flow**
 
 Create `provider-task-identity.spec.ts`. Use a clean browser context at `/` rather than a fixture query so reload exercises local persistence. The test must:
 
@@ -164,7 +164,7 @@ Add assertions using accessible names, not CSS-only selection, for `体验服务
 
 Extend `provider-onboarding.spec.ts` populated mobile and desktop paths so the approved and matched provider identity selector is visible, its height is at least 44px, and document width never exceeds viewport width.
 
-- [ ] **Step 2: Run the new browser test and verify RED**
+- [x] **Step 2: Run the new browser test and verify RED**
 
 Run:
 
@@ -174,7 +174,7 @@ Run:
 
 Expected: fail because the identity selector is absent and provider view remains fixed to 王小宁.
 
-- [ ] **Step 3: Implement the provider identity UI**
+- [x] **Step 3: Implement the provider identity UI**
 
 In `ProviderWorkspace.tsx`, resolve the current provider and render a labeled selector:
 
@@ -213,7 +213,7 @@ Use `showProvider` for the role button. When assignment succeeds, call `setSelec
 
 Add focused styles for the identity control, summary and mobile stacking. Preserve the global minimum 44px input/button rule and existing breakpoints.
 
-- [ ] **Step 4: Verify GREEN, reload, responsive and legacy flows**
+- [x] **Step 4: Verify GREEN, reload, responsive and legacy flows**
 
 Run:
 
@@ -226,7 +226,7 @@ git diff --check
 
 Expected: identity and onboarding E2E pass, admin tests/typecheck pass, and no whitespace errors.
 
-- [ ] **Step 5: Commit Task 2**
+- [x] **Step 5: Commit Task 2**
 
 ```powershell
 git add apps/admin/src/demo/ProviderWorkspace.tsx apps/admin/src/demo/DemoApp.tsx apps/admin/src/styles.css apps/admin/e2e/provider-task-identity.spec.ts apps/admin/e2e/provider-onboarding.spec.ts
@@ -246,7 +246,7 @@ git commit -m "feat: switch provider task identities"
 - Consumes: completed Task 1 and Task 2 behavior.
 - Produces: honest public documentation, complete Node 22 evidence, GitHub PR/Pages links and online acceptance record.
 
-- [ ] **Step 1: Update truthful usage documentation**
+- [x] **Step 1: Update truthful usage documentation**
 
 Add one README bullet after the provider onboarding description:
 
@@ -256,7 +256,7 @@ Add one README bullet after the provider onboarding description:
 
 Keep the existing browser-local and no-real-contact boundary unchanged.
 
-- [ ] **Step 2: Run complete isolated verification**
+- [x] **Step 2: Run complete isolated verification**
 
 Generate a unique database name matching `^petcare_verify_[a-z0-9_]+$`, create only that database in `petcare-postgres`, set `DATABASE_URL` to it, apply all Prisma migrations, and run under Node 22.22.2:
 
@@ -269,7 +269,7 @@ git diff --check
 
 Use the explicit Node 22 executable and pnpm JavaScript entry point from earlier tasks. In `finally`, execute `DROP DATABASE "<validated-name>" WITH (FORCE)` and query `pg_database`; expected remaining count is `0`. Never modify or drop the existing `petcare` database.
 
-- [ ] **Step 3: Mark local plan steps complete and commit**
+- [x] **Step 3: Mark local plan steps complete and commit**
 
 Check Tasks 1–2 and Task 3 local steps 1–2 only after their commands pass. Leave the external deployment step unchecked until live acceptance succeeds.
 
