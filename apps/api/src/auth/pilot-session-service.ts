@@ -79,7 +79,7 @@ export class PilotSessionService implements AuthService {
         },
         select: { id: true, role: true, expiresAt: true, createdAt: true },
       });
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     return { ...invite, code };
   }
 

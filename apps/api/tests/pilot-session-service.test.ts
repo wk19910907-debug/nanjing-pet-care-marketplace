@@ -105,6 +105,62 @@ describe('PilotSessionService', () => {
     );
   });
 
+  it('preserves a sole admin across concurrent bootstrap processes', async () => {
+    await resetTables();
+    await prisma.$executeRawUnsafe(`
+      CREATE FUNCTION test_delay_admin_insert() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.role = 'ADMIN' THEN
+          PERFORM pg_sleep(0.25);
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER test_delay_admin_insert
+      BEFORE INSERT ON "User"
+      FOR EACH ROW EXECUTE FUNCTION test_delay_admin_insert()
+    `);
+    const clients = [
+      new PrismaClient({ datasourceUrl: testUrl.toString() }),
+      new PrismaClient({ datasourceUrl: testUrl.toString() }),
+    ];
+
+    try {
+      await Promise.all(clients.map((client) => client.$connect()));
+      const services = clients.map((client, index) => new PilotSessionService(client, {
+        pepper: Buffer.alloc(32, 7),
+        inviteHours: 24,
+        sessionDays: 7,
+        now: () => new Date('2026-08-25T08:00:00Z'),
+        token: sequenceTokens(`admin-invite-${index}`),
+      }));
+
+      const results = await Promise.allSettled(
+        services.map((service) => service.bootstrapAdminInvite()),
+      );
+      expect(results.some((result) => result.status === 'fulfilled')).toBe(true);
+
+      const admins = await prisma.user.findMany({
+        where: { role: 'ADMIN' },
+        select: { id: true },
+      });
+      const invites = await prisma.pilotInvite.findMany({
+        where: { role: 'ADMIN' },
+        select: { targetUserId: true },
+      });
+      expect(admins).toHaveLength(1);
+      expect(new Set(invites.map((invite) => invite.targetUserId))).toEqual(
+        new Set([admins[0]?.id]),
+      );
+    } finally {
+      await Promise.all(clients.map((client) => client.$disconnect()));
+      await prisma.$executeRawUnsafe('DROP TRIGGER test_delay_admin_insert ON "User"');
+      await prisma.$executeRawUnsafe('DROP FUNCTION test_delay_admin_insert()');
+    }
+  });
+
   it('allows only one concurrent redemption of an owner invite', async () => {
     await resetTables();
     const service = new PilotSessionService(prisma, {
