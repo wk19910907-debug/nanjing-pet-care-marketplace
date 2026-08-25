@@ -68,19 +68,52 @@ enum DisputeStatus {
 }
 
 model User {
-  id               String           @id @default(uuid()) @db.Uuid
-  phoneHash        String?          @unique
-  wechatOpenId     String?          @unique
-  role             ActorRole
-  createdAt        DateTime         @default(now()) @db.Timestamptz(3)
-  updatedAt        DateTime         @updatedAt @db.Timestamptz(3)
-  providerProfile  ProviderProfile?
-  pets             Pet[]
-  addresses        ServiceAddress[]
-  ownerOrders      Order[]          @relation("OwnerOrders")
-  disputesOpened   Dispute[]        @relation("DisputeOpenedBy")
-  disputesResolved Dispute[]        @relation("DisputeResolvedBy")
-  auditEvents      AuditEvent[]
+  id                   String           @id @default(uuid()) @db.Uuid
+  phoneHash            String?          @unique
+  wechatOpenId         String?          @unique
+  displayName          String?          @db.VarChar(30)
+  role                 ActorRole
+  createdAt            DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime         @updatedAt @db.Timestamptz(3)
+  providerProfile      ProviderProfile?
+  pets                 Pet[]
+  addresses            ServiceAddress[]
+  ownerOrders          Order[]          @relation("OwnerOrders")
+  disputesOpened       Dispute[]        @relation("DisputeOpenedBy")
+  disputesResolved     Dispute[]        @relation("DisputeResolvedBy")
+  auditEvents          AuditEvent[]
+  pilotSessions        PilotSession[]
+  pilotInvitesCreated  PilotInvite[]    @relation("PilotInviteCreator")
+  pilotInvitesTargeted PilotInvite[]    @relation("PilotInviteTarget")
+}
+
+model PilotInvite {
+  id           String    @id @default(uuid()) @db.Uuid
+  codeHash     String    @unique @db.Char(64)
+  role         ActorRole
+  targetUserId String?   @db.Uuid
+  expiresAt    DateTime  @db.Timestamptz(3)
+  consumedAt   DateTime? @db.Timestamptz(3)
+  createdById  String    @db.Uuid
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  createdBy    User      @relation("PilotInviteCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  targetUser   User?     @relation("PilotInviteTarget", fields: [targetUserId], references: [id], onDelete: Restrict)
+
+  @@index([expiresAt, consumedAt])
+  @@index([createdById, createdAt])
+}
+
+model PilotSession {
+  id         String    @id @default(uuid()) @db.Uuid
+  tokenHash  String    @unique @db.Char(64)
+  userId     String    @db.Uuid
+  expiresAt  DateTime  @db.Timestamptz(3)
+  revokedAt  DateTime? @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  lastSeenAt DateTime  @default(now()) @db.Timestamptz(3)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, expiresAt])
 }
 
 model ProviderProfile {
