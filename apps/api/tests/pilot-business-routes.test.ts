@@ -221,6 +221,15 @@ describe('pilot manual fee and role-filtered business routes', () => {
         expiresAt: new Date('2026-09-01T07:55:00.000Z'),
       },
     ] });
+    const attachedReport = await prisma.fulfillmentReport.create({ data: {
+      orderId: ownerB.order.id, providerId: providerB.profile.id,
+      checkedInAt: new Date('2026-09-01T07:55:00.000Z'), beforeState: { petSafe: true },
+    }});
+    const attachedEvidence = await prisma.mediaEvidence.create({ data: {
+      reportId: attachedReport.id, objectKey: `orders/${ownerB.order.id}/must-not-cross`,
+      mimeType: 'image/png', sizeBytes: 4, sha256: 'a'.repeat(64),
+      capturedAt: new Date('2026-09-01T07:56:00.000Z'),
+    }});
     const { actor: admin } = await createUser('ADMIN', '运营甲');
     const read = new PilotReadModel(prisma);
 
@@ -255,12 +264,17 @@ describe('pilot manual fee and role-filtered business routes', () => {
 
     const ownerView = await read.order(ownerA.actor, ownerA.order.id);
     const adminView = await read.order(admin, ownerA.order.id);
+    const assignedProviderView = await read.order(providerB.actor, ownerB.order.id);
+    expect(assignedProviderView).toMatchObject({ evidence: [{ id: attachedEvidence.id }] });
+    expect(JSON.stringify(assignedProviderView)).not.toContain('must-not-cross');
+    expect(JSON.stringify(assignedProviderView)).not.toContain('objectKey');
     expect(ownerView).toMatchObject({ notes: '只喂指定猫粮' });
     expect(adminView).toMatchObject({
       notes: '只喂指定猫粮', ownerDisplayName: '宠主甲',
     });
     const allViews = JSON.stringify([
-      ownerView, adminView, await read.orders(providerB.actor), await read.reviewQueue(admin),
+      ownerView, adminView, assignedProviderView,
+      await read.orders(providerB.actor), await read.reviewQueue(admin),
     ]);
     for (const forbidden of [
       'detailCiphertext', 'detailNonce', 'detailAuthTag', 'accessCiphertext', 'accessNonce',
@@ -412,13 +426,21 @@ describe('pilot manual fee and role-filtered business routes', () => {
     const fulfillment = {
       async checkIn(actor: ActorContext, orderId: string, at: Date, beforeState: unknown) {
         calls.push({ operation: `check-in:${actor.userId}:${orderId}`, at, body: beforeState });
-        return { orderId };
+        return {
+          id: 'pilot-report-check-in', orderId, providerId: 'must-not-cross',
+          checkedInAt: at, beforeState, createdAt: at, updatedAt: at,
+        };
       },
       async submitReport(actor: ActorContext, orderId: string, input: {
         checklist: unknown; afterState: unknown; notes: string; checkedOutAt: Date;
       }) {
         calls.push({ operation: `report:${actor.userId}:${orderId}`, at: input.checkedOutAt, body: input });
-        return { orderId };
+        return {
+          id: 'pilot-report-submitted', orderId, providerId: 'must-not-cross',
+          checkedInAt: now, checkedOutAt: input.checkedOutAt, checklist: input.checklist,
+          afterState: input.afterState, notes: input.notes, submittedAt: now,
+          createdAt: now, updatedAt: now,
+        };
       },
     };
     const auth = new DatabaseHeaderAuth();
@@ -623,7 +645,13 @@ describe('pilot manual fee and role-filtered business routes', () => {
     });
 
     expect(checkIn.statusCode).toBe(201);
+    expect(checkIn.json()).toEqual({
+      id: 'pilot-report-check-in', orderId: owner.order.id, checkedInAt: now.toISOString(),
+    });
     expect(report.statusCode).toBe(200);
+    expect(report.json()).toEqual({
+      id: 'pilot-report-submitted', orderId: owner.order.id, submittedAt: now.toISOString(),
+    });
     expect(list.statusCode).toBe(200);
     expect(forbiddenQueue.statusCode).toBe(403);
     expect(fee.statusCode).toBe(409);

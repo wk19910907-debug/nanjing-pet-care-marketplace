@@ -215,16 +215,23 @@ export class LocalPilotObjectStorage implements ObjectStorage {
     };
   }
 
-  public async acceptUpload(token: string, bytes: Buffer): Promise<void> {
+  public async acceptUpload(token: string, bytes: Buffer, requestMimeType: string): Promise<void> {
     try {
-      await this.acceptUploadInternal(token, bytes);
+      await this.acceptUploadInternal(token, bytes, requestMimeType);
     } catch (error) {
       this.rethrowStorageError(error);
     }
   }
 
-  private async acceptUploadInternal(token: string, bytes: Buffer): Promise<void> {
+  private async acceptUploadInternal(
+    token: string,
+    bytes: Buffer,
+    requestMimeType: string,
+  ): Promise<void> {
     const payload = this.verifyToken(token, 'upload');
+    if (payload.mimeType !== requestMimeType) {
+      throw new Error('UPLOAD_INVALID');
+    }
     const objectPath = this.resolveObjectPath(payload.objectKey, 'token');
     await this.initialize();
     await this.withMutation(async () => {

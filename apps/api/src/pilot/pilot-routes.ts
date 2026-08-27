@@ -4,6 +4,7 @@ import type { PilotSessionService } from '../auth/pilot-session-service.js';
 import type { FulfillmentService } from '../fulfillment/fulfillment-service.js';
 import type { ManualFeeService } from './manual-fee-service.js';
 import type { PilotReadModel } from './pilot-read-model.js';
+import { toCheckInResponse, toReportResponse } from '../fulfillment/response-dtos.js';
 
 const JsonObjectSchema = z.record(z.string(), z.unknown());
 const InviteSchema = z.object({ role: z.enum(['OWNER', 'PROVIDER']) });
@@ -88,7 +89,7 @@ export async function registerPilotRoutes(
       const result = await dependencies.fulfillment.checkIn(
         current, orderId, now(), input.beforeState,
       );
-      return reply.code(201).send(result);
+      return reply.code(201).send(toCheckInResponse(result));
     },
   );
 
@@ -98,11 +99,11 @@ export async function registerPilotRoutes(
       const current = await actor(request);
       const { orderId } = OrderParamsSchema.parse(request.params);
       const input = ReportSchema.parse(request.body);
-      return dependencies.fulfillment.submitReport(
+      return toReportResponse(await dependencies.fulfillment.submitReport(
         current,
         orderId,
         { ...input, checkedOutAt: now() },
-      );
+      ));
     },
   );
 }

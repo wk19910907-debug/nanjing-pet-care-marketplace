@@ -19,6 +19,7 @@ const assignedCat = {
   city: '南京市', district: '秦淮区', serviceZone: '秦淮区', ownerDisplayName: '秦淮团子家',
 };
 const inServiceDog = { ...assignedCat, id: '44444444-4444-4444-8444-444444444444', serviceType: 'DOG_WALKING' as const, status: 'IN_SERVICE' as const };
+const inServiceCat = { ...assignedCat, status: 'IN_SERVICE' as const };
 
 function fakeApi(overrides: Partial<PilotApi> = {}): PilotApi {
   return {
@@ -96,7 +97,13 @@ describe('ProviderPilotWorkspace', () => {
     render(<ProviderPilotWorkspace api={api} displayName="秦淮小周" onError={() => 'error'}/>);
     await user.click(await screen.findByRole('button', { name: `接受邀请 ${invitation.id}` }));
     expect(api.acceptInvitation).toHaveBeenCalledWith(invitation.invitation.id);
-    await user.click(screen.getByRole('button', { name: `订单 ${assignedCat.id} 签到` }));
+    const checkIn = screen.getByRole('button', { name: `订单 ${assignedCat.id} 签到` });
+    expect((checkIn as HTMLButtonElement).disabled).toBe(true);
+    await user.click(checkIn);
+    expect(api.checkIn).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('checkbox', { name: '我已到达并确认宠物当前状态可开始服务' }));
+    expect((checkIn as HTMLButtonElement).disabled).toBe(false);
+    await user.click(checkIn);
     expect(api.checkIn).toHaveBeenCalledWith(assignedCat.id, { petStateConfirmed: true });
     expect(api.checkIn).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ checkedInAt: expect.anything() }));
   });
@@ -122,7 +129,13 @@ describe('ProviderPilotWorkspace', () => {
     expect((within(card).getByRole('button', { name: '提交服务报告' }) as HTMLButtonElement).disabled).toBe(true);
     await user.type(within(card).getByLabelText('遛狗时长（分钟）'), '35');
     await user.type(within(card).getByLabelText('服务报告备注'), '散步与饮水正常');
-    await user.click(within(card).getByRole('button', { name: '提交服务报告' }));
+    const submit = within(card).getByRole('button', { name: '提交服务报告' });
+    expect((submit as HTMLButtonElement).disabled).toBe(true);
+    await user.click(submit);
+    expect(api.submitReport).not.toHaveBeenCalled();
+    await user.click(within(card).getByRole('checkbox', { name: '我已确认服务后的宠物状态并如实填写报告' }));
+    expect((submit as HTMLButtonElement).disabled).toBe(false);
+    await user.click(submit);
     expect(api.submitReport).toHaveBeenCalledWith(inServiceDog.id, {
       checklist: { leashSecured: true, walkDurationMinutes: 35 },
       afterState: { petStateConfirmed: true }, notes: '散步与饮水正常',
@@ -143,5 +156,86 @@ describe('ProviderPilotWorkspace', () => {
     await user.click(within(card).getByRole('button', { name: '上传履约图片' }));
     expect((await screen.findByRole('alert')).textContent).toContain('仅支持 JPG、PNG 或 WebP 图片');
     expect(api.issueEvidenceUpload).not.toHaveBeenCalled();
+  });
+
+  it('refetches after an ambiguous invitation acceptance and renders assigned server state', async () => {
+    const accepted = { ...assignedCat, id: invitation.id };
+    const listProviderOrders = vi.fn()
+      .mockResolvedValueOnce([invitation])
+      .mockResolvedValueOnce([accepted]);
+    const api = fakeApi({
+      listProviderOrders,
+      acceptInvitation: vi.fn().mockRejectedValue(new Error('response lost')),
+    });
+    const user = userEvent.setup();
+    render(<ProviderPilotWorkspace api={api} displayName="秦淮小周" onError={() => '结果待核对'}/>);
+    await user.click(await screen.findByRole('button', { name: `接受邀请 ${invitation.id}` }));
+    expect(await screen.findByText(`任务 ${invitation.id}`)).toBeTruthy();
+    expect(listProviderOrders).toHaveBeenCalledTimes(2);
+  });
+
+  it('refetches after an ambiguous check-in and renders in-service server state', async () => {
+    const listProviderOrders = vi.fn()
+      .mockResolvedValueOnce([assignedCat])
+      .mockResolvedValueOnce([inServiceCat]);
+    const api = fakeApi({
+      listProviderOrders,
+      checkIn: vi.fn().mockRejectedValue(new Error('response lost')),
+    });
+    const user = userEvent.setup();
+    render(<ProviderPilotWorkspace api={api} displayName="秦淮小周" onError={() => '结果待核对'}/>);
+    await user.click(await screen.findByRole('checkbox', { name: '我已到达并确认宠物当前状态可开始服务' }));
+    await user.click(screen.getByRole('button', { name: `订单 ${assignedCat.id} 签到` }));
+    await waitFor(() => expect(screen.getByText('IN_SERVICE')).toBeTruthy());
+    expect(listProviderOrders).toHaveBeenCalledTimes(2);
+  });
+
+  it('recovers attached evidence from the server after an ambiguous attach response', async () => {
+    const recovered = { ...inServiceDog, evidence: [{ id: 'evidence-existing' }] };
+    const listProviderOrders = vi.fn()
+      .mockResolvedValueOnce([inServiceDog])
+      .mockResolvedValueOnce([recovered]);
+    const api = fakeApi({
+      listProviderOrders,
+      attachEvidence: vi.fn().mockRejectedValue(new Error('response lost')),
+    });
+    const user = userEvent.setup();
+    render(<ProviderPilotWorkspace api={api} displayName="秦淮小周" onError={() => '结果待核对'}/>);
+    const card = (await screen.findByText(`任务 ${inServiceDog.id}`)).closest('article')!;
+    await user.upload(
+      within(card).getByLabelText('履约图片'),
+      new File([new Uint8Array([137, 80, 78, 71])], 'walk.png', { type: 'image/png' }),
+    );
+    await user.click(within(card).getByRole('button', { name: '上传履约图片' }));
+    expect(await within(card).findByText('履约图片已附加。')).toBeTruthy();
+    expect(listProviderOrders).toHaveBeenCalledTimes(2);
+  });
+
+  it('refetches after an ambiguous report and renders submitted server state', async () => {
+    const withEvidence = { ...inServiceDog, evidence: [{ id: 'evidence-existing' }] };
+    const submitted = {
+      ...inServiceDog, status: 'PENDING_CONFIRMATION' as const,
+      evidence: [{ id: 'evidence-existing' }],
+      report: {
+        notes: '', submittedAt: '2026-09-10T03:00:00.000Z',
+        checklist: { leashSecured: true, walkDurationMinutes: 35 },
+      },
+    };
+    const listProviderOrders = vi.fn()
+      .mockResolvedValueOnce([withEvidence])
+      .mockResolvedValueOnce([submitted]);
+    const api = fakeApi({
+      listProviderOrders,
+      submitReport: vi.fn().mockRejectedValue(new Error('response lost')),
+    });
+    const user = userEvent.setup();
+    render(<ProviderPilotWorkspace api={api} displayName="秦淮小周" onError={() => '结果待核对'}/>);
+    const card = (await screen.findByText(`任务 ${inServiceDog.id}`)).closest('article')!;
+    await user.click(within(card).getByRole('checkbox', { name: '牵引装备已固定' }));
+    await user.type(within(card).getByLabelText('遛狗时长（分钟）'), '35');
+    await user.click(within(card).getByRole('checkbox', { name: '我已确认服务后的宠物状态并如实填写报告' }));
+    await user.click(within(card).getByRole('button', { name: '提交服务报告' }));
+    expect(await within(card).findByText(/服务报告已于/)).toBeTruthy();
+    expect(listProviderOrders).toHaveBeenCalledTimes(2);
   });
 });

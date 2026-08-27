@@ -86,7 +86,7 @@ export async function registerLocalUploadRoutes(
         throw new Error('MEDIA_TYPE_NOT_ALLOWED');
       }
       if (!Buffer.isBuffer(request.body)) throw new Error('UPLOAD_INVALID');
-      await dependencies.storage.acceptUpload(tokenFrom(request.query), request.body);
+      await dependencies.storage.acceptUpload(tokenFrom(request.query), request.body, contentType);
       return reply.code(204).send();
     },
   );

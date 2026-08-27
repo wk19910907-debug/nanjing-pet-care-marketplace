@@ -135,6 +135,7 @@ export type ProviderInvitation = {
 export type ProviderAssignedOrder = Omit<OwnerOrder, 'providerDisplayName' | 'notes'> & {
   ownerDisplayName?: string;
   invitation?: { id: string; status: InvitationStatus; expiresAt: string };
+  evidence?: Array<{ id: string }>;
 };
 
 export type ProviderOrder = ProviderInvitation | ProviderAssignedOrder;

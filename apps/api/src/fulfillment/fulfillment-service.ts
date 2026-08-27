@@ -13,6 +13,7 @@ type ReportInput = {
   notes: string;
   checkedOutAt: Date;
 };
+type EvidenceInput = MediaInput & { objectKey: string; capturedAt: Date };
 
 const ALLOWED_MEDIA = new Set(['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/quicktime']);
 
@@ -66,7 +67,7 @@ export class FulfillmentService {
   public async attachEvidence(
     actor: ActorContext,
     orderId: string,
-    input: MediaInput & { objectKey: string; capturedAt: Date },
+    input: EvidenceInput,
   ) {
     const assignment = await this.requireAssignedProvider(actor, orderId);
     this.validateMedia(input);
@@ -74,17 +75,27 @@ export class FulfillmentService {
     if (!await this.storage.verifyUpload(input.objectKey, input)) throw new Error('UPLOAD_NOT_VERIFIED');
     const report = await this.prisma.fulfillmentReport.findUnique({ where: { orderId } });
     if (!report || report.providerId !== assignment.profileId) throw new Error('CHECK_IN_REQUIRED');
-    return this.prisma.$transaction(async (tx) => {
-      const evidence = await tx.mediaEvidence.create({ data: {
-        reportId: report.id, objectKey: input.objectKey, mimeType: input.mimeType,
-        sizeBytes: input.sizeBytes, sha256: input.sha256, capturedAt: input.capturedAt,
-      }});
-      await this.audit.append({
-        actorId: actor.userId, actorRole: actor.role, action: 'SERVICE_EVIDENCE_ATTACHED',
-        entityType: 'Order', entityId: orderId, metadata: { evidenceId: evidence.id, mimeType: input.mimeType },
-      }, tx);
-      return evidence;
-    });
+    const existing = await this.prisma.mediaEvidence.findUnique({ where: { objectKey: input.objectKey } });
+    if (existing) return this.requireMatchingEvidence(existing, report.id, input);
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const evidence = await tx.mediaEvidence.create({ data: {
+          reportId: report.id, objectKey: input.objectKey, mimeType: input.mimeType,
+          sizeBytes: input.sizeBytes, sha256: input.sha256, capturedAt: input.capturedAt,
+        }});
+        await this.audit.append({
+          actorId: actor.userId, actorRole: actor.role, action: 'SERVICE_EVIDENCE_ATTACHED',
+          entityType: 'Order', entityId: orderId, metadata: { evidenceId: evidence.id, mimeType: input.mimeType },
+        }, tx);
+        return evidence;
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const replay = await this.prisma.mediaEvidence.findUnique({ where: { objectKey: input.objectKey } });
+        if (replay) return this.requireMatchingEvidence(replay, report.id, input);
+      }
+      throw error;
+    }
   }
 
   public async submitReport(actor: ActorContext, orderId: string, input: ReportInput) {
@@ -144,6 +155,25 @@ export class FulfillmentService {
     if (!Number.isInteger(input.sizeBytes) || input.sizeBytes <= 0) throw new Error('VALIDATION_ERROR');
     if (input.sizeBytes > this.config.maxUploadBytes) throw new Error('MEDIA_TOO_LARGE');
     if (!/^[a-f0-9]{64}$/i.test(input.sha256)) throw new Error('VALIDATION_ERROR');
+  }
+
+  private requireMatchingEvidence<T extends {
+    reportId: string;
+    objectKey: string;
+    mimeType: string;
+    sizeBytes: number;
+    sha256: string;
+    capturedAt: Date;
+  }>(existing: T, reportId: string, input: EvidenceInput): T {
+    if (
+      existing.reportId !== reportId
+      || existing.objectKey !== input.objectKey
+      || existing.mimeType !== input.mimeType
+      || existing.sizeBytes !== input.sizeBytes
+      || existing.sha256.toLowerCase() !== input.sha256.toLowerCase()
+      || existing.capturedAt.getTime() !== input.capturedAt.getTime()
+    ) throw new Error('FULFILLMENT_CONFLICT');
+    return existing;
   }
 
   private async requireAssignedProvider(actor: ActorContext, orderId: string) {

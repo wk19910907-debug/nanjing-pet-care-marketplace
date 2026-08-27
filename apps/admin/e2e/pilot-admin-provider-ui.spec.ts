@@ -114,6 +114,7 @@ test('provider sees only returned work, reads assigned address, and submits evid
   await taskCard.getByRole('checkbox', { name: '牵引装备已固定' }).check();
   await taskCard.getByLabel('遛狗时长（分钟）').fill('35');
   await taskCard.getByLabel('服务报告备注').fill('散步与饮水正常');
+  await taskCard.getByRole('checkbox', { name: '我已确认服务后的宠物状态并如实填写报告' }).check();
   await taskCard.getByRole('button', { name: '提交服务报告' }).click();
   expect(uploadMime).toBe('image/png');
   expect(reportBody).toEqual({ checklist: { leashSecured: true, walkDurationMinutes: 35 }, afterState: { petStateConfirmed: true }, notes: '散步与饮水正常' });

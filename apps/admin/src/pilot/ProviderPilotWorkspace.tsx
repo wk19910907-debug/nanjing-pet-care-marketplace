@@ -59,6 +59,8 @@ export function ProviderPilotWorkspace({ api, displayName, onError }: Props) {
   const [addresses, setAddresses] = useState<Record<string, AssignedAddress>>({});
   const [files, setFiles] = useState<Record<string, File | undefined>>({});
   const [evidenceAttached, setEvidenceAttached] = useState<Record<string, boolean>>({});
+  const [beforeStateConfirmed, setBeforeStateConfirmed] = useState<Record<string, boolean>>({});
+  const [afterStateConfirmed, setAfterStateConfirmed] = useState<Record<string, boolean>>({});
   const [checklists, setChecklists] = useState<Record<string, PilotChecklist>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
 
@@ -79,6 +81,18 @@ export function ProviderPilotWorkspace({ api, displayName, onError }: Props) {
       setOrders(next);
       const ids = new Set(next.filter(isAssigned).filter((order) => ['PENDING_SERVICE', 'IN_SERVICE'].includes(order.status)).map((order) => order.id));
       setAddresses((current) => Object.fromEntries(Object.entries(current).filter(([id]) => ids.has(id))));
+      const pendingServiceIds = new Set(next.filter(isAssigned).filter((order) => order.status === 'PENDING_SERVICE').map((order) => order.id));
+      const inServiceIds = new Set(next.filter(isAssigned).filter((order) => order.status === 'IN_SERVICE').map((order) => order.id));
+      setBeforeStateConfirmed((current) => Object.fromEntries(
+        Object.entries(current).filter(([id]) => pendingServiceIds.has(id)),
+      ));
+      setAfterStateConfirmed((current) => Object.fromEntries(
+        Object.entries(current).filter(([id]) => inServiceIds.has(id)),
+      ));
+      setEvidenceAttached(Object.fromEntries(
+        next.filter(isAssigned).filter((order) => order.status === 'IN_SERVICE')
+          .map((order) => [order.id, (order.evidence?.length ?? 0) > 0]),
+      ));
     } catch (caught) {
       if (lifecycle.current.load === version) reportError(caught, generation);
     } finally {
@@ -97,7 +111,13 @@ export function ProviderPilotWorkspace({ api, displayName, onError }: Props) {
     };
   }, [load]);
 
-  const mutate = async (key: string, operation: () => Promise<void>, success: string, reload = true) => {
+  const mutate = async (
+    key: string,
+    operation: () => Promise<void>,
+    success: string,
+    reload = true,
+    reconcileOnError = false,
+  ) => {
     if (locks.current.has(key)) return;
     const generation = lifecycle.current.generation;
     if (!lifecycle.current.mounted) return;
@@ -111,6 +131,7 @@ export function ProviderPilotWorkspace({ api, displayName, onError }: Props) {
       setNotice(success);
       if (reload) await load(false, generation);
     } catch (caught) {
+      if (reconcileOnError) await load(false, generation);
       reportError(caught, generation);
     } finally {
       if (lifecycle.current.mounted && lifecycle.current.generation === generation) {
@@ -185,15 +206,15 @@ export function ProviderPilotWorkspace({ api, displayName, onError }: Props) {
         ...media, objectKey: issued.objectKey, capturedAt: new Date().toISOString(),
       });
       if (lifecycle.current.mounted) setEvidenceAttached((current) => ({ ...current, [orderId]: true }));
-    }, '履约图片已上传并校验。', false);
+    }, '履约图片已上传并校验。', false, true);
   };
 
   const submit = (order: ProviderAssignedOrder) => {
     const checklist = completedChecklist(order.serviceType, checklists[order.id] ?? {});
-    if (!checklist || !evidenceAttached[order.id]) return;
+    if (!checklist || !evidenceAttached[order.id] || !afterStateConfirmed[order.id]) return;
     void mutate(`report:${order.id}`, () => api.submitReport(order.id, {
       checklist, afterState: { petStateConfirmed: true }, notes: notes[order.id] ?? '',
-    }).then(() => undefined), '服务报告已提交，等待宠主确认。');
+    }).then(() => undefined), '服务报告已提交，等待宠主确认。', true, true);
   };
 
   return <section className="pilot-provider-workspace">
@@ -257,7 +278,7 @@ export function ProviderPilotWorkspace({ api, displayName, onError }: Props) {
             <p>{SERVICE_LABELS[order.serviceType]} · {order.city} · {order.district} · {order.serviceZone}服务圈</p>
             <p>{new Date(order.startsAt).toLocaleString('zh-CN')} · {order.durationMinutes} 分钟</p>
             {order.invitation.status === 'PENDING' && <button type="button" disabled={pending === `accept:${order.id}`} onClick={() => void mutate(
-              `accept:${order.id}`, () => api.acceptInvitation(order.invitation.id), '邀请已接受。',
+              `accept:${order.id}`, () => api.acceptInvitation(order.invitation.id), '邀请已接受。', true, true,
             )}>接受邀请 {order.id}</button>}
           </article>;
 
@@ -272,9 +293,18 @@ export function ProviderPilotWorkspace({ api, displayName, onError }: Props) {
               <button type="button" disabled={pending === `address:${order.id}`} onClick={() => revealAddress(order.id)}>读取订单 {order.id} 完整地址</button>
               {address && <div className="pilot-exact-address"><strong>本次任务完整地址</strong><p>{address.detail}</p></div>}
             </>}
-            {order.status === 'PENDING_SERVICE' && <button type="button" disabled={pending === `checkin:${order.id}`} onClick={() => void mutate(
-              `checkin:${order.id}`, () => api.checkIn(order.id, { petStateConfirmed: true }).then(() => undefined), '签到成功，时间由服务器记录。',
-            )}>订单 {order.id} 签到</button>}
+            {order.status === 'PENDING_SERVICE' && <div className="pilot-state-confirmation">
+              <label><input
+                type="checkbox" checked={beforeStateConfirmed[order.id] === true}
+                onChange={(event) => setBeforeStateConfirmed((current) => ({
+                  ...current, [order.id]: event.target.checked,
+                }))}
+              /><span>我已到达并确认宠物当前状态可开始服务</span></label>
+              <p className="pilot-hint">请现场确认后再签到；签到时间由服务器记录。</p>
+              <button type="button" disabled={!beforeStateConfirmed[order.id] || pending === `checkin:${order.id}`} onClick={() => void mutate(
+                `checkin:${order.id}`, () => api.checkIn(order.id, { petStateConfirmed: true }).then(() => undefined), '签到成功，时间由服务器记录。', true, true,
+              )}>订单 {order.id} 签到</button>
+            </div>}
             {order.status === 'IN_SERVICE' && <div className="pilot-fulfillment-panel">
               <h4>履约图片与服务清单</h4>
               <label>履约图片<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setFiles((current) => ({ ...current, [order.id]: event.target.files?.[0] }))}/></label>
@@ -289,7 +319,13 @@ export function ProviderPilotWorkspace({ api, displayName, onError }: Props) {
                 <label>遛狗时长（分钟）<input type="number" min="1" max="600" step="1" value={typeof currentChecklist.walkDurationMinutes === 'number' ? currentChecklist.walkDurationMinutes : ''} onChange={(event) => setChecklists((current) => ({ ...current, [order.id]: { ...currentChecklist, walkDurationMinutes: Number(event.target.value) } }))}/></label>
               </fieldset>}
               <label>服务报告备注<textarea maxLength={1000} value={notes[order.id] ?? ''} onChange={(event) => setNotes((current) => ({ ...current, [order.id]: event.target.value }))}/></label>
-              <button type="button" disabled={!evidenceAttached[order.id] || !validChecklist || pending === `report:${order.id}`} onClick={() => submit(order)}>{pending === `report:${order.id}` ? '正在提交报告…' : '提交服务报告'}</button>
+              <label className="pilot-state-confirmation"><input
+                type="checkbox" checked={afterStateConfirmed[order.id] === true}
+                onChange={(event) => setAfterStateConfirmed((current) => ({
+                  ...current, [order.id]: event.target.checked,
+                }))}
+              /><span>我已确认服务后的宠物状态并如实填写报告</span></label>
+              <button type="button" disabled={!evidenceAttached[order.id] || !validChecklist || !afterStateConfirmed[order.id] || pending === `report:${order.id}`} onClick={() => submit(order)}>{pending === `report:${order.id}` ? '正在提交报告…' : '提交服务报告'}</button>
             </div>}
             {order.report && <p className="pilot-success">服务报告已于 {new Date(order.report.submittedAt).toLocaleString('zh-CN')} 提交。</p>}
           </article>;

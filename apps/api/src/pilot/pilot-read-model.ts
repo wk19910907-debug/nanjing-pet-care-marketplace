@@ -25,7 +25,12 @@ const ORDER_INCLUDE = {
     orderBy: [{ createdAt: 'desc' as const }, { id: 'desc' as const }],
   },
   report: {
-    select: { notes: true, submittedAt: true, checklist: true },
+    select: {
+      notes: true,
+      submittedAt: true,
+      checklist: true,
+      media: { select: { id: true }, orderBy: { createdAt: 'asc' as const } },
+    },
   },
 } satisfies Prisma.OrderInclude;
 
@@ -46,6 +51,7 @@ export type PilotOrderSummary = {
   providerDisplayName?: string;
   notes?: string;
   invitation?: { id: string; status: InvitationStatus; expiresAt: string };
+  evidence?: Array<{ id: string }>;
   report?: { notes: string; submittedAt: string; checklist: unknown };
 };
 
@@ -309,6 +315,9 @@ export class PilotReadModel {
           status: invitation.status,
           expiresAt: invitation.expiresAt.toISOString(),
         },
+      } : {}),
+      ...(isAssignedProvider ? {
+        evidence: record.report?.media.map((item) => ({ id: item.id })) ?? [],
       } : {}),
       ...(report ? { report } : {}),
     };

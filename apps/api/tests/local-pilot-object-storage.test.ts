@@ -104,7 +104,7 @@ describe('LocalPilotObjectStorage', () => {
 
   it('atomically accepts a signed upload, verifies metadata, and permits a signed read', async () => {
     const issued = await issue();
-    await storage.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES);
+    await storage.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES, 'image/png');
 
     expect(await storage.verifyUpload(issued.objectKey, {
       mimeType: 'image/png',
@@ -144,7 +144,7 @@ describe('LocalPilotObjectStorage', () => {
       await symlink(outsideDir, path.join(rootDir, 'orders'), 'junction');
       const issued = await issue();
 
-      await storage.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES);
+      await storage.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES, 'image/png');
       expect(await storage.verifyUpload(issued.objectKey, {
         mimeType: 'image/png', sizeBytes: PNG_BYTES.length, sha256: sha256(PNG_BYTES),
       })).toBe(true);
@@ -191,7 +191,7 @@ describe('LocalPilotObjectStorage', () => {
         mimeType: 'image/png', sizeBytes: PNG_BYTES.length, sha256: sha256(PNG_BYTES),
         expiresInSeconds: 600,
       });
-      await outsideStorage.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES);
+      await outsideStorage.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES, 'image/png');
       await symlink(outsideRoot, junctionRoot, 'junction');
       const junctionStorage = new LocalPilotObjectStorage({
         rootDir: junctionRoot,
@@ -215,28 +215,28 @@ describe('LocalPilotObjectStorage', () => {
     const uploadToken = tokenFrom(issued.uploadUrl);
 
     now = new Date('2026-08-27T12:10:01.000Z');
-    await expect(storage.acceptUpload(uploadToken, PNG_BYTES)).rejects.toThrow('FORBIDDEN');
+    await expect(storage.acceptUpload(uploadToken, PNG_BYTES, 'image/png')).rejects.toThrow('FORBIDDEN');
     now = new Date('2026-08-27T12:00:00.000Z');
 
-    await expect(storage.acceptUpload(uploadToken, Buffer.concat([PNG_BYTES, Buffer.from([0])])))
+    await expect(storage.acceptUpload(uploadToken, Buffer.concat([PNG_BYTES, Buffer.from([0])]), 'image/png'))
       .rejects.toThrow('UPLOAD_INVALID');
-    await expect(storage.acceptUpload(uploadToken, Buffer.alloc(PNG_BYTES.length, 0xff)))
+    await expect(storage.acceptUpload(uploadToken, Buffer.alloc(PNG_BYTES.length, 0xff), 'image/png'))
       .rejects.toThrow('UPLOAD_INVALID');
 
     const otherObjectToken = tamperToken(uploadToken, (payload) => {
       payload.objectKey = 'orders/22222222-2222-4222-8222-222222222222/evidence-1';
     });
-    await expect(storage.acceptUpload(otherObjectToken, PNG_BYTES)).rejects.toThrow('FORBIDDEN');
+    await expect(storage.acceptUpload(otherObjectToken, PNG_BYTES, 'image/png')).rejects.toThrow('FORBIDDEN');
 
     const forgedMimeToken = tamperToken(uploadToken, (payload) => {
       payload.mimeType = 'image/jpeg';
     });
-    await expect(storage.acceptUpload(forgedMimeToken, PNG_BYTES)).rejects.toThrow('FORBIDDEN');
+    await expect(storage.acceptUpload(forgedMimeToken, PNG_BYTES, 'image/png')).rejects.toThrow('FORBIDDEN');
 
     const readToken = tamperToken(uploadToken, (payload) => {
       payload.operation = 'read';
     });
-    await expect(storage.acceptUpload(readToken, PNG_BYTES)).rejects.toThrow('FORBIDDEN');
+    await expect(storage.acceptUpload(readToken, PNG_BYTES, 'image/png')).rejects.toThrow('FORBIDDEN');
     expect(await entries()).toEqual([MANIFEST_NAME]);
   });
 
@@ -279,13 +279,13 @@ describe('LocalPilotObjectStorage', () => {
       },
     });
 
-    await storage.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES);
+    await storage.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES, 'image/png');
     expect(await storage.verifyUpload(issued.objectKey, expected)).toBe(true);
   });
 
   it('fails closed when metadata or stored content is altered', async () => {
     const issued = await issue();
-    await storage.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES);
+    await storage.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES, 'image/png');
     const [objectFilename] = (await readdir(rootDir)).filter((entry) => !entry.endsWith('.json'));
     if (!objectFilename) throw new Error('test object file omitted');
     const objectPath = path.join(rootDir, objectFilename);
@@ -331,7 +331,7 @@ describe('LocalPilotObjectStorage', () => {
       },
     });
 
-    await storage.acceptUpload(tokenFrom(issued.uploadUrl), bytes);
+    await storage.acceptUpload(tokenFrom(issued.uploadUrl), bytes, mimeType);
     expect(await storage.verifyUpload(issued.objectKey, {
       mimeType, sizeBytes: bytes.length, sha256: sha256(bytes),
     })).toBe(true);
@@ -350,7 +350,7 @@ describe('LocalPilotObjectStorage', () => {
       },
     });
 
-    await storage.acceptUpload(tokenFrom(issued.uploadUrl), JPEG_DQT_BYTES);
+    await storage.acceptUpload(tokenFrom(issued.uploadUrl), JPEG_DQT_BYTES, 'image/jpeg');
     expect(await storage.verifyUpload(issued.objectKey, {
       mimeType: 'image/jpeg',
       sizeBytes: JPEG_DQT_BYTES.length,
@@ -378,7 +378,7 @@ describe('LocalPilotObjectStorage', () => {
       },
     });
 
-    await expect(storage.acceptUpload(tokenFrom(issued.uploadUrl), bytes))
+    await expect(storage.acceptUpload(tokenFrom(issued.uploadUrl), bytes, mimeType))
       .rejects.toThrow('UPLOAD_INVALID');
     expect(await entries()).toEqual([MANIFEST_NAME]);
   });
@@ -513,8 +513,8 @@ describe('LocalPilotObjectStorage', () => {
       quotaScope: { actorId: 'actor-a', orderId: 'order-a' },
     });
     const accepted = await Promise.allSettled([
-      limited.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES),
-      limited.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES),
+      limited.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES, 'image/png'),
+      limited.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES, 'image/png'),
     ]);
     expect(accepted.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
     expect(accepted.filter((result) => result.status === 'rejected')).toHaveLength(1);
@@ -563,8 +563,8 @@ describe('LocalPilotObjectStorage', () => {
       objectKey: string; uploadUrl: string;
     }>).value;
     const accepted = await Promise.allSettled([
-      first.acceptUpload(tokenFrom(winner.uploadUrl), PNG_BYTES),
-      second.acceptUpload(tokenFrom(winner.uploadUrl), PNG_BYTES),
+      first.acceptUpload(tokenFrom(winner.uploadUrl), PNG_BYTES, 'image/png'),
+      second.acceptUpload(tokenFrom(winner.uploadUrl), PNG_BYTES, 'image/png'),
     ]);
     expect(accepted.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
     expect(accepted.filter((result) => result.status === 'rejected')).toHaveLength(1);
@@ -594,7 +594,7 @@ describe('LocalPilotObjectStorage', () => {
 
   it('fails closed on signing-key or manifest-version mismatch without scavenging valid pairs', async () => {
     const issued = await issue();
-    await storage.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES);
+    await storage.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES, 'image/png');
     const before = await entries();
     const wrongKey = new LocalPilotObjectStorage({
       rootDir, signingSecret: Buffer.alloc(32, 0x19), maxUploadBytes: MAX_UPLOAD_BYTES, now: () => now,
@@ -740,7 +740,7 @@ describe('LocalPilotObjectStorage', () => {
 
   it('scavenges stale temporary and incomplete pairs while preserving valid objects', async () => {
     const issued = await issue();
-    await storage.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES);
+    await storage.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES, 'image/png');
     const orphanObject = 'a'.repeat(64);
     const orphanMetadata = 'b'.repeat(64);
     await writeFile(path.join(rootDir, `${'c'.repeat(64)}.tmp-11111111-1111-4111-8111-111111111111`), 'temp');
@@ -792,7 +792,7 @@ describe('LocalPilotObjectStorage', () => {
 
   it('normalizes lazy initialization and native storage failures from every public method', async () => {
     const issued = await issue();
-    await storage.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES);
+    await storage.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES, 'image/png');
     const readToken = tokenFrom(await storage.issueReadUrl(issued.objectKey, 300));
     await writeFile(path.join(rootDir, MANIFEST_NAME), '{"nativePath":"C:\\\\private-evidence"}');
     const restarted = new LocalPilotObjectStorage({
@@ -811,7 +811,7 @@ describe('LocalPilotObjectStorage', () => {
     for (const call of [
       () => restarted.initialize(),
       () => restarted.issueUpload(validRequest),
-      () => restarted.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES),
+      () => restarted.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES, 'image/png'),
       () => restarted.verifyUpload(issued.objectKey, expected),
       () => restarted.issueReadUrl(issued.objectKey, 300),
       () => restarted.readObject(readToken),
@@ -893,6 +893,36 @@ describe('registerLocalUploadRoutes', () => {
     expect(read.headers['content-type']).toBe('image/png');
     expect(read.headers['cache-control']).toBe('private, no-store');
     expect(read.rawPayload).toEqual(PNG_BYTES);
+  });
+
+  it('binds the allowed request Content-Type to the MIME in the signed upload capability', async () => {
+    const issued = await storage.issueUpload({
+      objectKey: 'orders/11111111-1111-4111-8111-111111111111/evidence-mime-bound',
+      mimeType: 'image/png', sizeBytes: PNG_BYTES.length, sha256: sha256(PNG_BYTES),
+      expiresInSeconds: 600,
+      quotaScope: {
+        actorId: 'actor-11111111',
+        orderId: '11111111-1111-4111-8111-111111111111',
+      },
+    });
+    const uploadUrl = new URL(issued.uploadUrl, 'http://pilot');
+    const path = `${uploadUrl.pathname}${uploadUrl.search}`;
+
+    const mismatched = await app.inject({
+      method: 'PUT', url: path,
+      headers: { 'content-type': 'image/jpeg' }, payload: PNG_BYTES,
+    });
+    expect(mismatched.statusCode).toBe(400);
+    expect(mismatched.json()).toEqual({ code: 'UPLOAD_INVALID' });
+    await expect(storage.verifyUpload(issued.objectKey, {
+      mimeType: 'image/png', sizeBytes: PNG_BYTES.length, sha256: sha256(PNG_BYTES),
+    })).resolves.toBe(false);
+
+    const exact = await app.inject({
+      method: 'PUT', url: path,
+      headers: { 'content-type': 'image/png' }, payload: PNG_BYTES,
+    });
+    expect(exact.statusCode).toBe(204);
   });
 
   it('returns fixed errors that do not reveal tokens, secrets, addresses, or filesystem paths', async () => {

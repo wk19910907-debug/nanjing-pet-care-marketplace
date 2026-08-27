@@ -440,6 +440,12 @@ function parseProviderOrder(value: unknown): ProviderOrder {
   }
   const ownerOrder = parseOrder(record);
   const ownerDisplayName = asOptionalString(record, 'ownerDisplayName', 30);
+  const evidenceValue = record.evidence;
+  let evidence: Array<{ id: string }> | undefined;
+  if (evidenceValue !== undefined) {
+    if (!Array.isArray(evidenceValue) || evidenceValue.length > 12) invalidResponse();
+    evidence = evidenceValue.map((item) => ({ id: asString(asRecord(item), 'id', 128) }));
+  }
   const {
     providerDisplayName: _providerDisplayName,
     notes: _notes,
@@ -449,6 +455,7 @@ function parseProviderOrder(value: unknown): ProviderOrder {
     ...assigned,
     ...(ownerDisplayName ? { ownerDisplayName } : {}),
     ...(invitation ? { invitation } : {}),
+    ...(evidence ? { evidence } : {}),
   };
 }
 
@@ -498,14 +505,32 @@ function parseAssignedAddress(value: unknown): AssignedAddress {
   return { ...parsePilotLocation(record), detail: asString(record, 'detail', 300) };
 }
 
+function assertLocalUploadUrl(uploadUrl: string): void {
+  if (
+    !/^\/(?!\/)/.test(uploadUrl)
+    || /[\\%#\s\u0000-\u001f\u007f]/.test(uploadUrl)
+  ) invalidResponse();
+  try {
+    const parsed = new URL(uploadUrl, 'https://pilot.invalid');
+    if (
+      parsed.origin !== 'https://pilot.invalid'
+      || uploadUrl !== `${parsed.pathname}${parsed.search}`
+    ) invalidResponse();
+  } catch {
+    invalidResponse();
+  }
+}
+
 function parseEvidenceUpload(value: unknown): EvidenceUpload {
   const record = asRecord(value);
   const uploadUrl = asString(record, 'uploadUrl', 2048);
-  if (!uploadUrl.startsWith('/') && !/^https:\/\//.test(uploadUrl)) invalidResponse();
+  assertLocalUploadUrl(uploadUrl);
+  const expiresInSeconds = asInteger(record, 'expiresInSeconds', 3600);
+  if (expiresInSeconds < 1) invalidResponse();
   return {
     objectKey: asString(record, 'objectKey', 500),
     uploadUrl,
-    expiresInSeconds: asInteger(record, 'expiresInSeconds', 3600),
+    expiresInSeconds,
   };
 }
 
@@ -716,6 +741,7 @@ export function createPilotApi(fetcher: Fetcher = fetch): PilotApi {
       if (!IMAGE_MIME_TYPES.includes(mimeType as typeof IMAGE_MIME_TYPES[number])) {
         throw new PilotApiError(400, 'MEDIA_TYPE_NOT_ALLOWED');
       }
+      assertLocalUploadUrl(uploadUrl);
       let response: Response;
       try {
         response = await fetcher(uploadUrl, {

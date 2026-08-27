@@ -81,4 +81,44 @@ describe('pilot task 8 API transport', () => {
     await expect(unsafeOrderApi.listProviderOrders()).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
     await expect(unsafeAddressApi.getAssignedAddress('order-1')).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
   });
+
+  it.each([
+    '//evil.example/upload?token=exfiltrate',
+    '/\\evil.example/upload?token=exfiltrate',
+    'https://evil.example/upload?token=exfiltrate',
+    '/%2f%2fevil.example/upload?token=exfiltrate',
+    '/api/v1/pilot/local-evidence#token=exfiltrate',
+  ])('rejects unsafe local upload capability %s before any upload fetch', async (uploadUrl) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      objectKey: 'orders/order-1/evidence-1', uploadUrl, expiresInSeconds: 600,
+    }));
+    const api = createPilotApi(fetcher);
+    await expect(api.issueEvidenceUpload('order-1', {
+      mimeType: 'image/png', sizeBytes: 4, sha256: 'a'.repeat(64),
+    })).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('projects safe evidence IDs from the assigned provider read model', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse([{
+      id: 'order-1', serviceType: 'DOG_WALKING', status: 'IN_SERVICE',
+      startsAt: '2026-09-10T02:00:00.000Z', durationMinutes: 30,
+      totalFen: 4900, currency: 'CNY', city: '南京市', district: '秦淮区', serviceZone: '秦淮区',
+      ownerDisplayName: '秦淮豆包家',
+      evidence: [{ id: 'evidence-1', objectKey: 'must-not-cross', reportId: 'must-not-cross' }],
+    }]));
+    const api = createPilotApi(fetcher);
+    await expect(api.listProviderOrders()).resolves.toEqual([expect.objectContaining({
+      id: 'order-1', evidence: [{ id: 'evidence-1' }],
+    })]);
+  });
+
+  it('rejects a protocol-relative upload URL before a direct upload fetch', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    const api = createPilotApi(fetcher);
+    await expect(api.uploadEvidence(
+      '//evil.example/exfiltrate', new Uint8Array([1, 2, 3, 4]), 'image/png',
+    )).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
 });
