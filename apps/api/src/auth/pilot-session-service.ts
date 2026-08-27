@@ -27,6 +27,11 @@ type RedeemResult = {
   expiresAt: Date;
 };
 
+export type PilotSessionContext = ActorContext & {
+  displayName: string | null;
+  expiresAt: Date;
+};
+
 function addHours(value: Date, hours: number): Date {
   return new Date(value.getTime() + hours * 60 * 60 * 1_000);
 }
@@ -142,13 +147,13 @@ export class PilotSessionService implements AuthService {
     }
   }
 
-  async authenticate(authorizationHeader: string | undefined): Promise<ActorContext> {
+  async authenticate(authorizationHeader: string | undefined): Promise<PilotSessionContext> {
     const raw = bearerToken(authorizationHeader);
     const tokenHash = digestPilotCredential(this.pepper, 'session', raw);
     const now = this.now();
     const session = await this.prisma.pilotSession.findFirst({
       where: { tokenHash, revokedAt: null, expiresAt: { gt: now } },
-      include: { user: { select: { id: true, role: true } } },
+      include: { user: { select: { id: true, role: true, displayName: true } } },
     });
     if (!session) throw new Error('UNAUTHENTICATED');
 
@@ -157,7 +162,12 @@ export class PilotSessionService implements AuthService {
       data: { lastSeenAt: now },
     });
     if (active.count !== 1) throw new Error('UNAUTHENTICATED');
-    return { userId: session.user.id, role: session.user.role };
+    return {
+      userId: session.user.id,
+      role: session.user.role,
+      displayName: session.user.displayName,
+      expiresAt: session.expiresAt,
+    };
   }
 
   async revoke(authorizationHeader: string | undefined): Promise<void> {

@@ -5,12 +5,19 @@ import { registerPetRoutes, type PetRoutesDependencies } from './pets/routes.js'
 import { registerDispatchRoutes, type DispatchRoutesDependencies } from './dispatch/routes.js';
 import { registerFulfillmentRoutes, type FulfillmentRoutesDependencies } from './fulfillment/routes.js';
 import { registerDisputeRoutes, type DisputeRoutesDependencies } from './disputes/routes.js';
+import {
+  installPilotCookieBridge,
+  registerPilotAuthRoutes,
+  type PilotAuthRoutesDependencies,
+} from './auth/pilot-routes.js';
+import { requirePilotOrigin } from './auth/pilot-origin-guard.js';
 
 type AppDependencies = PetRoutesDependencies
   & Partial<Omit<OrderRoutesDependencies, 'auth'>>
   & Partial<Omit<DispatchRoutesDependencies, 'auth'>>
   & Partial<Omit<FulfillmentRoutesDependencies, 'auth'>>
-  & Partial<Omit<DisputeRoutesDependencies, 'auth'>>;
+  & Partial<Omit<DisputeRoutesDependencies, 'auth'>>
+  & { pilot?: PilotAuthRoutesDependencies };
 
 export function createApp(dependencies: AppDependencies) {
   const app = Fastify({ logger: false });
@@ -21,11 +28,17 @@ export function createApp(dependencies: AppDependencies) {
     if (error instanceof Error && error.message === 'UNAUTHENTICATED') {
       return reply.code(401).send({ code: 'UNAUTHENTICATED' });
     }
+    if (error instanceof Error && error.message === 'INVITE_INVALID') {
+      return reply.code(401).send({ code: 'INVITE_INVALID' });
+    }
     if (error instanceof Error && error.message === 'FORBIDDEN') {
       return reply.code(403).send({ code: 'FORBIDDEN' });
     }
     if (error instanceof Error && error.message === 'VALIDATION_ERROR') {
       return reply.code(400).send({ code: 'VALIDATION_ERROR' });
+    }
+    if (error instanceof Error && error.message === 'DISPLAY_NAME_INVALID') {
+      return reply.code(400).send({ code: 'DISPLAY_NAME_INVALID' });
     }
     if (error instanceof Error && error.message === 'PAYMENT_VERIFICATION_FAILED') {
       return reply.code(400).send({ code: 'PAYMENT_VERIFICATION_FAILED' });
@@ -54,6 +67,15 @@ export function createApp(dependencies: AppDependencies) {
     }
     return reply.send(error);
   });
+  if (dependencies.pilot) {
+    installPilotCookieBridge(app);
+    if (dependencies.pilot.config.nodeEnv === 'production') {
+      const origin = dependencies.pilot.config.pilot?.publicOrigin;
+      if (!origin) throw new Error('PILOT_PUBLIC_ORIGIN_REQUIRED');
+      app.addHook('onRequest', requirePilotOrigin(origin));
+    }
+    void app.register(registerPilotAuthRoutes, dependencies.pilot);
+  }
   void app.register(registerPetRoutes, dependencies);
   if (dependencies.quotes && dependencies.orders && dependencies.payments) {
     void app.register(registerOrderRoutes, {

@@ -3,6 +3,16 @@ import type { AppConfig } from './config.js';
 
 export function readinessSnapshot(config: AppConfig, probes: { database: boolean }) {
   const production = config.production;
+  if (config.pilot) return {
+    ready: probes.database && (config.nodeEnv !== 'production' || Boolean(production)),
+    database: probes.database,
+    encryption: Boolean(production?.fieldEncryptionKey),
+    paymentProvider: 'manual' as const,
+    objectStorageProvider: config.nodeEnv === 'production'
+      ? 's3' as const
+      : config.pilot.evidenceDir ? 'filesystem' as const : 'unconfigured' as const,
+    notificationProvider: 'disabled' as const,
+  };
   const result = {
     ready: probes.database && Boolean(production),
     database: probes.database,

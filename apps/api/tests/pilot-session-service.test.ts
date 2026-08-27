@@ -97,7 +97,9 @@ describe('PilotSessionService', () => {
 
     const adminLogin = await service.redeem('admin-invite');
     const actor = await service.authenticate(`Bearer ${adminLogin.token}`);
-    expect(actor.role).toBe('ADMIN');
+    expect(actor).toMatchObject({
+      role: 'ADMIN', displayName: null, expiresAt: adminLogin.expiresAt,
+    });
     expect(await prisma.user.count({ where: { role: 'ADMIN' } })).toBe(1);
     expect(await prisma.pilotSession.findFirstOrThrow()).not.toHaveProperty(
       'token',
