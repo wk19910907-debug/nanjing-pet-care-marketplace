@@ -60,8 +60,15 @@ export class ProviderService {
     }
     return this.prisma.$transaction(async (tx) => {
       const profile = await tx.providerProfile.update({
-        where: { id: profileId }, data: { reviewStatus: status },
+        where: { id: profileId },
+        data: { reviewStatus: status, acceptsInvitations: status === 'APPROVED' },
       });
+      if (status !== 'APPROVED') {
+        await tx.dispatchInvitation.updateMany({
+          where: { providerId: profileId, status: 'PENDING' },
+          data: { status: 'CANCELLED', respondedAt: new Date() },
+        });
+      }
       await this.audit.append({
         actorId: actor.userId, actorRole: actor.role, action: 'PROVIDER_REVIEWED',
         entityType: 'ProviderProfile', entityId: profile.id, metadata: { status },

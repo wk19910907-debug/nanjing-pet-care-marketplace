@@ -493,6 +493,14 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await adminPage.getByRole('button', { name: '暂停建邺小周' }).click();
     await adminPage.getByRole('button', { name: '确认暂停建邺小周' }).click();
     await expect(adminPage.getByText('已暂停', { exact: true })).toBeVisible();
+    const suspendedProviderAccept = await deliberateNegative(
+      providerPage,
+      `/api/v1/invitations/${holdingInvitation.id}/accept`,
+      [409],
+      { method: 'POST' },
+    );
+    expect(suspendedProviderAccept.status).toBe(409);
+    expect(suspendedProviderAccept.body).toEqual({ code: 'DISPATCH_CONFLICT' });
 
     await withinNegativeWindow(ownerPage, '/api/v1/pilot/session', [401], () => (
       logoutAndAssertRevoked(ownerContext, ownerPage)

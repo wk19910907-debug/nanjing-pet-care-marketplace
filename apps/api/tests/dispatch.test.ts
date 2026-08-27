@@ -88,6 +88,42 @@ describe('managed dispatch', () => {
       .toMatchObject({ status: 'PENDING_DISPATCH', assignedProviderId: null });
   });
 
+  it('cancels pending invitations when a provider is suspended', async () => {
+    const order = await createOrder();
+    const provider = await createProvider(50, order.startsAt);
+    const invitation = await prisma.dispatchInvitation.create({ data: {
+      orderId: order.id, providerId: provider.profile.id, wave: 1,
+      expiresAt: new Date(Date.now() + 5 * 60_000),
+    }});
+    const reviewer = await prisma.user.create({ data: { role: 'REVIEWER', phoneHash: randomUUID() } });
+
+    await providers.review(
+      { userId: reviewer.id, role: 'REVIEWER' }, provider.profile.id, 'SUSPENDED',
+    );
+
+    expect(await prisma.dispatchInvitation.findUniqueOrThrow({ where: { id: invitation.id } }))
+      .toMatchObject({ status: 'CANCELLED' });
+    await expect(dispatch.acceptInvitation(invitation.id, provider.profile.id, new Date()))
+      .rejects.toThrow('DISPATCH_CONFLICT');
+  });
+
+  it('rechecks provider eligibility when accepting an existing invitation', async () => {
+    const order = await createOrder();
+    const provider = await createProvider(51, order.startsAt);
+    const invitation = await prisma.dispatchInvitation.create({ data: {
+      orderId: order.id, providerId: provider.profile.id, wave: 1,
+      expiresAt: new Date(Date.now() + 5 * 60_000),
+    }});
+    await prisma.providerProfile.update({
+      where: { id: provider.profile.id }, data: { acceptsInvitations: false },
+    });
+
+    await expect(dispatch.acceptInvitation(invitation.id, provider.profile.id, new Date()))
+      .rejects.toThrow('DISPATCH_CONFLICT');
+    expect(await prisma.order.findUniqueOrThrow({ where: { id: order.id } }))
+      .toMatchObject({ status: 'PENDING_DISPATCH', assignedProviderId: null });
+  });
+
   it('expires waves, tries a second wave, then fails closed with an alert', async () => {
     const order = await createOrder();
     await Promise.all(Array.from({ length: 6 }, (_, index) => createProvider(index + 20, order.startsAt)));
