@@ -23,7 +23,7 @@ export async function registerDisputeRoutes(app: FastifyInstance, deps: DisputeR
     return {
       orderId: settlement.orderId,
       status: 'COMPLETED' as const,
-      confirmedAt: settlement.availableAt.toISOString(),
+      confirmedAt: settlement.createdAt.toISOString(),
     };
   });
   app.post<{ Params: { orderId: string } }>('/v1/orders/:orderId/cancel', async (request) => {
