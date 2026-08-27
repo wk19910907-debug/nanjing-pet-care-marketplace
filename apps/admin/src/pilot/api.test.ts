@@ -136,6 +136,100 @@ describe('pilot API transport', () => {
     expect(JSON.stringify(records)).not.toContain('internalNote');
   });
 
+  it.each([
+    ['session', '', (api: ReturnType<typeof createPilotApi>) => api.getSession()],
+    ['session', '   ', (api: ReturnType<typeof createPilotApi>) => api.getSession()],
+    ['session', ' 昵称', (api: ReturnType<typeof createPilotApi>) => api.getSession()],
+    ['session', '昵称 ', (api: ReturnType<typeof createPilotApi>) => api.getSession()],
+    ['session', '昵'.repeat(31), (api: ReturnType<typeof createPilotApi>) => api.getSession()],
+    ['profile', '', (api: ReturnType<typeof createPilotApi>) => api.updateProfile('昵称')],
+    ['profile', '   ', (api: ReturnType<typeof createPilotApi>) => api.updateProfile('昵称')],
+    ['profile', ' 昵称', (api: ReturnType<typeof createPilotApi>) => api.updateProfile('昵称')],
+    ['profile', '昵称 ', (api: ReturnType<typeof createPilotApi>) => api.updateProfile('昵称')],
+    ['profile', '昵'.repeat(31), (api: ReturnType<typeof createPilotApi>) => api.updateProfile('昵称')],
+  ])('rejects invalid %s displayName %j', async (kind, displayName, call) => {
+    const body = kind === 'session'
+      ? {
+          userId: 'owner-1', role: 'OWNER', displayName,
+          expiresAt: '2026-09-01T00:00:00.000Z',
+        }
+      : { id: 'owner-1', role: 'OWNER', displayName };
+    const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(body)));
+
+    await expect(call(api)).rejects.toMatchObject({
+      status: 503, code: 'SERVICE_UNAVAILABLE', message: '服务暂时不可用，请稍后重试',
+    });
+  });
+
+  it.each([
+    'rawCode', 'RAW_CODE', 'raw-code', 'raw code',
+    'invitationCode', 'invitation_code', 'invitation-code',
+    'inviteCode', 'invite_code', 'invite-code',
+    'codeHash', 'code_hash', 'code-hash',
+    'sessionToken', 'session_token', 'access-token', 'TOKEN',
+  ])('rejects credential-like invitation metadata key %s', async (credentialKey) => {
+    const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse([{
+      id: 'invite-1', role: 'OWNER', consumedAt: null,
+      expiresAt: '2026-09-01T00:00:00.000Z', createdAt: '2026-08-28T00:00:00.000Z',
+      [credentialKey]: 'must-not-cross-client-boundary',
+    }])));
+
+    await expect(api.listInvites()).rejects.toMatchObject({
+      status: 503, code: 'SERVICE_UNAVAILABLE', message: '服务暂时不可用，请稍后重试',
+    });
+  });
+
+  it('rejects credential aliases in create responses while allowing the documented code field', async () => {
+    const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      id: 'invite-1', role: 'OWNER', code: 'one-time-code', raw_code: 'duplicate-secret',
+      expiresAt: '2026-09-01T00:00:00.000Z', createdAt: '2026-08-28T00:00:00.000Z',
+    }, 201)));
+
+    await expect(api.createInvite('OWNER')).rejects.toMatchObject({
+      status: 503, code: 'SERVICE_UNAVAILABLE', message: '服务暂时不可用，请稍后重试',
+    });
+  });
+
+  it('does not mistake safe invitation metadata fields for credentials', async () => {
+    const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse([{
+      id: 'invite-1', role: 'OWNER', consumedAt: null,
+      expiresAt: '2026-09-01T00:00:00.000Z', createdAt: '2026-08-28T00:00:00.000Z',
+    }])));
+
+    await expect(api.listInvites()).resolves.toEqual([{
+      id: 'invite-1', role: 'OWNER', consumedAt: null,
+      expiresAt: '2026-09-01T00:00:00.000Z', createdAt: '2026-08-28T00:00:00.000Z',
+    }]);
+  });
+
+  it.each([
+    'next Thursday',
+    '2026-09-01',
+    '2026/09/01 00:00:00',
+    '2026-02-30T00:00:00.000Z',
+    '2026-09-01T00:00:00',
+    '2026-09-01 00:00:00Z',
+  ])('rejects non-strict API timestamp %s', async (expiresAt) => {
+    const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      userId: 'owner-1', role: 'OWNER', displayName: null, expiresAt,
+    })));
+
+    await expect(api.getSession()).rejects.toMatchObject({
+      status: 503, code: 'SERVICE_UNAVAILABLE', message: '服务暂时不可用，请稍后重试',
+    });
+  });
+
+  it('accepts a valid ISO-8601 timestamp with an explicit offset', async () => {
+    const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      userId: 'owner-1', role: 'OWNER', displayName: null,
+      expiresAt: '2026-09-01T08:00:00+08:00',
+    })));
+
+    await expect(api.getSession()).resolves.toMatchObject({
+      expiresAt: '2026-09-01T08:00:00+08:00',
+    });
+  });
+
   it('requires logout to return the documented empty 204 response', async () => {
     const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ ok: true })));
 

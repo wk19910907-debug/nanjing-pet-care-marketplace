@@ -1,5 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
-import type { PilotApi } from './api.js';
+import { PilotApiError, type PilotApi } from './api.js';
 import type { PilotInvite, PilotInviteCreated, PilotInviteRole } from './models.js';
 
 const ROLE_LABELS = { OWNER: '宠主', PROVIDER: '服务人员', ADMIN: '管理员' } as const;
@@ -22,6 +22,15 @@ export function AdminInvitePanel({ api, onError }: AdminInvitePanelProps) {
   const [error, setError] = useState('');
   const operationGeneration = useRef(0);
   const createInFlight = useRef(false);
+  const mounted = useRef(true);
+
+  const notifyCurrentUnauthorized = useCallback((caught: unknown) => {
+    if (mounted.current && caught instanceof PilotApiError && caught.status === 401) {
+      onError(caught);
+      return true;
+    }
+    return false;
+  }, [onError]);
 
   const refresh = useCallback(async () => {
     const generation = ++operationGeneration.current;
@@ -32,19 +41,24 @@ export function AdminInvitePanel({ api, onError }: AdminInvitePanelProps) {
       const records = await api.listInvites();
       if (operationGeneration.current === generation) setInvites(records);
     } catch (caught) {
-      setCreated(null);
-      if (operationGeneration.current === generation) {
+      if (mounted.current) setCreated(null);
+      if (notifyCurrentUnauthorized(caught)) return;
+      if (mounted.current && operationGeneration.current === generation) {
         const message = onError(caught);
         if (message) setError(message);
       }
     } finally {
-      if (operationGeneration.current === generation) setLoading(false);
+      if (mounted.current && operationGeneration.current === generation) setLoading(false);
     }
-  }, [api, onError]);
+  }, [api, notifyCurrentUnauthorized, onError]);
 
   useEffect(() => {
+    mounted.current = true;
     void refresh();
-    return () => { operationGeneration.current += 1; };
+    return () => {
+      mounted.current = false;
+      operationGeneration.current += 1;
+    };
   }, [refresh]);
 
   const submit = async (event: FormEvent) => {
@@ -60,14 +74,15 @@ export function AdminInvitePanel({ api, onError }: AdminInvitePanelProps) {
       const result = await api.createInvite(role);
       if (operationGeneration.current === generation) setCreated(result);
     } catch (caught) {
-      setCreated(null);
-      if (operationGeneration.current === generation) {
+      if (mounted.current) setCreated(null);
+      if (notifyCurrentUnauthorized(caught)) return;
+      if (mounted.current && operationGeneration.current === generation) {
         const message = onError(caught);
         if (message) setError(message);
       }
     } finally {
       createInFlight.current = false;
-      setPending(false);
+      if (mounted.current) setPending(false);
     }
   };
 

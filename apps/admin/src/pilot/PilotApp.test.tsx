@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PilotApi } from './api.js';
-import { PilotApiError } from './api.js';
+import { createPilotApi, PilotApiError } from './api.js';
 import { PilotApp } from './PilotApp.js';
 
 const adminSession = {
@@ -236,6 +236,44 @@ describe('PilotApp', () => {
     expect(await screen.findByRole('heading', { name: '邀请码登录' })).toBeTruthy();
     expect(screen.queryByText('宠主 · 未使用')).toBeNull();
     expect(screen.queryByText('邀请码管理')).toBeNull();
+  });
+
+  it('unloads the admin UI when a stale create returns 401 after refresh begins', async () => {
+    const create = deferred<Awaited<ReturnType<PilotApi['createInvite']>>>();
+    const refresh = deferred<Awaited<ReturnType<PilotApi['listInvites']>>>();
+    const api = fakeApi({
+      createInvite: vi.fn().mockImplementation(() => create.promise),
+      listInvites: vi.fn()
+        .mockResolvedValueOnce([])
+        .mockImplementationOnce(() => refresh.promise),
+    });
+    const user = userEvent.setup();
+    render(<PilotApp api={api}/>);
+
+    expect(await screen.findByRole('heading', { name: '邀请码管理' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '创建一次性邀请码' }));
+    await user.click(screen.getByRole('button', { name: '刷新邀请记录' }));
+    await act(async () => {
+      create.reject(new PilotApiError(401, 'UNAUTHENTICATED'));
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByRole('heading', { name: '邀请码登录' })).toBeTruthy();
+    expect(screen.queryByText('邀请码管理')).toBeNull();
+    expect(screen.queryByText('must-never-render')).toBeNull();
+  });
+
+  it('never opens a protected workspace for an invalid runtime display name', async () => {
+    const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({
+      userId: 'admin-1', role: 'ADMIN', displayName: ' 未修剪昵称',
+      expiresAt: '2026-09-03T10:00:00.000Z',
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
+
+    render(<PilotApp api={api}/>);
+
+    expect((await screen.findByRole('alert')).textContent).toContain('服务暂时不可用，请稍后重试');
+    expect(screen.queryByText('邀请码管理')).toBeNull();
+    expect(screen.queryByText('平台管理员工作区')).toBeNull();
   });
 
   it('does not clear a long session when the capped timer fires before the real expiry', async () => {

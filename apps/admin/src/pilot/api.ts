@@ -49,6 +49,13 @@ type JsonRecord = Record<string, unknown>;
 
 const PILOT_ROLES = ['OWNER', 'PROVIDER', 'ADMIN'] as const;
 const INVITE_ROLES = ['OWNER', 'PROVIDER'] as const;
+const CREDENTIAL_FIELD_NAMES = new Set([
+  'codehash',
+  'invitationcode',
+  'invitecode',
+  'rawcode',
+]);
+const ISO_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/;
 
 function invalidResponse(): never {
   throw new PilotApiError(503, 'SERVICE_UNAVAILABLE');
@@ -65,9 +72,49 @@ function asString(record: JsonRecord, key: string, maximum = 512): string {
   return value;
 }
 
+function isStrictIsoTimestamp(value: string): boolean {
+  const match = ISO_TIMESTAMP.exec(value);
+  if (!match) return false;
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText, zone] = match;
+  if (!yearText || !monthText || !dayText || !hourText || !minuteText || !secondText || !zone) {
+    return false;
+  }
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (
+    month < 1 || month > 12
+    || day < 1 || day > (daysInMonth[month - 1] ?? 0)
+    || hour > 23 || minute > 59 || second > 59
+  ) return false;
+  if (zone !== 'Z') {
+    const offsetHour = Number(zone.slice(1, 3));
+    const offsetMinute = Number(zone.slice(4, 6));
+    if (offsetHour > 14 || offsetMinute > 59 || (offsetHour === 14 && offsetMinute !== 0)) {
+      return false;
+    }
+  }
+  return Number.isFinite(Date.parse(value));
+}
+
 function asDate(record: JsonRecord, key: string): string {
   const value = asString(record, key, 64);
-  if (!Number.isFinite(Date.parse(value))) invalidResponse();
+  if (!isStrictIsoTimestamp(value)) invalidResponse();
+  return value;
+}
+
+function asDisplayName(value: unknown): string {
+  if (
+    typeof value !== 'string'
+    || value.length < 1
+    || value.length > 30
+    || value !== value.trim()
+  ) invalidResponse();
   return value;
 }
 
@@ -89,11 +136,10 @@ function asInviteRole(record: JsonRecord): PilotInviteRole {
 
 function rejectCredentialFields(record: JsonRecord, allowCode = false): void {
   const unsafe = Object.keys(record).some((key) => {
-    const normalized = key.toLowerCase();
-    return normalized.includes('token')
-      || normalized === 'codehash'
-      || normalized === 'invitecode'
-      || (!allowCode && normalized === 'code');
+    const canonical = key.replace(/[^a-z0-9]/gi, '').toLowerCase();
+    return canonical.includes('token')
+      || CREDENTIAL_FIELD_NAMES.has(canonical)
+      || (!allowCode && canonical === 'code');
   });
   if (unsafe) invalidResponse();
 }
@@ -102,13 +148,10 @@ function parseSession(value: unknown): PilotSession {
   const record = asRecord(value);
   rejectCredentialFields(record);
   const displayName = record.displayName;
-  if (displayName !== null && (typeof displayName !== 'string' || displayName.length > 30)) {
-    invalidResponse();
-  }
   return {
     userId: asString(record, 'userId', 128),
     role: asRole(record),
-    displayName,
+    displayName: displayName === null ? null : asDisplayName(displayName),
     expiresAt: asDate(record, 'expiresAt'),
   };
 }
@@ -122,7 +165,7 @@ function parseSessionCreated(value: unknown): PilotSessionCreated {
 function parseProfile(value: unknown): PilotProfile {
   const record = asRecord(value);
   rejectCredentialFields(record);
-  const displayName = asString(record, 'displayName', 30);
+  const displayName = asDisplayName(record.displayName);
   return { id: asString(record, 'id', 128), role: asRole(record), displayName };
 }
 
@@ -143,7 +186,7 @@ function parseInvite(value: unknown): PilotInvite {
   rejectCredentialFields(record);
   const consumedAt = record.consumedAt;
   if (consumedAt !== null && (
-    typeof consumedAt !== 'string' || !Number.isFinite(Date.parse(consumedAt))
+    typeof consumedAt !== 'string' || !isStrictIsoTimestamp(consumedAt)
   )) invalidResponse();
   return {
     id: asString(record, 'id', 128),
