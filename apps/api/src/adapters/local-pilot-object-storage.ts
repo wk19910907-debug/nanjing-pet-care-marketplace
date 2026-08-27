@@ -14,6 +14,7 @@ import {
   realpath,
   rename,
   unlink,
+  utimes,
   writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
@@ -39,7 +40,9 @@ const ROOT_FORMAT_VERSION = 1;
 const ROOT_LEASE_NAME = /^\.pilot-storage\.lease\.([a-f0-9-]{36})$/;
 const ROOT_STALE_NAME = /^\.pilot-storage\.stale\.([a-f0-9-]{36})\.([a-f0-9-]{36})$/;
 const ROOT_LEASE_MAX_BYTES = 512;
-const ROOT_LEASE_WAIT_MS = 5_000;
+const ROOT_LEASE_WAIT_MS = 10_000;
+const ROOT_LEASE_STALE_MS = 2_000;
+const ROOT_LEASE_HEARTBEAT_MS = 250;
 const ROOT_LEASE_RETRY_MS = 10;
 const ROOT_MUTATION_TAILS = new Map<string, Promise<void>>();
 const ALLOWED_MIME_TYPES = new Set([
@@ -98,6 +101,17 @@ type QuotaEntry = EvidenceQuotaScope & { sizeBytes: number };
 type RootIdentity = { dev: number; ino: number; birthtimeMs: number };
 type RootLease = { id: string; pid: number; createdAt: number };
 type FileIdentity = { dev: number; ino: number; size: number; birthtimeMs: number };
+type ObservedLease = {
+  generationId: string;
+  lease: RootLease | null;
+  identity: FileIdentity;
+  mtimeMs: number;
+};
+type HeldRootLease = {
+  record: RootLease;
+  stopHeartbeat: () => Promise<void>;
+  heartbeatFailure: () => unknown;
+};
 type RootManifest = { formatVersion: number; keyId: string; integrity: string };
 
 export type LocalPilotObjectStorageOptions = {
@@ -337,9 +351,9 @@ export class LocalPilotObjectStorage implements ObjectStorage {
         if (staleMatch && entry.isFile()) {
           const stalePath = path.join(this.rootDir, entry.name);
           const stats = await lstat(stalePath);
-          if (Date.now() - stats.mtimeMs > ROOT_LEASE_WAIT_MS) {
-            const observed = await this.readLeaseFile(stalePath);
-            if (!observed || observed.lease.id !== staleMatch[1]) {
+          if (Date.now() - stats.mtimeMs > ROOT_LEASE_STALE_MS) {
+            const observed = await this.observeLeaseFile(stalePath, staleMatch[1]!);
+            if (!observed) {
               throw new Error('EVIDENCE_STORAGE_UNAVAILABLE');
             }
             await this.unlinkVerified(stalePath, observed.identity);
@@ -836,7 +850,7 @@ export class LocalPilotObjectStorage implements ObjectStorage {
     const current = new Promise<void>((resolve) => { release = resolve; });
     ROOT_MUTATION_TAILS.set(rootKey, current);
     await previous;
-    let lease: RootLease | undefined;
+    let lease: HeldRootLease | undefined;
     try {
       await this.prepareRoot();
       const currentIdentity = await this.currentRootIdentity();
@@ -844,7 +858,10 @@ export class LocalPilotObjectStorage implements ObjectStorage {
       await this.assertRootIdentity();
       lease = await this.acquireRootLease();
       await this.ensureRootManifest();
-      return await operation();
+      const result = await operation();
+      const heartbeatFailure = lease.heartbeatFailure();
+      if (heartbeatFailure) throw heartbeatFailure;
+      return result;
     } finally {
       if (lease) await this.releaseRootLease(lease);
       release();
@@ -852,11 +869,12 @@ export class LocalPilotObjectStorage implements ObjectStorage {
     }
   }
 
-  private async acquireRootLease(): Promise<RootLease> {
+  private async acquireRootLease(): Promise<HeldRootLease> {
     const lease: RootLease = { id: randomUUID(), pid: process.pid, createdAt: Date.now() };
     const leasePath = path.join(this.rootDir, `.pilot-storage.lease.${lease.id}`);
     const deadline = Date.now() + ROOT_LEASE_WAIT_MS;
     await this.writeExclusive(leasePath, JSON.stringify(lease));
+    const held = this.startRootLeaseHeartbeat(lease);
     try {
       for (;;) {
         let retry = false;
@@ -871,18 +889,28 @@ export class LocalPilotObjectStorage implements ObjectStorage {
           const match = name.match(ROOT_LEASE_NAME);
           if (!match) continue;
           const contenderPath = path.join(this.rootDir, name);
-          const observed = await this.readLeaseFile(contenderPath);
+          let observed = await this.observeLeaseFile(contenderPath, match[1]!);
           if (!observed) {
             retry = true;
             continue;
           }
-          if (observed.lease.id !== match[1]) {
-            throw new Error('EVIDENCE_STORAGE_UNAVAILABLE');
-          }
-          if (!this.processIsAlive(observed.lease.pid)) {
-            // Give isolated processes that observed the same generation a deterministic race.
-            await new Promise<void>((resolve) => { setTimeout(resolve, ROOT_LEASE_RETRY_MS); });
+          if (Date.now() - observed.mtimeMs >= ROOT_LEASE_STALE_MS) {
+            // Re-observe after a heartbeat interval. An active owner changes mtime and wins.
+            await new Promise<void>((resolve) => { setTimeout(resolve, ROOT_LEASE_HEARTBEAT_MS); });
+            const refreshed = await this.observeLeaseFile(contenderPath, match[1]!);
+            if (!refreshed
+              || refreshed.mtimeMs !== observed.mtimeMs
+              || !this.sameIdentityValue(refreshed.identity, observed.identity)) {
+              retry = true;
+              continue;
+            }
+            observed = refreshed;
             await this.quarantineLease(contenderPath, observed);
+            retry = true;
+            continue;
+          }
+          if (!observed.lease || observed.lease.id !== match[1]) {
+            // A fresh partial generation blocks acquisition until its stale threshold.
             retry = true;
             continue;
           }
@@ -890,40 +918,95 @@ export class LocalPilotObjectStorage implements ObjectStorage {
         }
         if (retry) {
           if (Date.now() >= deadline) throw new Error('EVIDENCE_STORAGE_UNAVAILABLE');
+          await new Promise<void>((resolve) => { setTimeout(resolve, ROOT_LEASE_RETRY_MS); });
           continue;
         }
         contenders.sort((left, right) => left.createdAt - right.createdAt
           || left.id.localeCompare(right.id));
-        if (contenders[0]?.id === lease.id) return lease;
+        if (contenders[0]?.id === lease.id) return held;
         if (Date.now() >= deadline) throw new Error('EVIDENCE_STORAGE_UNAVAILABLE');
         await new Promise<void>((resolve) => { setTimeout(resolve, ROOT_LEASE_RETRY_MS); });
       }
     } catch (error) {
-      await this.releaseRootLease(lease);
+      await this.releaseRootLease(held);
       throw error;
     }
   }
 
-  private async readLeaseFile(filePath: string): Promise<{ lease: RootLease; identity: FileIdentity } | null> {
+  private async observeLeaseFile(filePath: string, generationId: string): Promise<ObservedLease | null> {
     try {
-      const parsed: unknown = JSON.parse((await this.readBoundedRegularFile(
-        filePath,
-        ROOT_LEASE_MAX_BYTES,
-      )).toString('utf8'));
+      const before = await lstat(filePath);
+      if (before.isSymbolicLink() || !before.isFile()) throw new Error('FORBIDDEN');
+      let lease: RootLease | null = null;
+      if (before.size <= ROOT_LEASE_MAX_BYTES) {
+        try {
+          const parsed: unknown = JSON.parse((await this.readBoundedRegularFile(
+            filePath,
+            ROOT_LEASE_MAX_BYTES,
+          )).toString('utf8'));
+          if (this.isRootLease(parsed)) lease = parsed;
+        } catch (error) {
+          if (!(error instanceof SyntaxError)) throw error;
+        }
+      }
       const after = await lstat(filePath);
-      if (!this.isRootLease(parsed)) return null;
-      return { lease: parsed, identity: this.fileIdentity(after) };
+      return {
+        generationId,
+        lease,
+        identity: this.fileIdentity(after),
+        mtimeMs: after.mtimeMs,
+      };
     } catch (error) {
       if (this.isCode(error, 'ENOENT')) return null;
       throw error;
     }
   }
 
-  private async releaseRootLease(lease: RootLease): Promise<void> {
+  private startRootLeaseHeartbeat(record: RootLease): HeldRootLease {
+    const leasePath = path.join(this.rootDir, `.pilot-storage.lease.${record.id}`);
+    let stopped = false;
+    let failure: unknown;
+    let signalStop!: () => void;
+    const stopSignal = new Promise<void>((resolve) => { signalStop = resolve; });
+    const task = (async () => {
+      while (!stopped) {
+        await Promise.race([
+          new Promise<void>((resolve) => { setTimeout(resolve, ROOT_LEASE_HEARTBEAT_MS); }),
+          stopSignal,
+        ]);
+        if (stopped) break;
+        try {
+          const observed = await this.observeLeaseFile(leasePath, record.id);
+          if (!observed || observed.lease?.id !== record.id) {
+            throw new Error('EVIDENCE_STORAGE_UNAVAILABLE');
+          }
+          const heartbeatAt = new Date();
+          await utimes(leasePath, heartbeatAt, heartbeatAt);
+          await this.assertRootIdentity();
+        } catch (error) {
+          failure = error;
+          break;
+        }
+      }
+    })();
+    return {
+      record,
+      heartbeatFailure: () => failure,
+      stopHeartbeat: async () => {
+        stopped = true;
+        signalStop();
+        await task;
+      },
+    };
+  }
+
+  private async releaseRootLease(held: HeldRootLease): Promise<void> {
+    await held.stopHeartbeat();
+    const lease = held.record;
     const leasePath = path.join(this.rootDir, `.pilot-storage.lease.${lease.id}`);
     try {
-      const observed = await this.readLeaseFile(leasePath);
-      if (observed?.lease.id === lease.id) await this.quarantineLease(leasePath, observed);
+      const observed = await this.observeLeaseFile(leasePath, lease.id);
+      if (observed?.lease?.id === lease.id) await this.quarantineLease(leasePath, observed);
     } catch {
       // Do not perform path-based cleanup if the root or lease changed underneath us.
     }
@@ -931,15 +1014,18 @@ export class LocalPilotObjectStorage implements ObjectStorage {
 
   private async quarantineLease(
     leasePath: string,
-    observed: { lease: RootLease; identity: FileIdentity },
+    observed: ObservedLease,
   ): Promise<boolean> {
     const quarantinePath = path.join(
       this.rootDir,
-      `.pilot-storage.stale.${observed.lease.id}.${randomUUID()}`,
+      `.pilot-storage.stale.${observed.generationId}.${randomUUID()}`,
     );
     try {
       await this.assertDirectRootChild(leasePath);
       await this.assertDirectRootChild(quarantinePath);
+      const current = await lstat(leasePath);
+      if (current.mtimeMs !== observed.mtimeMs
+        || !this.sameIdentityValue(this.fileIdentity(current), observed.identity)) return false;
       await rename(leasePath, quarantinePath);
     } catch (error) {
       if (this.isCode(error, 'ENOENT')) return false;
@@ -1038,15 +1124,6 @@ export class LocalPilotObjectStorage implements ObjectStorage {
       && candidate.pid > 0
       && typeof candidate.createdAt === 'number'
       && Number.isSafeInteger(candidate.createdAt);
-  }
-
-  private processIsAlive(pid: number): boolean {
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch (error) {
-      return this.isCode(error, 'EPERM');
-    }
   }
 
   private rethrowStorageError(error: unknown, safeMessages: string[] = [

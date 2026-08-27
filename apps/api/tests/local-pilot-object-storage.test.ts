@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import Fastify from 'fastify';
@@ -613,6 +613,76 @@ describe('LocalPilotObjectStorage', () => {
     expect((await entries()).filter((name) => name.includes('.pilot-storage.lease')
       || name.includes('.pilot-storage.stale'))).toEqual([]);
   });
+
+  it.each([
+    ['zero-byte', Buffer.alloc(0)],
+    ['truncated JSON', Buffer.from('{"id":"22222222-2222-4222-8222-222222222222"')],
+  ])('recovers an aged %s stale generation on restart', async (_label, contents) => {
+    await storage.initialize();
+    const generationId = '22222222-2222-4222-8222-222222222222';
+    const leasePath = path.join(rootDir, `.pilot-storage.lease.${generationId}`);
+    await writeFile(leasePath, contents);
+    await utimes(leasePath, new Date(0), new Date(0));
+    const restarted = new LocalPilotObjectStorage({
+      rootDir, signingSecret: SIGNING_SECRET, maxUploadBytes: MAX_UPLOAD_BYTES, now: () => now,
+    });
+
+    await expect(restarted.initialize()).resolves.toBeUndefined();
+    expect((await entries()).filter((name) => name.includes(generationId))).toEqual([]);
+  });
+
+  it('keeps a fresh partial generation fail-closed until the stale threshold', async () => {
+    await storage.initialize();
+    const generationId = '55555555-5555-4555-8555-555555555555';
+    await writeFile(path.join(rootDir, `.pilot-storage.lease.${generationId}`), Buffer.alloc(0));
+    const restarted = new LocalPilotObjectStorage({
+      rootDir, signingSecret: SIGNING_SECRET, maxUploadBytes: MAX_UPLOAD_BYTES, now: () => now,
+    });
+    let settled = false;
+    const initializing = restarted.initialize().finally(() => { settled = true; });
+    await new Promise<void>((resolve) => { setTimeout(resolve, 1_200); });
+    expect(settled).toBe(false);
+
+    await expect(initializing).resolves.toBeUndefined();
+    expect((await entries()).filter((name) => name.includes(generationId))).toEqual([]);
+  }, 15_000);
+
+  it('does not let a recycled live PID preserve an expired generation', async () => {
+    await storage.initialize();
+    const generationId = '33333333-3333-4333-8333-333333333333';
+    const leasePath = path.join(rootDir, `.pilot-storage.lease.${generationId}`);
+    await writeFile(leasePath, JSON.stringify({ id: generationId, pid: process.pid, createdAt: 1 }));
+    await utimes(leasePath, new Date(0), new Date(0));
+    const restarted = new LocalPilotObjectStorage({
+      rootDir, signingSecret: SIGNING_SECRET, maxUploadBytes: MAX_UPLOAD_BYTES, now: () => now,
+    });
+
+    await expect(restarted.initialize()).resolves.toBeUndefined();
+    expect((await entries()).filter((name) => name.includes(generationId))).toEqual([]);
+  });
+
+  it('does not steal an actively heartbeating generation and recovers after heartbeat expiry', async () => {
+    await storage.initialize();
+    const generationId = '44444444-4444-4444-8444-444444444444';
+    const leasePath = path.join(rootDir, `.pilot-storage.lease.${generationId}`);
+    await writeFile(leasePath, JSON.stringify({
+      id: generationId, pid: 2_147_483_647, createdAt: Date.now(),
+    }));
+    const heartbeat = setInterval(() => {
+      void utimes(leasePath, new Date(), new Date()).catch(() => undefined);
+    }, 100);
+    const restarted = new LocalPilotObjectStorage({
+      rootDir, signingSecret: SIGNING_SECRET, maxUploadBytes: MAX_UPLOAD_BYTES, now: () => now,
+    });
+    let settled = false;
+    const initializing = restarted.initialize().finally(() => { settled = true; });
+    await new Promise<void>((resolve) => { setTimeout(resolve, 1_200); });
+    expect(settled).toBe(false);
+    clearInterval(heartbeat);
+
+    await expect(initializing).resolves.toBeUndefined();
+    expect((await entries()).filter((name) => name.includes(generationId))).toEqual([]);
+  }, 15_000);
 
   it('scavenges stale temporary and incomplete pairs while preserving valid objects', async () => {
     const issued = await issue();
