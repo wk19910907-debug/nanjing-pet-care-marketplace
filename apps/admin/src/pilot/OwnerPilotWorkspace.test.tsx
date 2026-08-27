@@ -3,7 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { PilotApi } from './api.js';
+import { type PilotApi, PilotApiError } from './api.js';
 import { OwnerPilotWorkspace } from './OwnerPilotWorkspace.js';
 
 const pets = [
@@ -49,6 +49,16 @@ function fakeApi(overrides: Partial<PilotApi> = {}): PilotApi {
     confirmOrder: vi.fn().mockResolvedValue({ id: pendingOrder.id, status: 'COMPLETED' }),
     ...overrides,
   } as PilotApi;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
 
 describe('OwnerPilotWorkspace', () => {
@@ -102,7 +112,7 @@ describe('OwnerPilotWorkspace', () => {
     expect(document.body.textContent).not.toContain('中华路 88 号 2 幢 301');
   });
 
-  it('submits the server quote with a stable idempotency key and no client total', async () => {
+  it('freezes the complete order payload and idempotency key across a lost-response retry', async () => {
     const createOrder = vi.fn()
       .mockRejectedValueOnce(new Error('network detail'))
       .mockResolvedValueOnce({
@@ -131,7 +141,10 @@ describe('OwnerPilotWorkspace', () => {
 
     await user.click(screen.getByRole('button', { name: '按固定报价提交订单' }));
     expect((await screen.findByRole('alert')).textContent).toContain('服务暂时不可用，请稍后重试');
-    await user.click(screen.getByRole('button', { name: '按固定报价提交订单' }));
+    const notes = screen.getByLabelText<HTMLTextAreaElement>('订单备注（可选）');
+    expect(notes.disabled).toBe(true);
+    fireEvent.change(notes, { target: { value: '篡改后的备注' } });
+    await user.click(screen.getByRole('button', { name: '重试提交同一订单' }));
 
     expect(createOrder).toHaveBeenCalledTimes(2);
     const [firstInput, firstKey] = createOrder.mock.calls[0]!;
@@ -142,6 +155,108 @@ describe('OwnerPilotWorkspace', () => {
     expect(secondInput).toEqual(firstInput);
     expect(secondKey).toBe(firstKey);
     await waitFor(() => expect(api.listOrders).toHaveBeenCalledTimes(2));
+  });
+
+  it('ignores an old A quote after the inputs change A to B and back to A before it resolves', async () => {
+    const pendingQuote = deferred<Awaited<ReturnType<PilotApi['getQuote']>>>();
+    const getQuote = vi.fn().mockImplementation(() => pendingQuote.promise);
+    const api = fakeApi({ getQuote });
+    const user = userEvent.setup();
+    render(<OwnerPilotWorkspace api={api} onError={() => 'error'}/>);
+
+    await screen.findAllByText('团子 · 猫');
+    await user.selectOptions(screen.getByLabelText('服务宠物'), pets[0]!.id);
+    await user.selectOptions(screen.getByRole('combobox', { name: '服务地址' }), addresses[0]!.id);
+    fireEvent.change(screen.getByLabelText('服务时间'), { target: { value: '2026-09-10T10:00' } });
+    await user.click(screen.getByRole('button', { name: '获取服务报价' }));
+    expect(getQuote).toHaveBeenCalledOnce();
+
+    await user.selectOptions(screen.getByLabelText('服务时长'), '45');
+    await user.selectOptions(screen.getByLabelText('服务时长'), '30');
+    await act(async () => pendingQuote.resolve({
+      baseFen: 3200, extraPetFen: 0, durationFen: 700,
+      distanceFen: 0, holidayFen: 0, totalFen: 3900, currency: 'CNY',
+    }));
+
+    expect(screen.queryByText('服务器固定报价')).toBeNull();
+    expect(screen.queryByRole('button', { name: '按固定报价提交订单' })).toBeNull();
+    expect(api.createOrder).not.toHaveBeenCalled();
+  });
+
+  it('suppresses an old workspace 401 after unmount while preserving current 401 handling', async () => {
+    const oldLoad = deferred<Awaited<ReturnType<PilotApi['listPets']>>>();
+    const oldOnError = vi.fn().mockReturnValue(null);
+    const oldView = render(<OwnerPilotWorkspace api={fakeApi({
+      listPets: vi.fn().mockImplementation(() => oldLoad.promise),
+    })} onError={oldOnError}/>);
+    oldView.unmount();
+
+    const laterView = render(<OwnerPilotWorkspace api={fakeApi()} onError={oldOnError}/>);
+    await screen.findByRole('heading', { name: '宠主工作区' });
+    await act(async () => oldLoad.reject(new PilotApiError(401, 'UNAUTHENTICATED')));
+    expect(oldOnError).not.toHaveBeenCalled();
+    laterView.unmount();
+
+    const currentOnError = vi.fn().mockReturnValue(null);
+    render(<OwnerPilotWorkspace api={fakeApi({
+      listPets: vi.fn().mockRejectedValue(new PilotApiError(401, 'UNAUTHENTICATED')),
+    })} onError={currentOnError}/>);
+    await waitFor(() => expect(currentOnError).toHaveBeenCalledOnce());
+  });
+
+  it('suppresses stale quote, mutation, submit, and confirmation errors after unmount', async () => {
+    const quote = deferred<Awaited<ReturnType<PilotApi['getQuote']>>>();
+    const quoteOnError = vi.fn().mockReturnValue(null);
+    const user = userEvent.setup();
+    const quoteView = render(<OwnerPilotWorkspace api={fakeApi({
+      getQuote: vi.fn().mockImplementation(() => quote.promise),
+    })} onError={quoteOnError}/>);
+    await screen.findAllByText('团子 · 猫');
+    await user.selectOptions(screen.getByLabelText('服务宠物'), pets[0]!.id);
+    await user.selectOptions(screen.getByRole('combobox', { name: '服务地址' }), addresses[0]!.id);
+    fireEvent.change(screen.getByLabelText('服务时间'), { target: { value: '2026-09-10T10:00' } });
+    await user.click(screen.getByRole('button', { name: '获取服务报价' }));
+    quoteView.unmount();
+    await act(async () => quote.reject(new PilotApiError(401, 'UNAUTHENTICATED')));
+    expect(quoteOnError).not.toHaveBeenCalled();
+
+    const mutation = deferred<Awaited<ReturnType<PilotApi['createPet']>>>();
+    const mutationOnError = vi.fn().mockReturnValue(null);
+    const mutationView = render(<OwnerPilotWorkspace api={fakeApi({
+      createPet: vi.fn().mockImplementation(() => mutation.promise),
+    })} onError={mutationOnError}/>);
+    await screen.findAllByText('团子 · 猫');
+    await user.type(screen.getByLabelText('宠物昵称'), '新宠物');
+    await user.click(screen.getByRole('button', { name: '保存宠物' }));
+    mutationView.unmount();
+    await act(async () => mutation.reject(new PilotApiError(401, 'UNAUTHENTICATED')));
+    expect(mutationOnError).not.toHaveBeenCalled();
+
+    const submit = deferred<Awaited<ReturnType<PilotApi['createOrder']>>>();
+    const submitOnError = vi.fn().mockReturnValue(null);
+    const submitView = render(<OwnerPilotWorkspace api={fakeApi({
+      createOrder: vi.fn().mockImplementation(() => submit.promise),
+    })} onError={submitOnError}/>);
+    await screen.findAllByText('团子 · 猫');
+    await user.selectOptions(screen.getByLabelText('服务宠物'), pets[0]!.id);
+    await user.selectOptions(screen.getByRole('combobox', { name: '服务地址' }), addresses[0]!.id);
+    fireEvent.change(screen.getByLabelText('服务时间'), { target: { value: '2026-09-10T10:00' } });
+    await user.click(screen.getByRole('button', { name: '获取服务报价' }));
+    await user.click(screen.getByRole('button', { name: '按固定报价提交订单' }));
+    submitView.unmount();
+    await act(async () => submit.reject(new PilotApiError(401, 'UNAUTHENTICATED')));
+    expect(submitOnError).not.toHaveBeenCalled();
+
+    const confirm = deferred<Awaited<ReturnType<PilotApi['confirmOrder']>>>();
+    const confirmOnError = vi.fn().mockReturnValue(null);
+    const confirmView = render(<OwnerPilotWorkspace api={fakeApi({
+      listOrders: vi.fn().mockResolvedValue([{ ...pendingOrder, status: 'PENDING_CONFIRMATION' }]),
+      confirmOrder: vi.fn().mockImplementation(() => confirm.promise),
+    })} onError={confirmOnError}/>);
+    await user.click(await screen.findByRole('button', { name: '确认服务完成' }));
+    confirmView.unmount();
+    await act(async () => confirm.reject(new PilotApiError(401, 'UNAUTHENTICATED')));
+    expect(confirmOnError).not.toHaveBeenCalled();
   });
 
   it('shows offline-fee state and report timeline, then confirms the correct order and reloads', async () => {
@@ -197,5 +312,25 @@ describe('OwnerPilotWorkspace', () => {
     await act(async () => resolve({
       id: pendingOrder.id, status: 'PENDING_PAYMENT', totalFen: 3900, currency: 'CNY',
     }));
+  });
+
+  it('marks each normal timeline stage accurately and replaces exceptional timelines with explicit copy', async () => {
+    const api = fakeApi({ listOrders: vi.fn().mockResolvedValue([
+      pendingOrder,
+      { ...pendingOrder, id: '55555555-5555-4555-8555-555555555555', status: 'PENDING_DISPATCH' },
+      { ...pendingOrder, id: '66666666-6666-4666-8666-666666666666', status: 'CANCELLED' },
+    ]) });
+    render(<OwnerPilotWorkspace api={api} onError={() => 'error'}/>);
+
+    const awaitingFee = (await screen.findAllByText('等待平台核对费用'))[0]!.closest('article')!;
+    expect(awaitingFee.querySelector('.pilot-order-timeline .is-current')?.textContent).toBe('等待平台核对费用');
+    expect(awaitingFee.querySelector('.pilot-order-timeline .is-done')?.textContent).toBe('需求已提交');
+
+    const matching = screen.getByText('等待平台匹配服务人员').closest('article')!;
+    expect(matching.querySelector('.pilot-order-timeline .is-current')?.textContent).toBe('平台匹配服务人员');
+
+    const cancelled = screen.getByText('订单已取消').closest('article')!;
+    expect(within(cancelled).queryByRole('list', { name: '订单进度' })).toBeNull();
+    expect(within(cancelled).getByText('订单已取消，后续进度不再继续。')).toBeTruthy();
   });
 });

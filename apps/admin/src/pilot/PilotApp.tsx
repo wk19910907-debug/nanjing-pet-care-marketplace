@@ -114,7 +114,7 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
     </header>
     <main className="pilot-main">
       {session.role === 'ADMIN' && <AdminInvitePanel api={api} onError={handleProtectedError}/>}
-      {session.role === 'OWNER' && <OwnerPilotWorkspace api={api} onError={handleProtectedError}/>}
+      {session.role === 'OWNER' && <OwnerPilotWorkspace key={session.userId} api={api} onError={handleProtectedError}/>}
       {session.role === 'PROVIDER' && <section className="pilot-panel">
         <p className="pilot-kicker">服务人员</p><h1>服务人员工作区</h1>
         <p>接单与履约功能将在下一阶段接入共享试运营数据。</p>

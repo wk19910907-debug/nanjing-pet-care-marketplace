@@ -267,13 +267,17 @@ function parsePets(value: unknown): OwnerPet[] {
   return value.map(parsePet);
 }
 
-function parseAddress(value: unknown): OwnerAddress {
-  const record = asRecord(value);
+function parsePilotLocation(record: Record<string, unknown>) {
   const city = asEnum(record, 'city', ['南京市'] as const);
   const district = asString(record, 'district', 30);
   const serviceZone = asString(record, 'serviceZone', 50);
   if (!DISTRICTS.has(district) || serviceZone !== district) invalidResponse();
-  return { id: asString(record, 'id', 128), city, district, serviceZone };
+  return { city, district, serviceZone };
+}
+
+function parseAddress(value: unknown): OwnerAddress {
+  const record = asRecord(value);
+  return { id: asString(record, 'id', 128), ...parsePilotLocation(record) };
 }
 
 function parseAddresses(value: unknown): OwnerAddress[] {
@@ -314,6 +318,7 @@ function parseChecklist(value: unknown): PilotChecklist {
 
 function parseOrder(value: unknown): OwnerOrder {
   const record = asRecord(value);
+  const location = parsePilotLocation(record);
   const reportValue = record.report;
   let report: OwnerOrder['report'];
   if (reportValue !== undefined) {
@@ -334,9 +339,7 @@ function parseOrder(value: unknown): OwnerOrder {
     durationMinutes: asInteger(record, 'durationMinutes', 180),
     totalFen: asInteger(record, 'totalFen'),
     currency: asEnum(record, 'currency', ['CNY'] as const),
-    city: asString(record, 'city', 30),
-    district: asString(record, 'district', 30),
-    serviceZone: asString(record, 'serviceZone', 50),
+    ...location,
     ...(asOptionalString(record, 'providerDisplayName', 30) !== undefined
       ? { providerDisplayName: asOptionalString(record, 'providerDisplayName', 30)! }
       : {}),

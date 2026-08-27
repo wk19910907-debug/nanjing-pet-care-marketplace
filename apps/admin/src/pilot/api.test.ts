@@ -336,4 +336,21 @@ describe('pilot API transport', () => {
     }, 'owner-order-retry-key')).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
     await expect(malformedApi.listOrders()).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
   });
+
+  it.each([
+    [{ city: '上海市' }, 'non-Nanjing city'],
+    [{ district: '浦口区', serviceZone: '浦口区' }, 'unsupported district'],
+    [{ district: '建邺区', serviceZone: '奥体服务圈' }, 'mismatched service zone'],
+  ])('rejects an owner order with %s (%s)', async (addressOverride, _description) => {
+    const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse([{
+      id: '44444444-4444-4444-8444-444444444444', serviceType: 'CAT_FEEDING',
+      status: 'PENDING_PAYMENT', startsAt: '2026-09-10T02:00:00.000Z', durationMinutes: 30,
+      totalFen: 3900, currency: 'CNY', city: '南京市', district: '建邺区', serviceZone: '建邺区',
+      ...addressOverride,
+    }])));
+
+    await expect(api.listOrders()).rejects.toMatchObject({
+      status: 503, code: 'SERVICE_UNAVAILABLE', message: '服务暂时不可用，请稍后重试',
+    });
+  });
 });
