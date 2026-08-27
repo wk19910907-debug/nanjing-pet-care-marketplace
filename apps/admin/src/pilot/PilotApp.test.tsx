@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PilotApi } from './api.js';
@@ -29,8 +29,21 @@ function fakeApi(overrides: Partial<PilotApi> = {}): PilotApi {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 describe('PilotApp', () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
 
   it('shows invitation-only login after a 401 with no registration or contact fields', async () => {
     const api = fakeApi({
@@ -112,6 +125,56 @@ describe('PilotApp', () => {
     expect(screen.getByText('服务人员 · 未使用')).toBeTruthy();
   });
 
+  it('never renders a stale one-time code when an overlapping refresh fails', async () => {
+    const create = deferred<Awaited<ReturnType<PilotApi['createInvite']>>>();
+    const refresh = deferred<Awaited<ReturnType<PilotApi['listInvites']>>>();
+    const listInvites = vi.fn()
+      .mockResolvedValueOnce([])
+      .mockImplementationOnce(() => refresh.promise);
+    const api = fakeApi({
+      createInvite: vi.fn().mockImplementation(() => create.promise),
+      listInvites,
+    });
+    const user = userEvent.setup();
+    render(<PilotApp api={api}/>);
+
+    expect(await screen.findByRole('heading', { name: '邀请码管理' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '创建一次性邀请码' }));
+    await user.click(screen.getByRole('button', { name: '刷新邀请记录' }));
+    await act(async () => {
+      create.resolve({
+        id: 'invite-race', role: 'OWNER', code: 'must-never-render',
+        expiresAt: '2026-09-01T00:00:00.000Z', createdAt: '2026-08-28T00:00:00.000Z',
+      });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      refresh.reject(new PilotApiError(503, 'SERVICE_UNAVAILABLE'));
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByText('must-never-render')).toBeNull();
+    expect(screen.getByRole('alert').textContent).toContain('服务暂时不可用，请稍后重试');
+    expect(api.createInvite).toHaveBeenCalledTimes(1);
+  });
+
+  it('synchronously rejects duplicate invitation form submissions', async () => {
+    const create = deferred<Awaited<ReturnType<PilotApi['createInvite']>>>();
+    const api = fakeApi({
+      createInvite: vi.fn().mockImplementation(() => create.promise),
+    });
+    render(<PilotApp api={api}/>);
+    expect(await screen.findByRole('heading', { name: '邀请码管理' })).toBeTruthy();
+    const form = document.querySelector<HTMLFormElement>('.pilot-invite-form')!;
+
+    act(() => {
+      fireEvent.submit(form);
+      fireEvent.submit(form);
+    });
+
+    expect(api.createInvite).toHaveBeenCalledTimes(1);
+  });
+
   it('fails closed on 503, retries, and logs out the current cookie session', async () => {
     const getSession = vi.fn()
       .mockRejectedValueOnce(new PilotApiError(503, 'SERVICE_UNAVAILABLE'))
@@ -173,5 +236,25 @@ describe('PilotApp', () => {
     expect(await screen.findByRole('heading', { name: '邀请码登录' })).toBeTruthy();
     expect(screen.queryByText('宠主 · 未使用')).toBeNull();
     expect(screen.queryByText('邀请码管理')).toBeNull();
+  });
+
+  it('does not clear a long session when the capped timer fires before the real expiry', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-01T00:00:00.000Z'));
+    const api = fakeApi({
+      getSession: vi.fn().mockResolvedValue({
+        ...adminSession, expiresAt: '2026-08-31T00:00:00.000Z',
+      }),
+    });
+
+    render(<PilotApp api={api}/>);
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByRole('heading', { name: '邀请码管理' })).toBeTruthy();
+
+    act(() => { vi.advanceTimersByTime(2_147_483_647); });
+    expect(screen.getByRole('heading', { name: '邀请码管理' })).toBeTruthy();
+
+    act(() => { vi.advanceTimersByTime(30 * 24 * 60 * 60 * 1_000 - 2_147_483_647); });
+    expect(screen.getByRole('heading', { name: '邀请码登录' })).toBeTruthy();
   });
 });

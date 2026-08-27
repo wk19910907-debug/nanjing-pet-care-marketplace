@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useState } from 'react';
+import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import type { PilotApi } from './api.js';
 import type { PilotInvite, PilotInviteCreated, PilotInviteRole } from './models.js';
 
@@ -20,35 +20,53 @@ export function AdminInvitePanel({ api, onError }: AdminInvitePanelProps) {
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const operationGeneration = useRef(0);
+  const createInFlight = useRef(false);
 
   const refresh = useCallback(async () => {
+    const generation = ++operationGeneration.current;
     setCreated(null);
     setLoading(true);
     setError('');
     try {
-      setInvites(await api.listInvites());
+      const records = await api.listInvites();
+      if (operationGeneration.current === generation) setInvites(records);
     } catch (caught) {
-      const message = onError(caught);
-      if (message) setError(message);
+      setCreated(null);
+      if (operationGeneration.current === generation) {
+        const message = onError(caught);
+        if (message) setError(message);
+      }
     } finally {
-      setLoading(false);
+      if (operationGeneration.current === generation) setLoading(false);
     }
   }, [api, onError]);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => {
+    void refresh();
+    return () => { operationGeneration.current += 1; };
+  }, [refresh]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (pending) return;
+    if (createInFlight.current) return;
+    createInFlight.current = true;
+    const generation = ++operationGeneration.current;
     setPending(true);
+    setLoading(false);
     setCreated(null);
     setError('');
     try {
-      setCreated(await api.createInvite(role));
+      const result = await api.createInvite(role);
+      if (operationGeneration.current === generation) setCreated(result);
     } catch (caught) {
-      const message = onError(caught);
-      if (message) setError(message);
+      setCreated(null);
+      if (operationGeneration.current === generation) {
+        const message = onError(caught);
+        if (message) setError(message);
+      }
     } finally {
+      createInFlight.current = false;
       setPending(false);
     }
   };

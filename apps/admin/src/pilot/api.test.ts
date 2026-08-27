@@ -93,4 +93,54 @@ describe('pilot API transport', () => {
       status: 503, code: 'SERVICE_UNAVAILABLE', message: '服务暂时不可用，请稍后重试',
     });
   });
+
+  it.each([
+    ['session', (api: ReturnType<typeof createPilotApi>) => api.getSession(), {
+      userId: 'owner-1', role: 'ROOT', displayName: null, expiresAt: '2026-09-01T00:00:00.000Z',
+    }],
+    ['login', (api: ReturnType<typeof createPilotApi>) => api.createSession('invite'), {
+      expiresAt: 123,
+    }],
+    ['nickname', (api: ReturnType<typeof createPilotApi>) => api.updateProfile('昵称'), {
+      id: 'owner-1', role: 'OWNER', displayName: null,
+    }],
+    ['invite creation', (api: ReturnType<typeof createPilotApi>) => api.createInvite('OWNER'), {
+      id: 'invite-1', role: 'OWNER', code: 'raw-code', token: 'leaked-token',
+      expiresAt: '2026-09-01T00:00:00.000Z', createdAt: '2026-08-28T00:00:00.000Z',
+    }],
+    ['invite listing', (api: ReturnType<typeof createPilotApi>) => api.listInvites(), [{
+      id: 'invite-1', role: 'OWNER', code: 'leaked-code', consumedAt: null,
+      expiresAt: '2026-09-01T00:00:00.000Z', createdAt: '2026-08-28T00:00:00.000Z',
+    }]],
+  ])('rejects invalid successful %s responses with a fixed safe error', async (_name, call, body) => {
+    const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(body)));
+
+    await expect(call(api)).rejects.toMatchObject({
+      status: 503, code: 'SERVICE_UNAVAILABLE', message: '服务暂时不可用，请稍后重试',
+    });
+  });
+
+  it('normalizes invitation metadata to the explicit allowlist', async () => {
+    const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse([{
+      id: 'invite-1', role: 'PROVIDER', consumedAt: null,
+      expiresAt: '2026-09-01T00:00:00.000Z', createdAt: '2026-08-28T00:00:00.000Z',
+      internalNote: 'must not cross the client boundary',
+    }])));
+
+    const records = await api.listInvites();
+
+    expect(records).toEqual([{
+      id: 'invite-1', role: 'PROVIDER', consumedAt: null,
+      expiresAt: '2026-09-01T00:00:00.000Z', createdAt: '2026-08-28T00:00:00.000Z',
+    }]);
+    expect(JSON.stringify(records)).not.toContain('internalNote');
+  });
+
+  it('requires logout to return the documented empty 204 response', async () => {
+    const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ ok: true })));
+
+    await expect(api.deleteSession()).rejects.toMatchObject({
+      status: 503, code: 'SERVICE_UNAVAILABLE', message: '服务暂时不可用，请稍后重试',
+    });
+  });
 });

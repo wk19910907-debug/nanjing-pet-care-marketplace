@@ -38,16 +38,19 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
 
   useEffect(() => {
     if (!session) return;
-    const remaining = Date.parse(session.expiresAt) - Date.now();
-    if (!Number.isFinite(remaining) || remaining <= 0) {
-      setSession(null);
-      return;
-    }
-    const timer = window.setTimeout(
-      () => setSession(null),
-      Math.min(remaining, 2_147_483_647),
-    );
-    return () => window.clearTimeout(timer);
+    let timer: number | undefined;
+    const checkExpiry = () => {
+      const remaining = Date.parse(session.expiresAt) - Date.now();
+      if (!Number.isFinite(remaining) || remaining <= 0) {
+        setSession(null);
+        return;
+      }
+      timer = window.setTimeout(checkExpiry, Math.min(remaining, 2_147_483_647));
+    };
+    checkExpiry();
+    return () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
   }, [session]);
 
   const handleProtectedError = useCallback((caught: unknown): string | null => {
