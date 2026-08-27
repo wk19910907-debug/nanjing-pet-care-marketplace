@@ -85,6 +85,9 @@ function createPilotTestApp(
       if (!session || session.revoked) throw new Error('UNAUTHENTICATED');
       session.revoked = true;
     },
+    async createInvite() {
+      throw new Error('FORBIDDEN');
+    },
   };
 
   const app = createApp({

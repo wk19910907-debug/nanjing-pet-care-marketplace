@@ -26,7 +26,7 @@ type AppDependencies = PetRoutesDependencies
   & Partial<Omit<DisputeRoutesDependencies, 'auth'>>
   & {
     pilot?: PilotAuthRoutesDependencies;
-    pilotBusiness?: PilotRoutesDependencies;
+    pilotBusiness?: Omit<PilotRoutesDependencies, 'sessions'>;
   };
 
 export function createApp(dependencies: AppDependencies) {
@@ -53,6 +53,9 @@ export function createApp(dependencies: AppDependencies) {
     }
     if (error instanceof Error && error.message === 'FORBIDDEN') {
       return reply.code(403).send({ code: 'FORBIDDEN' });
+    }
+    if (error instanceof Error && error.message === 'ONBOARDING_REQUIRED') {
+      return reply.code(403).send({ code: 'ONBOARDING_REQUIRED' });
     }
     if (error instanceof Error && error.message === 'VALIDATION_ERROR') {
       return reply.code(400).send({ code: 'VALIDATION_ERROR' });
@@ -116,7 +119,10 @@ export function createApp(dependencies: AppDependencies) {
     void app.register(registerPilotAuthRoutes, dependencies.pilot);
   }
   if (dependencies.pilotBusiness) {
-    void app.register(registerPilotRoutes, dependencies.pilotBusiness);
+    void app.register(registerPilotRoutes, {
+      ...dependencies.pilotBusiness,
+      sessions: dependencies.pilot!.sessions,
+    });
   }
   void app.register(registerPetRoutes, dependencies);
   if (dependencies.quotes && dependencies.orders && dependencies.payments) {

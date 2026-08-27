@@ -11,7 +11,7 @@ const DisplayNameSchema = z.object({ displayName: z.string() });
 
 type PilotRouteSessions = Pick<
   PilotSessionService,
-  'redeem' | 'authenticate' | 'setDisplayName' | 'revoke'
+  'redeem' | 'authenticate' | 'setDisplayName' | 'revoke' | 'createInvite'
 >;
 
 export type PilotAuthRoutesDependencies = {

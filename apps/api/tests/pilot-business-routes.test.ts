@@ -422,17 +422,14 @@ describe('pilot manual fee and role-filtered business routes', () => {
       },
     };
     const auth = new DatabaseHeaderAuth();
+    const createInvite = async (actor: ActorContext, role: 'OWNER' | 'PROVIDER') => ({
+      id: randomUUID(), role, code: `one-time-${actor.userId}`,
+      expiresAt: new Date('2026-09-02T00:00:00.000Z'),
+      createdAt: now,
+    });
     const pilotBusiness = {
-      auth,
       fees: new ManualFeeService(prisma, new PrismaAuditRepository(prisma)),
       read: new PilotReadModel(prisma),
-      sessions: {
-        createInvite: async (actor: ActorContext, role: 'OWNER' | 'PROVIDER') => ({
-          id: randomUUID(), role, code: `one-time-${actor.userId}`,
-          expiresAt: new Date('2026-09-02T00:00:00.000Z'),
-          createdAt: now,
-        }),
-      },
       fulfillment: fulfillment as never,
       now: () => now,
     };
@@ -443,6 +440,41 @@ describe('pilot manual fee and role-filtered business routes', () => {
       pilotBusiness,
     })).toThrow('PILOT_SECURITY_CONFIGURATION_REQUIRED');
 
+    let providerDisplayName: string | null = null;
+    const pilotSessions = {
+      redeem: async () => { throw new Error('INVITE_INVALID'); },
+      authenticate: async (authorization: string | undefined) => {
+        const token = authorization?.match(/^Bearer (.+)$/)?.[1];
+        if (token === provider.user.id) {
+          return {
+            ...provider.actor,
+            displayName: providerDisplayName,
+            expiresAt: new Date('2026-09-02T00:00:00.000Z'),
+          };
+        }
+        if (token === admin.userId) {
+          return {
+            ...admin,
+            displayName: '运营路由',
+            expiresAt: new Date('2026-09-02T00:00:00.000Z'),
+          };
+        }
+        if (token === owner.owner.id) {
+          return {
+            ...owner.actor,
+            displayName: '宠主路由',
+            expiresAt: new Date('2026-09-02T00:00:00.000Z'),
+          };
+        }
+        throw new Error('UNAUTHENTICATED');
+      },
+      setDisplayName: async (actor: ActorContext, displayName: string) => {
+        providerDisplayName = displayName;
+        return { id: actor.userId, role: actor.role, displayName };
+      },
+      revoke: async () => { throw new Error('UNAUTHENTICATED'); },
+      createInvite,
+    };
     const app = createApp({
       auth,
       pets: {} as never,
@@ -461,19 +493,97 @@ describe('pilot manual fee and role-filtered business routes', () => {
             secureCookies: false,
           },
         },
-        sessions: {
-          redeem: async () => { throw new Error('INVITE_INVALID'); },
-          authenticate: async (authorization) => ({
-            ...await auth.authenticate(authorization),
-            displayName: '试运营用户',
-            expiresAt: new Date('2026-09-02T00:00:00.000Z'),
-          }),
-          setDisplayName: async () => { throw new Error('DISPLAY_NAME_INVALID'); },
-          revoke: async () => { throw new Error('UNAUTHENTICATED'); },
-        },
+        sessions: pilotSessions,
       },
       pilotBusiness,
     });
+
+    const mismatchedAuth = await app.inject({
+      method: 'GET',
+      url: '/api/v1/pilot/dashboard',
+      headers: { authorization: `Bearer ${pendingFeeOrder.owner.id}` },
+    });
+    expect(mismatchedAuth.statusCode).toBe(401);
+
+    const nullNicknameRequests = [
+      { method: 'POST' as const, url: '/api/v1/pilot/invites', payload: { role: 'OWNER' } },
+      {
+        method: 'POST' as const,
+        url: `/api/v1/pilot/orders/${owner.order.id}/manual-fee-confirmation`,
+        headers: { 'idempotency-key': 'onboarding-fee-0001' },
+      },
+      { method: 'GET' as const, url: '/api/v1/pilot/dashboard' },
+      { method: 'GET' as const, url: '/api/v1/pilot/orders' },
+      { method: 'GET' as const, url: `/api/v1/pilot/orders/${owner.order.id}` },
+      { method: 'GET' as const, url: '/api/v1/pilot/providers/review-queue' },
+      { method: 'GET' as const, url: '/api/v1/pilot/invites' },
+      {
+        method: 'POST' as const,
+        url: `/api/v1/pilot/orders/${owner.order.id}/check-in`,
+        payload: { beforeState: { petSafe: true } },
+      },
+      {
+        method: 'POST' as const,
+        url: `/api/v1/pilot/orders/${owner.order.id}/report`,
+        payload: { checklist: {}, afterState: {}, notes: '' },
+      },
+    ];
+    for (const request of nullNicknameRequests) {
+      const response = await app.inject({
+        ...request,
+        headers: {
+          authorization: `Bearer ${provider.user.id}`,
+          ...request.headers,
+        },
+      });
+      expect(response.statusCode, `${request.method} ${request.url}`).toBe(403);
+      expect(response.json()).toEqual({ code: 'ONBOARDING_REQUIRED' });
+    }
+
+    for (const request of [
+      {
+        method: 'POST' as const,
+        url: '/api/v1/pilot/invites',
+        payload: { role: 'ADMIN' },
+      },
+      {
+        method: 'POST' as const,
+        url: '/api/v1/pilot/orders/not-a-uuid/manual-fee-confirmation',
+      },
+      { method: 'GET' as const, url: '/api/v1/pilot/orders/not-a-uuid' },
+      {
+        method: 'POST' as const,
+        url: '/api/v1/pilot/orders/not-a-uuid/check-in',
+        payload: {},
+      },
+      {
+        method: 'POST' as const,
+        url: '/api/v1/pilot/orders/not-a-uuid/report',
+        payload: {},
+      },
+    ]) {
+      const response = await app.inject({
+        ...request,
+        headers: { authorization: `Bearer ${provider.user.id}` },
+      });
+      expect(response.statusCode, `${request.method} ${request.url}`).toBe(403);
+      expect(response.json()).toEqual({ code: 'ONBOARDING_REQUIRED' });
+    }
+
+    const nickname = await app.inject({
+      method: 'PATCH',
+      url: '/api/v1/pilot/me',
+      headers: { authorization: `Bearer ${provider.user.id}` },
+      payload: { displayName: '服务者路由' },
+    });
+    expect(nickname.statusCode).toBe(200);
+    const afterNickname = await app.inject({
+      method: 'GET',
+      url: '/api/v1/pilot/orders',
+      headers: { authorization: `Bearer ${provider.user.id}` },
+    });
+    expect(afterNickname.statusCode).toBe(200);
+    calls.length = 0;
 
     const headers = { authorization: `Bearer ${provider.user.id}` };
     const checkIn = await app.inject({
@@ -524,6 +634,35 @@ describe('pilot manual fee and role-filtered business routes', () => {
     expect(calls.map((call) => call.at.toISOString())).toEqual([
       now.toISOString(), now.toISOString(),
     ]);
+
+    for (const request of [
+      {
+        method: 'POST' as const,
+        url: '/api/v1/pilot/orders/not-a-uuid/manual-fee-confirmation',
+        headers: { authorization: `Bearer ${admin.userId}`, 'idempotency-key': 'malformed-uuid-0001' },
+      },
+      {
+        method: 'GET' as const,
+        url: '/api/v1/pilot/orders/not-a-uuid',
+        headers,
+      },
+      {
+        method: 'POST' as const,
+        url: '/api/v1/pilot/orders/not-a-uuid/check-in',
+        headers,
+        payload: { beforeState: { petSafe: true } },
+      },
+      {
+        method: 'POST' as const,
+        url: '/api/v1/pilot/orders/not-a-uuid/report',
+        headers,
+        payload: { checklist: {}, afterState: {}, notes: '' },
+      },
+    ]) {
+      const response = await app.inject(request);
+      expect(response.statusCode, `${request.method} ${request.url}`).toBe(400);
+      expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    }
     await app.close();
   });
 });

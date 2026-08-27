@@ -1,13 +1,13 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import type { AuthService, ActorContext } from '../auth/auth-service.js';
-import type { PilotInviteRole } from '../auth/pilot-session-service.js';
+import type { PilotSessionService } from '../auth/pilot-session-service.js';
 import type { FulfillmentService } from '../fulfillment/fulfillment-service.js';
 import type { ManualFeeService } from './manual-fee-service.js';
 import type { PilotReadModel } from './pilot-read-model.js';
 
 const JsonObjectSchema = z.record(z.string(), z.unknown());
 const InviteSchema = z.object({ role: z.enum(['OWNER', 'PROVIDER']) });
+const OrderParamsSchema = z.object({ orderId: z.uuid() });
 const CheckInSchema = z.object({ beforeState: JsonObjectSchema });
 const ReportSchema = z.object({
   checklist: JsonObjectSchema,
@@ -15,15 +15,12 @@ const ReportSchema = z.object({
   notes: z.string().max(1000),
 });
 
-type PilotInviteCreator = {
-  createInvite(actor: ActorContext, role: PilotInviteRole): Promise<unknown>;
-};
+export type PilotBusinessSessions = Pick<PilotSessionService, 'authenticate' | 'createInvite'>;
 
 export type PilotRoutesDependencies = {
-  auth: AuthService;
   fees: Pick<ManualFeeService, 'confirm'>;
   read: Pick<PilotReadModel, 'dashboard' | 'orders' | 'order' | 'reviewQueue' | 'invites'>;
-  sessions: PilotInviteCreator;
+  sessions: PilotBusinessSessions;
   fulfillment: Pick<FulfillmentService, 'checkIn' | 'submitReport'>;
   now?: () => Date;
 };
@@ -32,23 +29,28 @@ export async function registerPilotRoutes(
   app: FastifyInstance,
   dependencies: PilotRoutesDependencies,
 ): Promise<void> {
-  const actor = (request: FastifyRequest) => (
-    dependencies.auth.authenticate(request.headers.authorization)
-  );
+  const actor = async (request: FastifyRequest) => {
+    const session = await dependencies.sessions.authenticate(request.headers.authorization);
+    if (session.displayName === null) throw new Error('ONBOARDING_REQUIRED');
+    return session;
+  };
   const now = dependencies.now ?? (() => new Date());
 
   app.post('/api/v1/pilot/invites', async (request, reply) => {
+    const current = await actor(request);
     const input = InviteSchema.parse(request.body);
-    const result = await dependencies.sessions.createInvite(await actor(request), input.role);
+    const result = await dependencies.sessions.createInvite(current, input.role);
     return reply.code(201).send(result);
   });
 
   app.post<{ Params: { orderId: string } }>(
     '/api/v1/pilot/orders/:orderId/manual-fee-confirmation',
     async (request) => {
+      const current = await actor(request);
+      const { orderId } = OrderParamsSchema.parse(request.params);
       const key = request.headers['idempotency-key'];
       if (typeof key !== 'string') throw new Error('VALIDATION_ERROR');
-      return dependencies.fees.confirm(await actor(request), request.params.orderId, key);
+      return dependencies.fees.confirm(current, orderId, key);
     },
   );
 
@@ -62,7 +64,11 @@ export async function registerPilotRoutes(
 
   app.get<{ Params: { orderId: string } }>(
     '/api/v1/pilot/orders/:orderId',
-    async (request) => dependencies.read.order(await actor(request), request.params.orderId),
+    async (request) => {
+      const current = await actor(request);
+      const { orderId } = OrderParamsSchema.parse(request.params);
+      return dependencies.read.order(current, orderId);
+    },
   );
 
   app.get('/api/v1/pilot/providers/review-queue', async (request) => (
@@ -76,9 +82,11 @@ export async function registerPilotRoutes(
   app.post<{ Params: { orderId: string } }>(
     '/api/v1/pilot/orders/:orderId/check-in',
     async (request, reply) => {
+      const current = await actor(request);
+      const { orderId } = OrderParamsSchema.parse(request.params);
       const input = CheckInSchema.parse(request.body);
       const result = await dependencies.fulfillment.checkIn(
-        await actor(request), request.params.orderId, now(), input.beforeState,
+        current, orderId, now(), input.beforeState,
       );
       return reply.code(201).send(result);
     },
@@ -87,10 +95,12 @@ export async function registerPilotRoutes(
   app.post<{ Params: { orderId: string } }>(
     '/api/v1/pilot/orders/:orderId/report',
     async (request) => {
+      const current = await actor(request);
+      const { orderId } = OrderParamsSchema.parse(request.params);
       const input = ReportSchema.parse(request.body);
       return dependencies.fulfillment.submitReport(
-        await actor(request),
-        request.params.orderId,
+        current,
+        orderId,
         { ...input, checkedOutAt: now() },
       );
     },
