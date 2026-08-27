@@ -26,3 +26,33 @@ Apply the schema with `pnpm exec prisma migrate deploy --schema prisma/schema.pr
 Run `pnpm install`, `pnpm typecheck`, `pnpm test`, the admin Playwright flow, and `git diff --check`. API integration tests require `DATABASE_URL`.
 
 Development may use the fake payment and object-storage adapters. Production must provide every variable checked by `loadConfig`; there are deliberately no production credential defaults.
+
+## Run the controlled pilot locally
+
+The invitation-only pilot is separate from the browser-only demo. It uses PostgreSQL for shared
+state, encrypts address fields, and stores evidence only in an explicitly configured private
+absolute directory. In PowerShell, generate fresh local secrets in the current terminal:
+
+```powershell
+$env:PILOT_MODE='enabled'
+$env:DATABASE_URL='postgresql://petcare:petcare@127.0.0.1:54329/petcare'
+$env:PILOT_AUTH_PEPPER=node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
+$env:FIELD_ENCRYPTION_KEY_V1=node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
+New-Item -ItemType Directory -Force '.pilot-evidence' | Out-Null
+$env:PILOT_EVIDENCE_DIR=(Resolve-Path '.pilot-evidence').Path
+pnpm exec prisma migrate deploy --schema prisma/schema.prisma
+pnpm --silent pilot:bootstrap
+pnpm pilot:start
+```
+
+`pnpm --silent pilot:bootstrap` suppresses package-manager lifecycle banners, writes operational
+messages to stderr, and writes the one-time administrator
+invite code as the only stdout line. Deliver it only through a controlled offline channel; do not
+save the code or either generated secret in the repository, this Vault, shell history files, or
+logs. `pilot:start` builds the pilot web bundle and listens on `127.0.0.1:3000` by default. Set
+`PILOT_HOST` and `PILOT_PORT` explicitly for a trusted LAN. The local evidence directory must have
+private host ACLs and is not a production storage option.
+
+Production pilot startup requires `NODE_ENV=production`, `PILOT_PUBLIC_ORIGIN`, the existing S3
+configuration fields, and an application-provided `S3Signer`. It fails before listening when the
+signer is unavailable and never falls back to local disk.

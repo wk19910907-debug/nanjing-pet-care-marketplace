@@ -132,6 +132,7 @@ type ProductionConfig = {
 export type AppConfig = {
   nodeEnv: 'development' | 'test' | 'production';
   databaseUrl: string;
+  fieldEncryptionKey?: string;
   pilot?: PilotConfig;
   production?: ProductionConfig;
 };
@@ -154,6 +155,9 @@ export function loadConfig(environment: Record<string, string | undefined>): App
   const base: AppConfig = {
     nodeEnv: parsed.NODE_ENV,
     databaseUrl: parsed.DATABASE_URL,
+    ...(parsed.FIELD_ENCRYPTION_KEY_V1
+      ? { fieldEncryptionKey: parsed.FIELD_ENCRYPTION_KEY_V1 }
+      : {}),
     ...(pilot ? { pilot } : {}),
   };
   if (parsed.NODE_ENV !== 'production') return base;

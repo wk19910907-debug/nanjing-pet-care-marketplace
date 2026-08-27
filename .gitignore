@@ -6,4 +6,5 @@ coverage/
 test-results/
 .pnpm-store/
 *.log
+.pilot-evidence/
 

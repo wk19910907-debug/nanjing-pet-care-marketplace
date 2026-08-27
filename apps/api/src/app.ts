@@ -29,7 +29,13 @@ type AppDependencies = PetRoutesDependencies
     pilotBusiness?: Omit<PilotRoutesDependencies, 'sessions'>;
   };
 
-export function createApp(dependencies: AppDependencies) {
+type AppOptions = {
+  apiPrefix?: string;
+  clientFulfillmentTimestampsEnabled?: boolean;
+  paymentWebhookEnabled?: boolean;
+};
+
+export function createApp(dependencies: AppDependencies, options: AppOptions = {}) {
   if (dependencies.pilotBusiness && !dependencies.pilot) {
     throw new Error('PILOT_SECURITY_CONFIGURATION_REQUIRED');
   }
@@ -130,32 +136,40 @@ export function createApp(dependencies: AppDependencies) {
       sessions: dependencies.pilot!.sessions,
     });
   }
-  void app.register(registerPetRoutes, dependencies);
-  if (dependencies.quotes && dependencies.orders && dependencies.payments) {
-    void app.register(registerOrderRoutes, {
-      auth: dependencies.auth,
-      quotes: dependencies.quotes,
-      orders: dependencies.orders,
-      payments: dependencies.payments,
-    });
-  }
-  if (dependencies.providers && dependencies.dispatch) {
-    void app.register(registerDispatchRoutes, {
-      auth: dependencies.auth,
-      providers: dependencies.providers,
-      dispatch: dependencies.dispatch,
-    });
-  }
-  if (dependencies.fulfillment) {
-    void app.register(registerFulfillmentRoutes, {
-      auth: dependencies.auth, fulfillment: dependencies.fulfillment,
-    });
-  }
-  if (dependencies.settlements && dependencies.refunds && dependencies.disputes) {
-    void app.register(registerDisputeRoutes, {
-      auth: dependencies.auth, settlements: dependencies.settlements,
-      refunds: dependencies.refunds, disputes: dependencies.disputes,
-    });
-  }
+  void app.register(async (api) => {
+    await api.register(registerPetRoutes, dependencies);
+    if (dependencies.quotes && dependencies.orders && dependencies.payments) {
+      await api.register(registerOrderRoutes, {
+        auth: dependencies.auth,
+        quotes: dependencies.quotes,
+        orders: dependencies.orders,
+        payments: dependencies.payments,
+        ...(options.paymentWebhookEnabled === undefined
+          ? {}
+          : { paymentWebhookEnabled: options.paymentWebhookEnabled }),
+      });
+    }
+    if (dependencies.providers && dependencies.dispatch) {
+      await api.register(registerDispatchRoutes, {
+        auth: dependencies.auth,
+        providers: dependencies.providers,
+        dispatch: dependencies.dispatch,
+      });
+    }
+    if (dependencies.fulfillment) {
+      await api.register(registerFulfillmentRoutes, {
+        auth: dependencies.auth, fulfillment: dependencies.fulfillment,
+        ...(options.clientFulfillmentTimestampsEnabled === undefined
+          ? {}
+          : { clientTimestampsEnabled: options.clientFulfillmentTimestampsEnabled }),
+      });
+    }
+    if (dependencies.settlements && dependencies.refunds && dependencies.disputes) {
+      await api.register(registerDisputeRoutes, {
+        auth: dependencies.auth, settlements: dependencies.settlements,
+        refunds: dependencies.refunds, disputes: dependencies.disputes,
+      });
+    }
+  }, { prefix: options.apiPrefix ?? '' });
   return app;
 }

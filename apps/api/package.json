@@ -6,7 +6,9 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src tests --max-warnings=0"
+    "lint": "eslint src tests --max-warnings=0",
+    "start:pilot": "tsx src/server.ts",
+    "bootstrap:pilot": "tsx src/pilot/bootstrap.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",
@@ -21,6 +23,7 @@
   "devDependencies": {
     "@types/node": "^22.18.0",
     "prisma": "^6.16.1",
+    "tsx": "^4.20.5",
     "vitest": "^3.2.4"
   }
 }
