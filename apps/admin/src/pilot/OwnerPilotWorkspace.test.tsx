@@ -82,7 +82,7 @@ describe('OwnerPilotWorkspace', () => {
       'CAT_FEEDING', 'DOG_WALKING',
     ]);
     expect(document.body.textContent).not.toContain('访问说明');
-    expect(screen.getByText('请勿填写门锁密码、支付信息或联系方式。')).toBeTruthy();
+    expect(screen.getByText('仅填写完成上门服务所需的地址信息。')).toBeTruthy();
   });
 
   it('creates and reloads owner pets and safe address summaries', async () => {

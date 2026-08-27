@@ -395,7 +395,7 @@ export function OwnerPilotWorkspace({ api, onError }: OwnerPilotWorkspaceProps) 
               {PILOT_DISTRICTS.map(({ district }) => <option key={district}>{district}</option>)}
             </select></label>
             <label>详细服务地址<input value={addressDetail} onChange={(event) => setAddressDetail(event.target.value)} maxLength={300} autoComplete="street-address" required/></label>
-            <p className="pilot-privacy-hint">请勿填写门锁密码、支付信息或联系方式。</p>
+            <p className="pilot-privacy-hint">仅填写完成上门服务所需的地址信息。</p>
             <button type="submit" disabled={savingAddress}>{savingAddress ? '正在保存…' : '保存地址'}</button>
           </form>
           <div className="pilot-safe-list">

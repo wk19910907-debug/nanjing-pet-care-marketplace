@@ -63,19 +63,22 @@ pnpm dev
 
 ## 开发验证
 
-普通工作区检查与公开演示浏览器测试：
-
-```powershell
-pnpm check
-pnpm build
-pnpm --filter @pet/admin test:e2e
-```
-
-完整试运营真实验收会自动创建并清理 PostgreSQL 16、API 进程和证据目录：
+不需要预先准备数据库的真实试运营闭环验收：
 
 ```powershell
 pnpm test:e2e:live
 ```
+
+该命令会自行创建、迁移并清理 PostgreSQL 16、API 进程和证据目录。普通静态检查、构建与公开演示浏览器测试可在 clean shell 中直接运行：
+
+```powershell
+pnpm lint
+pnpm typecheck
+pnpm build
+pnpm --filter @pet/admin test:e2e
+```
+
+`pnpm test` 和聚合命令 `pnpm check` 包含 API 集成测试，要求 `DATABASE_URL` 指向已执行全部 Prisma 迁移的 PostgreSQL。可按 [`docs/operations/pilot-quickstart.md`](docs/operations/pilot-quickstart.md) 的容器、就绪等待和迁移步骤准备一次性数据库；不要在 clean shell 中裸跑后误判结果。
 
 验收范围、隔离边界和故障处理见 [`docs/testing/pilot-live-acceptance.md`](docs/testing/pilot-live-acceptance.md)。
 

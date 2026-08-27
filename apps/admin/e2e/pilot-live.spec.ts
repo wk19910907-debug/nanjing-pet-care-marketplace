@@ -9,7 +9,8 @@ if (!baseUrl || !adminInvite || !controlUrl) {
 }
 
 const exactAddress = '中山南路 188 号试点楼 2 单元 301';
-const forbiddenContactCopy = /手机号|微信号|二维码|收款码|付款码|银行卡|身份证|证件照片/;
+const secondExactAddress = '江东中路 99 号试点楼 1 单元 202';
+const forbiddenSensitiveCopy = /手机号|微信(?:号)?|邮箱|门锁密码|收款码|付款码|二维码|银行卡|身份证|证件照片|token|令牌/i;
 const validPng = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
   'base64',
@@ -25,14 +26,15 @@ function localInput(date: Date): string {
 async function browserFetch(
   page: Page,
   path: string,
-  init: { method?: string; body?: unknown } = {},
+  init: { method?: string; body?: unknown; headers?: Record<string, string> } = {},
 ): Promise<HttpResult> {
   return page.evaluate(async ({ requestPath, requestInit }) => {
     const options: RequestInit = {
       method: requestInit.method ?? 'GET',
       credentials: 'same-origin',
+      ...(requestInit.headers === undefined ? {} : { headers: requestInit.headers }),
       ...(requestInit.body === undefined ? {} : {
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...requestInit.headers, 'Content-Type': 'application/json' },
         body: JSON.stringify(requestInit.body),
       }),
     };
@@ -44,13 +46,27 @@ async function browserFetch(
   }, { requestPath: path, requestInit: init });
 }
 
+async function browserFetchBytes(page: Page, path: string) {
+  return page.evaluate(async (requestPath) => {
+    const response = await fetch(requestPath, { credentials: 'same-origin' });
+    return {
+      status: response.status,
+      bytes: [...new Uint8Array(await response.arrayBuffer())],
+      headers: Object.fromEntries(response.headers.entries()),
+    };
+  }, path);
+}
+
 async function login(page: Page, invite: string, displayName: string, workspace: string) {
   await page.goto(baseUrl!);
+  await assertMobilePrivacy(page);
   await page.getByRole('textbox', { name: '邀请码', exact: true }).fill(invite);
   await page.getByRole('button', { name: '进入试运营' }).click();
+  await assertMobilePrivacy(page);
   await page.getByRole('textbox', { name: '展示昵称', exact: true }).fill(displayName);
   await page.getByRole('button', { name: '保存昵称' }).click();
   await expect(page.getByRole('heading', { name: workspace })).toBeVisible();
+  await assertMobilePrivacy(page);
 }
 
 async function assertSessionCookie(context: BrowserContext, page: Page) {
@@ -80,17 +96,53 @@ async function assertMobilePrivacy(page: Page) {
         height: node.getBoundingClientRect().height,
       })),
     text: document.body.textContent ?? '',
+    descriptors: [...document.querySelectorAll<
+      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement
+    >('input, select, textarea, button')]
+      .flatMap((node) => [
+        node.getAttribute('aria-label'),
+        node.getAttribute('placeholder'),
+        node.getAttribute('name'),
+        ...(node.labels ? [...node.labels].map((label) => label.textContent) : []),
+      ])
+      .filter((value): value is string => value !== null),
     location: window.location.href,
     cookie: document.cookie,
   }));
+  expect(page.viewportSize()).toEqual({ width: 390, height: 844 });
   expect(result.localStorage).toBe(0);
   expect(result.sessionStorage).toBe(0);
   expect(result.overflow).toBe(false);
   expect(result.controls.filter(({ height }) => height < 44)).toEqual([]);
-  expect(result.text).not.toMatch(forbiddenContactCopy);
+  expect(result.text).not.toMatch(forbiddenSensitiveCopy);
+  expect(result.descriptors.join('\n')).not.toMatch(forbiddenSensitiveCopy);
   expect(result.text).not.toContain('petcare_pilot_session');
   expect(result.location).not.toMatch(/token|invite|session/i);
   expect(result.cookie).not.toContain('petcare_pilot_session');
+}
+
+async function assertDesktopLayout(page: Page, workspace: string) {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect(page.getByRole('heading', { name: workspace })).toBeVisible();
+  const result = await page.evaluate(() => ({
+    overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    text: document.body.textContent ?? '',
+  }));
+  expect(result.overflow).toBe(false);
+  expect(result.text).not.toMatch(forbiddenSensitiveCopy);
+}
+
+async function logoutAndAssertRevoked(context: BrowserContext, page: Page) {
+  const session = (await context.cookies(baseUrl!))
+    .find((cookie) => cookie.name === 'petcare_pilot_session');
+  expect(session?.value).toBeTruthy();
+  await page.getByRole('button', { name: '退出登录' }).click();
+  await expect(page.getByRole('button', { name: '进入试运营' })).toBeVisible();
+  expect((await browserFetch(page, '/api/v1/pilot/session')).status).toBe(401);
+  const revoked = await context.request.get(`${baseUrl}/api/v1/pilot/session`, {
+    headers: { Cookie: `petcare_pilot_session=${session!.value}` },
+  });
+  expect(revoked.status()).toBe(401);
 }
 
 test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop', async ({ browser }) => {
@@ -111,6 +163,10 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
   const providerPage = await providerContext.newPage();
   for (const page of [adminPage, ownerPage, providerPage]) {
     page.on('request', (request) => requests.push(request.url()));
+    page.on('console', (message) => {
+      if (message.type() === 'error') consoleErrors.push(message.text());
+    });
+    page.on('pageerror', (error) => pageErrors.push(error.message));
   }
 
   try {
@@ -121,11 +177,21 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await adminPage.getByRole('button', { name: '创建一次性邀请码' }).click();
     const ownerInvite = (await adminPage.locator('.pilot-one-time-code code').textContent())?.trim();
     expect(ownerInvite).toBeTruthy();
+    await assertMobilePrivacy(adminPage);
+
+    await adminPage.getByRole('button', { name: '创建一次性邀请码' }).click();
+    const secondOwnerInvite = (await adminPage.locator('.pilot-one-time-code code').textContent())?.trim();
+    expect(secondOwnerInvite).toBeTruthy();
 
     await adminPage.getByRole('combobox', { name: '邀请角色', exact: true }).selectOption('PROVIDER');
     await adminPage.getByRole('button', { name: '创建一次性邀请码' }).click();
     const providerInvite = (await adminPage.locator('.pilot-one-time-code code').textContent())?.trim();
     expect(providerInvite).toBeTruthy();
+
+    await adminPage.getByRole('button', { name: '创建一次性邀请码' }).click();
+    const secondProviderInvite = (await adminPage.locator('.pilot-one-time-code code').textContent())?.trim();
+    expect(secondProviderInvite).toBeTruthy();
+    await assertMobilePrivacy(adminPage);
 
     await Promise.all([
       login(ownerPage, ownerInvite!, '建邺团子家', '宠主工作区'),
@@ -135,18 +201,13 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
       assertSessionCookie(ownerContext, ownerPage),
       assertSessionCookie(providerContext, providerPage),
     ]);
-    for (const page of [adminPage, ownerPage, providerPage]) {
-      page.on('console', (message) => {
-        if (message.type() === 'error') consoleErrors.push(message.text());
-      });
-      page.on('pageerror', (error) => pageErrors.push(error.message));
-    }
 
     await providerPage.getByRole('checkbox', { name: '上门喂猫' }).check();
     await providerPage.getByRole('combobox', { name: '申请服务区' }).selectOption('建邺区');
     await providerPage.getByLabel('喂猫经验（月）').fill('24');
     await providerPage.getByRole('button', { name: '提交服务申请' }).click();
     await expect(providerPage.getByText('服务申请已提交，等待平台审核。')).toBeVisible();
+    await assertMobilePrivacy(providerPage);
 
     const now = new Date();
     const serviceStarts = new Date(now.getTime() + 10 * 60_000);
@@ -156,11 +217,13 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await providerPage.getByLabel('结束时间').fill(localInput(availabilityEnds));
     await providerPage.getByRole('button', { name: '保存可服务时间' }).click();
     await expect(providerPage.getByText('可服务时间已保存。')).toBeVisible();
+    await assertMobilePrivacy(providerPage);
 
     await adminPage.getByRole('button', { name: '刷新运营数据' }).click();
     await adminPage.getByRole('button', { name: '审核建邺小周' }).click();
     await adminPage.getByRole('button', { name: '确认批准' }).click();
     await expect(adminPage.getByText('当前没有待审核申请。')).toBeVisible();
+    await assertMobilePrivacy(adminPage);
 
     await ownerPage.getByLabel('宠物昵称').fill('团子');
     await ownerPage.getByRole('button', { name: '保存宠物' }).click();
@@ -169,6 +232,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await ownerPage.getByLabel('详细服务地址').fill(exactAddress);
     await ownerPage.getByRole('button', { name: '保存地址' }).click();
     await expect(ownerPage.getByText(exactAddress)).toHaveCount(0);
+    await assertMobilePrivacy(ownerPage);
 
     await ownerPage.getByRole('combobox', { name: '服务宠物' }).selectOption({ label: '团子 · 猫' });
     await ownerPage.getByRole('combobox', { name: '服务地址' }).selectOption({ index: 1 });
@@ -183,9 +247,11 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     ));
     await ownerPage.getByRole('button', { name: '按固定报价提交订单' }).click();
     const orderResponse = await orderResponsePromise;
+    const ownerOrderInput = orderResponse.request().postDataJSON() as Record<string, unknown>;
     const order = await orderResponse.json() as { id: string; status: string; paymentToken: null };
     expect(order).toMatchObject({ status: 'PENDING_PAYMENT', paymentToken: null });
     const orderId = order.id;
+    await assertMobilePrivacy(ownerPage);
 
     const [adminOrdersBefore, providerOrdersBefore] = await Promise.all([
       browserFetch(adminPage, '/api/v1/pilot/orders'),
@@ -201,6 +267,9 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await expect(adminPage.getByRole('heading', { name: '平台工作区' })).toBeVisible();
     await expect(ownerPage.getByRole('heading', { name: '宠主工作区' })).toBeVisible();
     await expect(providerPage.getByRole('heading', { name: '服务人员工作区' })).toBeVisible();
+    await Promise.all([
+      assertMobilePrivacy(adminPage), assertMobilePrivacy(ownerPage), assertMobilePrivacy(providerPage),
+    ]);
     const ownerOrdersAfterRestart = await browserFetch(ownerPage, '/api/v1/pilot/orders');
     expect(ownerOrdersAfterRestart.status).toBe(200);
     expect(ownerOrdersAfterRestart.body).toEqual(expect.arrayContaining([
@@ -225,6 +294,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
       const item = (result.body as Array<{ id: string; status: string }>).find((candidate) => candidate.id === orderId);
       return item?.status;
     }).toBe('PENDING_DISPATCH');
+    await assertMobilePrivacy(adminPage);
     await adminPage.getByRole('button', { name: '刷新运营数据' }).click();
     await adminPage.getByRole('button', { name: `派单订单 ${orderId}` }).click();
     const dispatchResponsePromise = adminPage.waitForResponse((response) => (
@@ -234,12 +304,16 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await adminPage.getByRole('button', { name: '确认启动派单' }).click();
     const dispatchResponse = await dispatchResponsePromise;
     expect(dispatchResponse.status()).toBe(200);
-    expect(await dispatchResponse.json()).toEqual([
+    const firstDispatchInvitations = await dispatchResponse.json() as Array<{ id: string; status: string }>;
+    expect(firstDispatchInvitations).toEqual([
       expect.objectContaining({ status: 'PENDING' }),
     ]);
+    const firstProviderInvitationId = firstDispatchInvitations[0]!.id;
+    await assertMobilePrivacy(adminPage);
 
     await providerPage.getByRole('button', { name: '刷新我的任务' }).click();
     await expect(providerPage.getByRole('button', { name: `接受邀请 ${orderId}` })).toBeVisible();
+    await assertMobilePrivacy(providerPage);
     const candidateAddress = await browserFetch(providerPage, `/api/v1/orders/${orderId}/address/candidate`);
     expect(candidateAddress.status).toBe(200);
     expect(candidateAddress.body).toMatchObject({ city: '南京市', district: '建邺区', serviceZone: '建邺区' });
@@ -252,11 +326,13 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     expect(await providerPage.getByText(exactAddress).count()).toBe(0);
     await providerPage.getByRole('button', { name: `读取订单 ${orderId} 完整地址` }).click();
     await expect(providerPage.getByText(exactAddress)).toBeVisible();
+    await assertMobilePrivacy(providerPage);
 
     const taskCard = providerPage.getByText(`任务 ${orderId}`).locator('..');
     await taskCard.getByRole('checkbox', { name: '我已到达并确认宠物当前状态可开始服务' }).check();
     await taskCard.getByRole('button', { name: `订单 ${orderId} 签到` }).click();
     await expect(taskCard.getByRole('heading', { name: '履约图片与服务清单' })).toBeVisible();
+    await assertMobilePrivacy(providerPage);
 
     await taskCard.getByLabel('履约图片').setInputFiles({
       name: 'service-evidence.png', mimeType: 'image/png', buffer: validPng,
@@ -271,6 +347,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await taskCard.getByRole('button', { name: '提交服务报告' }).click();
     await expect(providerPage.getByText('服务报告已提交，等待宠主确认。')).toBeVisible();
     await expect(providerPage.getByText(exactAddress)).toHaveCount(0);
+    await assertMobilePrivacy(providerPage);
 
     const providerOrdersAfter = await browserFetch(providerPage, '/api/v1/pilot/orders');
     const providerOrder = (providerOrdersAfter.body as Array<{ id: string; evidence?: Array<{ id: string }> }>)
@@ -288,19 +365,155 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
       expect(result.body).toMatchObject({ expiresInSeconds: 300 });
       expect((result.body as { url: string }).url).toMatch(/^\/api\/v1\/pilot\/local-evidence\?token=/);
     }
-    const evidenceBytes = await browserFetch(ownerPage, (ownerEvidence.body as { url: string }).url);
+    const evidenceBytes = await browserFetchBytes(ownerPage, (ownerEvidence.body as { url: string }).url);
     expect(evidenceBytes.status).toBe(200);
     expect(evidenceBytes.headers['content-type']).toBe('image/png');
     expect(evidenceBytes.headers['cache-control']).toBe('private, no-store');
+    expect(Buffer.from(evidenceBytes.bytes)).toEqual(validPng);
     expect((await fetch(`${baseUrl}/api/v1/evidence/${evidenceId}/read-url`)).status).toBe(401);
 
     await ownerPage.getByRole('button', { name: '确认服务完成' }).click();
     await expect(ownerPage.getByText('服务已完成')).toBeVisible();
     expect(await contextStatus(providerContext, `/api/v1/orders/${orderId}/address/assigned`)).toBe(403);
 
+    await logoutAndAssertRevoked(ownerContext, ownerPage);
+    await login(ownerPage, secondOwnerInvite!, '建邺布丁家', '宠主工作区');
+    await assertSessionCookie(ownerContext, ownerPage);
+
+    for (const result of [
+      await browserFetch(ownerPage, `/api/v1/pilot/orders/${orderId}`),
+      await browserFetch(ownerPage, `/api/v1/orders/${orderId}/address/candidate`),
+      await browserFetch(ownerPage, `/api/v1/orders/${orderId}/address/assigned`),
+      await browserFetch(ownerPage, `/api/v1/evidence/${evidenceId}/read-url`),
+      await browserFetch(ownerPage, `/api/v1/orders/${orderId}/confirm`, { method: 'POST' }),
+      await browserFetch(ownerPage, `/api/v1/pilot/orders/${orderId}/report`, {
+        method: 'POST',
+        body: { checklist: {}, afterState: {}, notes: 'cross-owner-write' },
+      }),
+      await browserFetch(ownerPage, '/api/v1/orders', {
+        method: 'POST',
+        headers: { 'Idempotency-Key': 'owner2-foreign-resource-check' },
+        body: ownerOrderInput,
+      }),
+    ]) {
+      expect([403, 404]).toContain(result.status);
+    }
+    const secondOwnerOrdersBefore = await browserFetch(ownerPage, '/api/v1/pilot/orders');
+    expect(secondOwnerOrdersBefore.body).toEqual([]);
+    expect(JSON.stringify(secondOwnerOrdersBefore.body)).not.toContain(exactAddress);
+
+    await logoutAndAssertRevoked(providerContext, providerPage);
+    await login(providerPage, secondProviderInvite!, '建邺小吴', '服务人员工作区');
+    await assertSessionCookie(providerContext, providerPage);
+    await providerPage.getByRole('checkbox', { name: '上门喂猫' }).check();
+    await providerPage.getByRole('combobox', { name: '申请服务区' }).selectOption('建邺区');
+    await providerPage.getByLabel('喂猫经验（月）').fill('12');
+    await providerPage.getByRole('button', { name: '提交服务申请' }).click();
+    await expect(providerPage.getByText('服务申请已提交，等待平台审核。')).toBeVisible();
+    await providerPage.getByLabel('开始时间').fill(localInput(availabilityStarts));
+    await providerPage.getByLabel('结束时间').fill(localInput(availabilityEnds));
+    await providerPage.getByRole('button', { name: '保存可服务时间' }).click();
+    await assertMobilePrivacy(providerPage);
+
+    await adminPage.getByRole('button', { name: '刷新运营数据' }).click();
+    await adminPage.getByRole('button', { name: '审核建邺小吴' }).click();
+    await adminPage.getByRole('button', { name: '确认批准' }).click();
+    await expect(adminPage.getByText('当前没有待审核申请。')).toBeVisible();
+    await assertMobilePrivacy(adminPage);
+
+    await ownerPage.getByLabel('宠物昵称').fill('布丁');
+    await ownerPage.getByRole('button', { name: '保存宠物' }).click();
+    await ownerPage.getByRole('combobox', { name: '服务区' }).selectOption('建邺区');
+    await ownerPage.getByLabel('详细服务地址').fill(secondExactAddress);
+    await ownerPage.getByRole('button', { name: '保存地址' }).click();
+    await ownerPage.getByRole('combobox', { name: '服务宠物' }).selectOption({ label: '布丁 · 猫' });
+    await ownerPage.getByRole('combobox', { name: '服务地址' }).selectOption({ index: 1 });
+    await ownerPage.getByLabel('服务时间').fill(localInput(new Date(now.getTime() + 20 * 60_000)));
+    await ownerPage.getByRole('button', { name: '获取服务报价' }).click();
+    await ownerPage.getByLabel('订单备注（可选）').fill('第二账号隔离验收');
+    const secondOrderResponsePromise = ownerPage.waitForResponse((response) => (
+      new URL(response.url()).pathname === '/api/v1/orders'
+      && response.request().method() === 'POST'
+      && response.status() === 201
+    ));
+    await ownerPage.getByRole('button', { name: '按固定报价提交订单' }).click();
+    const secondOrder = await (await secondOrderResponsePromise).json() as { id: string; status: string };
+    expect(secondOrder.status).toBe('PENDING_PAYMENT');
+    expect(secondOrder.id).not.toBe(orderId);
+    await assertMobilePrivacy(ownerPage);
+
+    const secondFee = await browserFetch(
+      adminPage,
+      `/api/v1/pilot/orders/${secondOrder.id}/manual-fee-confirmation`,
+      { method: 'POST', headers: { 'Idempotency-Key': 'second-owner-fee-confirmation' } },
+    );
+    expect(secondFee.status).toBe(200);
+    const secondDispatch = await browserFetch(adminPage, `/api/v1/dispatch/${secondOrder.id}/start`, {
+      method: 'POST',
+    });
+    expect(secondDispatch.status).toBe(200);
+    expect(secondDispatch.body).toEqual(expect.arrayContaining([expect.objectContaining({ status: 'PENDING' })]));
+    await assertMobilePrivacy(adminPage);
+
+    await providerPage.getByRole('button', { name: '刷新我的任务' }).click();
+    const secondProviderOrders = await browserFetch(providerPage, '/api/v1/pilot/orders');
+    expect(secondProviderOrders.status).toBe(200);
+    expect((secondProviderOrders.body as Array<{ id: string }>).map((item) => item.id)).toEqual([secondOrder.id]);
+    const secondProviderOrder = (secondProviderOrders.body as Array<{
+      id: string; invitation: { id: string; status: string };
+    }>)[0]!;
+    expect(secondProviderOrder.invitation.status).toBe('PENDING');
+    expect(await providerPage.getByText(exactAddress).count()).toBe(0);
+
+    for (const result of [
+      await browserFetch(providerPage, `/api/v1/pilot/orders/${orderId}`),
+      await browserFetch(providerPage, `/api/v1/orders/${orderId}/address/candidate`),
+      await browserFetch(providerPage, `/api/v1/orders/${orderId}/address/assigned`),
+      await browserFetch(providerPage, `/api/v1/evidence/${evidenceId}/read-url`),
+      await browserFetch(providerPage, `/api/v1/invitations/${firstProviderInvitationId}/accept`, {
+        method: 'POST',
+      }),
+    ]) {
+      expect([403, 404, 409]).toContain(result.status);
+    }
+    const secondAccept = await browserFetch(
+      providerPage,
+      `/api/v1/invitations/${secondProviderOrder.invitation.id}/accept`,
+      { method: 'POST' },
+    );
+    expect(secondAccept.status).toBe(200);
+    const secondAssignedAddress = await browserFetch(
+      providerPage,
+      `/api/v1/orders/${secondOrder.id}/address/assigned`,
+    );
+    expect(secondAssignedAddress.status).toBe(200);
+    expect(secondAssignedAddress.body).toMatchObject({ detail: secondExactAddress });
+    expect(JSON.stringify(secondAssignedAddress.body)).not.toContain(exactAddress);
+    await providerPage.getByRole('button', { name: '刷新我的任务' }).click();
+    await assertMobilePrivacy(providerPage);
+
+    const applicationRequests = [...requests];
+    for (const path of [
+      '/api/v1/payments',
+      '/api/v1/payments/create',
+      '/api/v1/payments/webhooks/fake',
+      '/api/v1/wechat/pay',
+    ]) {
+      expect((await browserFetch(adminPage, path, { method: 'POST' })).status).toBe(404);
+    }
+
     await Promise.all([assertMobilePrivacy(adminPage), assertMobilePrivacy(ownerPage), assertMobilePrivacy(providerPage)]);
-    expect(requests.some((url) => /\/payments(?:\/|$)|wechat|phone|qr/i.test(new URL(url).pathname))).toBe(false);
-    expect(consoleErrors).toEqual([]);
+    await Promise.all([
+      assertDesktopLayout(adminPage, '平台工作区'),
+      assertDesktopLayout(ownerPage, '宠主工作区'),
+      assertDesktopLayout(providerPage, '服务人员工作区'),
+    ]);
+    await Promise.all([
+      logoutAndAssertRevoked(ownerContext, ownerPage),
+      logoutAndAssertRevoked(providerContext, providerPage),
+    ]);
+    expect(applicationRequests.some((url) => /\/payments(?:\/|$)|wechat|phone|qr/i.test(new URL(url).pathname))).toBe(false);
+    expect(consoleErrors.filter((message) => !/Failed to load resource.*\b(?:401|403|404|409)\b/i.test(message))).toEqual([]);
     expect(pageErrors).toEqual([]);
   } finally {
     await Promise.all(contexts.map((context) => context.close()));

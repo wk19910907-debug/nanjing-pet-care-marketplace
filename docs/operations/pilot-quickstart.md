@@ -25,6 +25,20 @@ docker run --detach --rm --name $pilotContainer --publish 127.0.0.1:54329:5432 `
   --env POSTGRES_DB=pilot `
   postgres:16-alpine
 
+$pilotDatabaseReady = $false
+for ($attempt = 0; $attempt -lt 60; $attempt++) {
+  docker exec $pilotContainer pg_isready --username pilot --dbname pilot *> $null
+  if ($LASTEXITCODE -eq 0) {
+    $pilotVersion = docker exec $pilotContainer psql --username pilot --dbname pilot --tuples-only --no-align --command 'SHOW server_version_num'
+    if ($LASTEXITCODE -eq 0 -and $pilotVersion.Trim().StartsWith('16')) {
+      $pilotDatabaseReady = $true
+      break
+    }
+  }
+  Start-Sleep -Milliseconds 500
+}
+if (-not $pilotDatabaseReady) { throw 'PostgreSQL 16 did not become SQL-ready' }
+
 $env:NODE_ENV = 'development'
 $env:DATABASE_URL = "postgresql://pilot:$([Uri]::EscapeDataString($pilotDbPassword))@127.0.0.1:54329/pilot?schema=public"
 $env:FIELD_ENCRYPTION_KEY_V1 = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
@@ -69,6 +83,8 @@ Remove-Item -LiteralPath $resolvedEvidence -Recurse -Force -ErrorAction Silently
 ```
 
 关闭终端会丢弃本次进程环境变量。若需要保留试点数据，不要删除数据库容器；应改用单独评审过的持久化部署方案和备份策略。
+
+自动验收 runner 会响应 `SIGINT` / `SIGTERM` 并幂等清理。`SIGKILL` 或主机断电无法被进程捕获；runner 只在系统临时目录记录不含凭据的资源 marker，并给数据库容器和 API 进程写入本次运行身份。下一次 `pnpm test:e2e:live` 会先验证容器 label、API 命令行、PID 和精确临时路径，再回收上一轮资源；任一身份不匹配都会停止而不会扩大删除范围。
 
 ## 生产边界
 
