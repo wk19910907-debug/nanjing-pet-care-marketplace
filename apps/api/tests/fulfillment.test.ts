@@ -58,6 +58,10 @@ async function attachPhoto(actor: ActorContext, orderId: string, capturedAt: Dat
   const upload = await fulfillment.issueUpload(actor, orderId, {
     mimeType: 'image/jpeg', sizeBytes: 1024, sha256: 'a'.repeat(64),
   });
+  expect(storage.issuedQuotaScope(upload.objectKey)).toEqual({
+    actorId: actor.userId,
+    orderId,
+  });
   storage.completeUpload(upload.objectKey);
   return fulfillment.attachEvidence(actor, orderId, {
     objectKey: upload.objectKey, mimeType: 'image/jpeg', sizeBytes: 1024,

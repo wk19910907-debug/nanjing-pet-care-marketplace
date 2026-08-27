@@ -66,6 +66,12 @@ export function createApp(dependencies: AppDependencies) {
     if (error instanceof Error && error.message === 'PAYMENT_VERIFICATION_FAILED') {
       return reply.code(400).send({ code: 'PAYMENT_VERIFICATION_FAILED' });
     }
+    if (error instanceof Error && error.message === 'EVIDENCE_QUOTA_EXCEEDED') {
+      return reply.code(429).send({ code: 'EVIDENCE_QUOTA_EXCEEDED' });
+    }
+    if (error instanceof Error && error.message === 'EVIDENCE_STORAGE_UNAVAILABLE') {
+      return reply.code(503).send({ code: 'SERVICE_UNAVAILABLE' });
+    }
     if (error instanceof Error && ['DISPATCH_NOT_ALLOWED', 'DISPATCH_CONFLICT'].includes(error.message)) {
       return reply.code(409).send({ code: error.message });
     }

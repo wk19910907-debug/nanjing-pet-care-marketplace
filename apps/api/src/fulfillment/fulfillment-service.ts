@@ -55,7 +55,12 @@ export class FulfillmentService {
     await this.requireAssignedProvider(actor, orderId);
     this.validateMedia(input);
     const objectKey = `orders/${orderId}/${randomUUID()}`;
-    return this.storage.issueUpload({ ...input, objectKey, expiresInSeconds: 600 });
+    return this.storage.issueUpload({
+      ...input,
+      objectKey,
+      expiresInSeconds: 600,
+      quotaScope: { actorId: actor.userId, orderId },
+    });
   }
 
   public async attachEvidence(

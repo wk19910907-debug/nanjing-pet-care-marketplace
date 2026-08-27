@@ -52,6 +52,12 @@ export async function registerLocalUploadRoutes(
     if (message === 'UPLOAD_INVALID') {
       return reply.code(400).send({ code: 'UPLOAD_INVALID' });
     }
+    if (message === 'EVIDENCE_QUOTA_EXCEEDED') {
+      return reply.code(429).send({ code: 'EVIDENCE_QUOTA_EXCEEDED' });
+    }
+    if (message === 'EVIDENCE_STORAGE_UNAVAILABLE') {
+      return reply.code(503).send({ code: 'SERVICE_UNAVAILABLE' });
+    }
     const code = frameworkCode(error);
     if (code === 'FST_ERR_CTP_BODY_TOO_LARGE') {
       return reply.code(413).send({ code });
