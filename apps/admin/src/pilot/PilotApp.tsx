@@ -5,6 +5,8 @@ import { LoginPanel } from './LoginPanel.js';
 import type { PilotSession } from './models.js';
 import { OwnerPilotWorkspace } from './OwnerPilotWorkspace.js';
 import { ProfilePanel } from './ProfilePanel.js';
+import { AdminPilotWorkspace } from './AdminPilotWorkspace.js';
+import { ProviderPilotWorkspace } from './ProviderPilotWorkspace.js';
 
 type PilotAppProps = { api?: PilotApi };
 
@@ -113,12 +115,14 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
       </div>
     </header>
     <main className="pilot-main">
-      {session.role === 'ADMIN' && <AdminInvitePanel api={api} onError={handleProtectedError}/>}
+      {session.role === 'ADMIN' && <div className="pilot-admin-stack">
+        <AdminPilotWorkspace key={session.userId} api={api} onError={handleProtectedError}/>
+        <AdminInvitePanel api={api} onError={handleProtectedError}/>
+      </div>}
       {session.role === 'OWNER' && <OwnerPilotWorkspace key={session.userId} api={api} onError={handleProtectedError}/>}
-      {session.role === 'PROVIDER' && <section className="pilot-panel">
-        <p className="pilot-kicker">服务人员</p><h1>服务人员工作区</h1>
-        <p>接单与履约功能将在下一阶段接入共享试运营数据。</p>
-      </section>}
+      {session.role === 'PROVIDER' && <ProviderPilotWorkspace
+        key={session.userId} api={api} displayName={session.displayName} onError={handleProtectedError}
+      />}
     </main>
   </div>;
 }

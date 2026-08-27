@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
-  testMatch: ['pilot-auth-ui.spec.ts', 'pilot-owner-ui.spec.ts'],
+  testMatch: ['pilot-auth-ui.spec.ts', 'pilot-owner-ui.spec.ts', 'pilot-admin-provider-ui.spec.ts'],
   use: {
     baseURL: 'http://127.0.0.1:41740',
     channel: 'chrome',

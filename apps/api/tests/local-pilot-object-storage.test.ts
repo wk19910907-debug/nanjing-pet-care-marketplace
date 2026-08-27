@@ -863,7 +863,7 @@ describe('registerLocalUploadRoutes', () => {
     await rm(rootDir, { recursive: true, force: true });
   });
 
-  it('accepts only raw bytes and serves signed reads privately with the stored MIME type', async () => {
+  it('accepts raw bytes with the exact issued MIME type and serves signed reads privately', async () => {
     const issued = await storage.issueUpload({
       objectKey: 'orders/11111111-1111-4111-8111-111111111111/evidence-route',
       mimeType: 'image/png', sizeBytes: PNG_BYTES.length, sha256: sha256(PNG_BYTES),
@@ -877,13 +877,13 @@ describe('registerLocalUploadRoutes', () => {
 
     const rejectedType = await app.inject({
       method: 'PUT', url: `${uploadUrl.pathname}${uploadUrl.search}`,
-      headers: { 'content-type': 'image/png' }, payload: PNG_BYTES,
+      headers: { 'content-type': 'image/gif' }, payload: PNG_BYTES,
     });
     expect(rejectedType.statusCode).toBe(415);
 
     const uploaded = await app.inject({
       method: 'PUT', url: `${uploadUrl.pathname}${uploadUrl.search}`,
-      headers: { 'content-type': 'application/octet-stream' }, payload: PNG_BYTES,
+      headers: { 'content-type': 'image/png' }, payload: PNG_BYTES,
     });
     expect(uploaded.statusCode).toBe(204);
 

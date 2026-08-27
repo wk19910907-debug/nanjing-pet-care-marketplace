@@ -17,6 +17,17 @@ import type {
   QuoteBreakdown,
   QuoteRequest,
   ServiceType,
+  AdminOrder,
+  AssignedAddress,
+  AttachEvidenceInput,
+  EvidenceMedia,
+  EvidenceUpload,
+  ProviderApplicationInput,
+  ProviderAvailabilityInput,
+  ProviderOrder,
+  ProviderReviewQueueItem,
+  ReviewStatus,
+  SubmitReportInput,
 } from './models.js';
 import { PILOT_DISTRICTS } from './districts.js';
 
@@ -29,6 +40,21 @@ const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   FORBIDDEN: '你没有权限执行此操作',
   ONBOARDING_REQUIRED: '请先设置展示昵称',
   SERVICE_UNAVAILABLE: '服务暂时不可用，请稍后重试',
+  MANUAL_FEE_CONFLICT: '费用状态已变化，请刷新后重试',
+  DISPATCH_NOT_ALLOWED: '当前订单不能启动派单，请刷新后重试',
+  DISPATCH_CONFLICT: '邀请状态已变化，请刷新后重试',
+  PROVIDER_NOT_FOUND: '请先提交服务申请',
+  FULFILLMENT_NOT_ALLOWED: '当前任务不能执行此操作，请刷新后重试',
+  FULFILLMENT_CONFLICT: '任务状态已变化，请刷新后重试',
+  CHECK_IN_OUTSIDE_WINDOW: '当前不在允许签到的时间窗内',
+  CHECKLIST_INCOMPLETE: '请完成本服务的全部清单',
+  EVIDENCE_REQUIRED: '请先上传履约图片',
+  CHECK_IN_REQUIRED: '请先完成签到',
+  AFTER_STATE_REQUIRED: '请确认服务后的宠物状态',
+  MEDIA_TYPE_NOT_ALLOWED: '仅支持 JPG、PNG 或 WebP 图片',
+  MEDIA_TOO_LARGE: '图片过大，请选择较小文件',
+  UPLOAD_NOT_VERIFIED: '图片上传校验失败，请重新上传',
+  EVIDENCE_QUOTA_EXCEEDED: '图片上传次数过多，请稍后重试',
 };
 
 export class PilotApiError extends Error {
@@ -63,6 +89,21 @@ export interface PilotApi {
   createOrder(input: CreateOwnerOrder, idempotencyKey: string): Promise<OwnerOrderCreated>;
   listOrders(): Promise<OwnerOrder[]>;
   confirmOrder(orderId: string): Promise<void>;
+  listAdminOrders(): Promise<AdminOrder[]>;
+  listProviderOrders(): Promise<ProviderOrder[]>;
+  listProviderReviewQueue(): Promise<ProviderReviewQueueItem[]>;
+  reviewProvider(profileId: string, status: Exclude<ReviewStatus, 'PENDING'>): Promise<void>;
+  confirmManualFee(orderId: string, idempotencyKey: string): Promise<void>;
+  startDispatch(orderId: string): Promise<void>;
+  applyProvider(input: ProviderApplicationInput): Promise<void>;
+  setProviderAvailability(input: ProviderAvailabilityInput): Promise<void>;
+  acceptInvitation(invitationId: string): Promise<void>;
+  getAssignedAddress(orderId: string): Promise<AssignedAddress>;
+  checkIn(orderId: string, beforeState: PilotChecklist): Promise<{ id: string; orderId: string; checkedInAt: string }>;
+  issueEvidenceUpload(orderId: string, media: EvidenceMedia): Promise<EvidenceUpload>;
+  uploadEvidence(uploadUrl: string, bytes: Uint8Array, mimeType: string): Promise<void>;
+  attachEvidence(orderId: string, input: AttachEvidenceInput): Promise<{ id: string }>;
+  submitReport(orderId: string, input: SubmitReportInput): Promise<{ id: string; orderId: string; submittedAt: string }>;
 }
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -72,6 +113,9 @@ const PILOT_ROLES = ['OWNER', 'PROVIDER', 'ADMIN'] as const;
 const INVITE_ROLES = ['OWNER', 'PROVIDER'] as const;
 const PET_SPECIES = ['CAT', 'DOG'] as const;
 const SERVICE_TYPES = ['CAT_FEEDING', 'DOG_WALKING'] as const;
+const REVIEW_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'] as const;
+const INVITATION_STATUSES = ['PENDING', 'ACCEPTED', 'DECLINED', 'EXPIRED', 'CANCELLED'] as const;
+const IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 const ORDER_STATUSES = [
   'PENDING_PAYMENT', 'PENDING_DISPATCH', 'PENDING_SERVICE', 'IN_SERVICE',
   'PENDING_CONFIRMATION', 'COMPLETED', 'CANCELLED', 'REFUND_PENDING',
@@ -357,6 +401,130 @@ function parseOrders(value: unknown): OwnerOrder[] {
   return value.map(parseOrder);
 }
 
+function parseAdminOrder(value: unknown): AdminOrder {
+  const record = asRecord(value);
+  const order = parseOrder(record);
+  const ownerDisplayName = asOptionalString(record, 'ownerDisplayName', 30);
+  return { ...order, ...(ownerDisplayName ? { ownerDisplayName } : {}) };
+}
+
+function parseAdminOrders(value: unknown): AdminOrder[] {
+  if (!Array.isArray(value) || value.length > 100) invalidResponse();
+  return value.map(parseAdminOrder);
+}
+
+function parseInvitation(record: JsonRecord) {
+  return {
+    id: asString(record, 'id', 128),
+    status: asEnum(record, 'status', INVITATION_STATUSES),
+    expiresAt: asDate(record, 'expiresAt'),
+  };
+}
+
+function parseProviderOrder(value: unknown): ProviderOrder {
+  const record = asRecord(value);
+  const invitationValue = record.invitation;
+  const invitation = invitationValue === undefined
+    ? undefined
+    : parseInvitation(asRecord(invitationValue));
+  if (record.status === undefined) {
+    if (!invitation) invalidResponse();
+    return {
+      id: asString(record, 'id', 128),
+      serviceType: asEnum<ServiceType>(record, 'serviceType', SERVICE_TYPES),
+      startsAt: asDate(record, 'startsAt'),
+      durationMinutes: asInteger(record, 'durationMinutes', 180),
+      ...parsePilotLocation(record),
+      invitation,
+    };
+  }
+  const ownerOrder = parseOrder(record);
+  const ownerDisplayName = asOptionalString(record, 'ownerDisplayName', 30);
+  const {
+    providerDisplayName: _providerDisplayName,
+    notes: _notes,
+    ...assigned
+  } = ownerOrder;
+  return {
+    ...assigned,
+    ...(ownerDisplayName ? { ownerDisplayName } : {}),
+    ...(invitation ? { invitation } : {}),
+  };
+}
+
+function parseProviderOrders(value: unknown): ProviderOrder[] {
+  if (!Array.isArray(value) || value.length > 100) invalidResponse();
+  return value.map(parseProviderOrder);
+}
+
+function parseProviderReview(value: unknown): ProviderReviewQueueItem {
+  const record = asRecord(value);
+  const displayName = asDisplayName(record.displayName);
+  const serviceTypes = record.serviceTypes;
+  if (!Array.isArray(serviceTypes) || serviceTypes.length < 1 || serviceTypes.length > 2) {
+    invalidResponse();
+  }
+  const parsedServices = serviceTypes.map((serviceType) => {
+    if (typeof serviceType !== 'string' || !SERVICE_TYPES.includes(serviceType as ServiceType)) {
+      invalidResponse();
+    }
+    return serviceType as ServiceType;
+  });
+  if (new Set(parsedServices).size !== parsedServices.length) invalidResponse();
+  const radiusKm = record.radiusKm;
+  if (typeof radiusKm !== 'number' || !Number.isFinite(radiusKm) || radiusKm <= 0 || radiusKm > 30) {
+    invalidResponse();
+  }
+  const serviceZone = asString(record, 'serviceZone', 50);
+  if (!DISTRICTS.has(serviceZone)) invalidResponse();
+  return {
+    id: asString(record, 'id', 128), displayName,
+    reviewStatus: asEnum(record, 'reviewStatus', REVIEW_STATUSES),
+    serviceTypes: parsedServices,
+    catExperienceMonths: asInteger(record, 'catExperienceMonths', 1200),
+    dogExperienceMonths: asInteger(record, 'dogExperienceMonths', 1200),
+    serviceZone, radiusKm, createdAt: asDate(record, 'createdAt'),
+  };
+}
+
+function parseProviderReviews(value: unknown): ProviderReviewQueueItem[] {
+  if (!Array.isArray(value) || value.length > 100) invalidResponse();
+  return value.map(parseProviderReview);
+}
+
+function parseAssignedAddress(value: unknown): AssignedAddress {
+  const record = asRecord(value);
+  rejectCredentialFields(record);
+  return { ...parsePilotLocation(record), detail: asString(record, 'detail', 300) };
+}
+
+function parseEvidenceUpload(value: unknown): EvidenceUpload {
+  const record = asRecord(value);
+  const uploadUrl = asString(record, 'uploadUrl', 2048);
+  if (!uploadUrl.startsWith('/') && !/^https:\/\//.test(uploadUrl)) invalidResponse();
+  return {
+    objectKey: asString(record, 'objectKey', 500),
+    uploadUrl,
+    expiresInSeconds: asInteger(record, 'expiresInSeconds', 3600),
+  };
+}
+
+function parseCheckIn(value: unknown) {
+  const record = asRecord(value);
+  return {
+    id: asString(record, 'id', 128), orderId: asString(record, 'orderId', 128),
+    checkedInAt: asDate(record, 'checkedInAt'),
+  };
+}
+
+function parseSubmittedReport(value: unknown) {
+  const record = asRecord(value);
+  return {
+    id: asString(record, 'id', 128), orderId: asString(record, 'orderId', 128),
+    submittedAt: asDate(record, 'submittedAt'),
+  };
+}
+
 function parseOrderCreated(value: unknown): OwnerOrderCreated {
   const record = asRecord(value);
   if (record.paymentToken !== null) invalidResponse();
@@ -467,6 +635,111 @@ export function createPilotApi(fetcher: Fetcher = fetch): PilotApi {
     confirmOrder: async (orderId) => {
       await request(`/v1/orders/${encodeURIComponent(orderId)}/confirm`, { method: 'POST' });
     },
+    listAdminOrders: async () => parseAdminOrders(await request('/v1/pilot/orders')),
+    listProviderOrders: async () => parseProviderOrders(await request('/v1/pilot/orders')),
+    listProviderReviewQueue: async () => parseProviderReviews(
+      await request('/v1/pilot/providers/review-queue'),
+    ),
+    reviewProvider: async (profileId, status) => {
+      const record = asRecord(await request(
+        `/v1/providers/${encodeURIComponent(profileId)}/review`,
+        { method: 'POST', body: JSON.stringify({ status }) },
+      ));
+      if (asString(record, 'id', 128) !== profileId) invalidResponse();
+      asEnum(record, 'reviewStatus', REVIEW_STATUSES);
+    },
+    confirmManualFee: async (orderId, idempotencyKey) => {
+      const record = asRecord(await request(
+        `/v1/pilot/orders/${encodeURIComponent(orderId)}/manual-fee-confirmation`,
+        { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey } },
+      ));
+      if (
+        asString(record, 'orderId', 128) !== orderId
+        || asEnum(record, 'provider', ['pilot-manual'] as const) !== 'pilot-manual'
+        || asEnum(record, 'status', ['SUCCEEDED'] as const) !== 'SUCCEEDED'
+      ) invalidResponse();
+      asString(record, 'id', 128);
+      asInteger(record, 'amountFen');
+      asEnum(record, 'currency', ['CNY'] as const);
+    },
+    startDispatch: async (orderId) => {
+      const value = await request(
+        `/v1/dispatch/${encodeURIComponent(orderId)}/start`, { method: 'POST' },
+      );
+      if (!Array.isArray(value) || value.length > 3) invalidResponse();
+      for (const invitation of value) {
+        const record = asRecord(invitation);
+        asString(record, 'id', 128);
+        asEnum(record, 'status', INVITATION_STATUSES);
+        asDate(record, 'expiresAt');
+      }
+    },
+    applyProvider: async (input) => {
+      const record = asRecord(await request(
+        '/v1/providers/applications',
+        { method: 'POST', body: JSON.stringify(input) },
+        201,
+      ));
+      asString(record, 'id', 128);
+      asEnum(record, 'reviewStatus', REVIEW_STATUSES);
+    },
+    setProviderAvailability: async (input) => {
+      const record = asRecord(await request(
+        '/v1/providers/availability',
+        { method: 'POST', body: JSON.stringify(input) },
+        201,
+      ));
+      asString(record, 'id', 128);
+      asDate(record, 'startsAt');
+      asDate(record, 'endsAt');
+    },
+    acceptInvitation: async (invitationId) => {
+      const record = asRecord(await request(
+        `/v1/invitations/${encodeURIComponent(invitationId)}/accept`, { method: 'POST' },
+      ));
+      asString(record, 'id', 128);
+      asEnum(record, 'status', ORDER_STATUSES);
+    },
+    getAssignedAddress: async (orderId) => parseAssignedAddress(await request(
+      `/v1/orders/${encodeURIComponent(orderId)}/address/assigned`,
+    )),
+    checkIn: async (orderId, beforeState) => parseCheckIn(await request(
+      `/v1/pilot/orders/${encodeURIComponent(orderId)}/check-in`,
+      { method: 'POST', body: JSON.stringify({ beforeState }) },
+      201,
+    )),
+    issueEvidenceUpload: async (orderId, media) => parseEvidenceUpload(await request(
+      `/v1/orders/${encodeURIComponent(orderId)}/evidence/uploads`,
+      { method: 'POST', body: JSON.stringify(media) },
+    )),
+    uploadEvidence: async (uploadUrl, bytes, mimeType) => {
+      if (!IMAGE_MIME_TYPES.includes(mimeType as typeof IMAGE_MIME_TYPES[number])) {
+        throw new PilotApiError(400, 'MEDIA_TYPE_NOT_ALLOWED');
+      }
+      let response: Response;
+      try {
+        response = await fetcher(uploadUrl, {
+          method: 'PUT', credentials: 'omit', headers: { 'Content-Type': mimeType },
+          body: bytes as unknown as BodyInit,
+        });
+      } catch {
+        throw new PilotApiError(503, 'SERVICE_UNAVAILABLE');
+      }
+      if (!response.ok) throw new PilotApiError(response.status, await safeErrorCode(response));
+      if (response.status !== 204) invalidResponse();
+    },
+    attachEvidence: async (orderId, input) => {
+      const record = asRecord(await request(
+        `/v1/orders/${encodeURIComponent(orderId)}/evidence`,
+        { method: 'POST', body: JSON.stringify(input) },
+        201,
+      ));
+      return { id: asString(record, 'id', 128) };
+    },
+    submitReport: async (orderId, input) => parseSubmittedReport(await request(
+      `/v1/pilot/orders/${encodeURIComponent(orderId)}/report`,
+      { method: 'POST', body: JSON.stringify(input) },
+    )),
   };
 }
 

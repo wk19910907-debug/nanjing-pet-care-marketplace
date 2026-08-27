@@ -47,6 +47,12 @@ function fakeApi(overrides: Partial<PilotApi> = {}): PilotApi {
     }),
     listOrders: vi.fn().mockResolvedValue([pendingOrder]),
     confirmOrder: vi.fn().mockResolvedValue({ id: pendingOrder.id, status: 'COMPLETED' }),
+    listProviderReviewQueue: vi.fn().mockResolvedValue([]),
+    listAdminOrders: vi.fn().mockResolvedValue([]), listProviderOrders: vi.fn().mockResolvedValue([]),
+    reviewProvider: vi.fn(), confirmManualFee: vi.fn(), startDispatch: vi.fn(),
+    applyProvider: vi.fn(), setProviderAvailability: vi.fn(), acceptInvitation: vi.fn(),
+    getAssignedAddress: vi.fn(), checkIn: vi.fn(), issueEvidenceUpload: vi.fn(),
+    uploadEvidence: vi.fn(), attachEvidence: vi.fn(), submitReport: vi.fn(),
     ...overrides,
   } as PilotApi;
 }

@@ -33,6 +33,12 @@ function fakeApi(overrides: Partial<PilotApi> = {}): PilotApi {
     createOrder: vi.fn(),
     listOrders: vi.fn().mockResolvedValue([]),
     confirmOrder: vi.fn(),
+    listProviderReviewQueue: vi.fn().mockResolvedValue([]),
+    listAdminOrders: vi.fn().mockResolvedValue([]), listProviderOrders: vi.fn().mockResolvedValue([]),
+    reviewProvider: vi.fn(), confirmManualFee: vi.fn(), startDispatch: vi.fn(),
+    applyProvider: vi.fn(), setProviderAvailability: vi.fn(), acceptInvitation: vi.fn(),
+    getAssignedAddress: vi.fn(), checkIn: vi.fn(), issueEvidenceUpload: vi.fn(),
+    uploadEvidence: vi.fn(), attachEvidence: vi.fn(), submitReport: vi.fn(),
     ...overrides,
   };
 }
@@ -51,6 +57,25 @@ describe('PilotApp', () => {
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+  });
+
+  it('mounts the real admin workspace beside invitation controls', async () => {
+    render(<PilotApp api={fakeApi()}/>);
+    expect(await screen.findByRole('heading', { name: '平台工作区' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '邀请码管理' })).toBeTruthy();
+  });
+
+  it('mounts a provider workspace keyed to the authenticated server identity', async () => {
+    const api = fakeApi({
+      getSession: vi.fn().mockResolvedValue({
+        userId: 'provider-1', role: 'PROVIDER', displayName: '秦淮小周',
+        expiresAt: '2026-09-03T10:00:00.000Z',
+      }),
+    });
+    render(<PilotApp api={api}/>);
+    expect(await screen.findByRole('heading', { name: '服务人员工作区' })).toBeTruthy();
+    expect(screen.getByText('当前身份：秦淮小周')).toBeTruthy();
+    expect(screen.queryByText('接单与履约功能将在下一阶段接入共享试运营数据。')).toBeNull();
   });
 
   it('shows invitation-only login after a 401 with no registration or contact fields', async () => {

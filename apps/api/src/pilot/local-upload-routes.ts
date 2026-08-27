@@ -6,6 +6,15 @@ export type LocalUploadRoutesDependencies = {
   maxUploadBytes: number;
 };
 
+const RAW_UPLOAD_TYPES = new Set([
+  'application/octet-stream',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'video/mp4',
+  'video/quicktime',
+]);
+
 function tokenFrom(query: unknown): string {
   if (typeof query !== 'object' || query === null || Array.isArray(query)) {
     throw new Error('FORBIDDEN');
@@ -38,7 +47,7 @@ export async function registerLocalUploadRoutes(
   }
 
   app.addContentTypeParser(
-    'application/octet-stream',
+    [...RAW_UPLOAD_TYPES],
     { parseAs: 'buffer' },
     (_request, body, done) => { done(null, body); },
   );
@@ -72,8 +81,8 @@ export async function registerLocalUploadRoutes(
     '/api/v1/pilot/local-evidence',
     { bodyLimit: dependencies.maxUploadBytes },
     async (request, reply) => {
-      if (request.headers['content-type']?.split(';', 1)[0]?.trim().toLowerCase()
-        !== 'application/octet-stream') {
+      const contentType = request.headers['content-type']?.split(';', 1)[0]?.trim().toLowerCase();
+      if (!contentType || !RAW_UPLOAD_TYPES.has(contentType)) {
         throw new Error('MEDIA_TYPE_NOT_ALLOWED');
       }
       if (!Buffer.isBuffer(request.body)) throw new Error('UPLOAD_INVALID');

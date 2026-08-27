@@ -96,6 +96,8 @@ export type OwnerOrderCreated = {
 };
 
 export type PilotChecklist = Record<string, string | number | boolean | null>;
+export type ReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
+export type InvitationStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED' | 'CANCELLED';
 
 export type OwnerOrder = {
   id: string;
@@ -115,4 +117,52 @@ export type OwnerOrder = {
     submittedAt: string;
     checklist: PilotChecklist;
   };
+};
+
+export type AdminOrder = OwnerOrder & { ownerDisplayName?: string };
+
+export type ProviderInvitation = {
+  id: string;
+  serviceType: ServiceType;
+  startsAt: string;
+  durationMinutes: number;
+  city: string;
+  district: string;
+  serviceZone: string;
+  invitation: { id: string; status: InvitationStatus; expiresAt: string };
+};
+
+export type ProviderAssignedOrder = Omit<OwnerOrder, 'providerDisplayName' | 'notes'> & {
+  ownerDisplayName?: string;
+  invitation?: { id: string; status: InvitationStatus; expiresAt: string };
+};
+
+export type ProviderOrder = ProviderInvitation | ProviderAssignedOrder;
+
+export type ProviderReviewQueueItem = {
+  id: string;
+  displayName: string;
+  reviewStatus: ReviewStatus;
+  serviceTypes: ServiceType[];
+  catExperienceMonths: number;
+  dogExperienceMonths: number;
+  serviceZone: string;
+  radiusKm: number;
+  createdAt: string;
+};
+
+export type ProviderApplicationInput = Omit<
+  ProviderReviewQueueItem,
+  'id' | 'displayName' | 'reviewStatus' | 'createdAt'
+> & { latitude: number; longitude: number };
+
+export type ProviderAvailabilityInput = { startsAt: string; endsAt: string };
+export type AssignedAddress = {
+  city: '南京市'; district: string; serviceZone: string; detail: string;
+};
+export type EvidenceMedia = { mimeType: string; sizeBytes: number; sha256: string };
+export type EvidenceUpload = { objectKey: string; uploadUrl: string; expiresInSeconds: number };
+export type AttachEvidenceInput = EvidenceMedia & { objectKey: string; capturedAt: string };
+export type SubmitReportInput = {
+  checklist: PilotChecklist; afterState: PilotChecklist; notes: string;
 };
