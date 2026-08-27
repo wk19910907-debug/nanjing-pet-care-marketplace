@@ -34,12 +34,14 @@ const OBJECT_NAME = /^[a-f0-9]{64}$/;
 const METADATA_NAME = /^([a-f0-9]{64})\.json$/;
 const RESERVATION_NAME = /^([a-f0-9]{64})\.reservation\.json$/;
 const TEMPORARY_NAME = /^[a-f0-9]{64}(?:\.json)?\.tmp-[a-f0-9-]{36}$/;
-const ROOT_LEASE_NAME = '.pilot-storage.lease';
+const ROOT_MANIFEST_NAME = '.pilot-storage.manifest.json';
+const ROOT_FORMAT_VERSION = 1;
+const ROOT_LEASE_NAME = /^\.pilot-storage\.lease\.([a-f0-9-]{36})$/;
+const ROOT_STALE_NAME = /^\.pilot-storage\.stale\.([a-f0-9-]{36})\.([a-f0-9-]{36})$/;
 const ROOT_LEASE_MAX_BYTES = 512;
 const ROOT_LEASE_WAIT_MS = 5_000;
 const ROOT_LEASE_RETRY_MS = 10;
 const ROOT_MUTATION_TAILS = new Map<string, Promise<void>>();
-const ACTIVE_ROOT_LEASES = new Set<string>();
 const ALLOWED_MIME_TYPES = new Set([
   'image/jpeg',
   'image/png',
@@ -47,12 +49,17 @@ const ALLOWED_MIME_TYPES = new Set([
   'video/mp4',
   'video/quicktime',
 ]);
-const MP4_BRANDS = new Set(['isom', 'iso2', 'iso5', 'iso6', 'mp41', 'mp42', 'avc1', 'M4V ']);
+const MP4_BRANDS = new Set([
+  '3gp4', '3gp5', '3gp6', 'avc1', 'dash', 'iso2', 'iso5', 'iso6', 'isom',
+  'M4A ', 'M4V ', 'mp41', 'mp42', 'MSNV',
+]);
 
 export type LocalPilotStorageQuotas = {
   maxObjectsPerOrder: number;
   maxObjectsPerActor: number;
   maxTotalObjects: number;
+  maxBytesPerOrder: number;
+  maxBytesPerActor: number;
   maxTotalBytes: number;
 };
 
@@ -60,6 +67,8 @@ export const DEFAULT_LOCAL_PILOT_STORAGE_QUOTAS: Readonly<LocalPilotStorageQuota
   maxObjectsPerOrder: 12,
   maxObjectsPerActor: 60,
   maxTotalObjects: 1_000,
+  maxBytesPerOrder: 256 * 1024 * 1024,
+  maxBytesPerActor: 1024 * 1024 * 1024,
   maxTotalBytes: 2 * 1024 * 1024 * 1024,
 };
 
@@ -88,6 +97,8 @@ type ReservationRecord = ObjectMetadata & EvidenceQuotaScope & {
 type QuotaEntry = EvidenceQuotaScope & { sizeBytes: number };
 type RootIdentity = { dev: number; ino: number; birthtimeMs: number };
 type RootLease = { id: string; pid: number; createdAt: number };
+type FileIdentity = { dev: number; ino: number; size: number; birthtimeMs: number };
+type RootManifest = { formatVersion: number; keyId: string; integrity: string };
 
 export type LocalPilotObjectStorageOptions = {
   rootDir: string;
@@ -105,6 +116,7 @@ export type LocalPilotObject = {
 export class LocalPilotObjectStorage implements ObjectStorage {
   private readonly rootDir: string;
   private readonly signingKey: Buffer;
+  private readonly keyId: string;
   private readonly maxUploadBytes: number;
   private readonly quotas: LocalPilotStorageQuotas;
   private readonly now: () => Date;
@@ -122,17 +134,22 @@ export class LocalPilotObjectStorage implements ObjectStorage {
     this.signingKey = createHmac('sha256', options.signingSecret)
       .update(TOKEN_PURPOSE, 'utf8')
       .digest();
+    this.keyId = createHash('sha256').update(this.signingKey).digest('hex').slice(0, 16);
     this.maxUploadBytes = options.maxUploadBytes;
     this.quotas = { ...(options.quotas ?? DEFAULT_LOCAL_PILOT_STORAGE_QUOTAS) };
     this.now = options.now ?? (() => new Date());
   }
 
-  public initialize(): Promise<void> {
-    this.initialization ??= this.withMutation(async () => {
-      await this.scavengeUnlocked();
-      await this.assertRootIdentity();
-    });
-    return this.initialization;
+  public async initialize(): Promise<void> {
+    try {
+      this.initialization ??= this.withMutation(async () => {
+        await this.scavengeUnlocked();
+        await this.assertRootIdentity();
+      });
+      await this.initialization;
+    } catch (error) {
+      this.rethrowStorageError(error);
+    }
   }
 
   public async issueUpload(input: UploadRequest): Promise<UploadDescriptor> {
@@ -185,6 +202,14 @@ export class LocalPilotObjectStorage implements ObjectStorage {
   }
 
   public async acceptUpload(token: string, bytes: Buffer): Promise<void> {
+    try {
+      await this.acceptUploadInternal(token, bytes);
+    } catch (error) {
+      this.rethrowStorageError(error);
+    }
+  }
+
+  private async acceptUploadInternal(token: string, bytes: Buffer): Promise<void> {
     const payload = this.verifyToken(token, 'upload');
     const objectPath = this.resolveObjectPath(payload.objectKey, 'token');
     await this.initialize();
@@ -243,52 +268,61 @@ export class LocalPilotObjectStorage implements ObjectStorage {
         if (error instanceof Error && ['UPLOAD_INVALID', 'FORBIDDEN'].includes(error.message)) {
           throw error;
         }
-        throw new Error('UPLOAD_INVALID');
+        throw new Error('EVIDENCE_STORAGE_UNAVAILABLE');
       }
     });
   }
 
   public async verifyUpload(objectKey: string, expected: ObjectMetadata): Promise<boolean> {
-    await this.initialize();
-    const objectPath = this.resolveObjectPath(objectKey, 'token');
-    const stored = await this.readStoredObject(`${objectPath}.json`, objectKey);
-    if (!stored || !this.sameMetadata(stored, {
-      ...expected,
-      sha256: typeof expected.sha256 === 'string' ? expected.sha256.toLowerCase() : '',
-    })) return false;
-    return this.contentMatches(objectPath, stored);
+    try {
+      await this.initialize();
+      const objectPath = this.resolveObjectPath(objectKey, 'token');
+      const stored = await this.readStoredObject(`${objectPath}.json`, objectKey);
+      if (!stored || !this.sameMetadata(stored, {
+        ...expected,
+        sha256: typeof expected.sha256 === 'string' ? expected.sha256.toLowerCase() : '',
+      })) return false;
+      return await this.contentMatches(objectPath, stored);
+    } catch (error) {
+      this.rethrowStorageError(error);
+    }
   }
 
   public async issueReadUrl(objectKey: string, expiresInSeconds: number): Promise<string> {
-    await this.initialize();
-    const objectPath = this.resolveObjectPath(objectKey, 'token');
-    this.assertTtl(expiresInSeconds);
-    const stored = await this.readStoredObject(`${objectPath}.json`, objectKey);
-    if (!stored || !await this.contentMatches(objectPath, stored)) throw new Error('FORBIDDEN');
-    return this.urlFor(this.sign({
-      operation: 'read',
-      objectKey,
-      mimeType: stored.mimeType,
-      sizeBytes: stored.sizeBytes,
-      sha256: stored.sha256,
-      expiresAt: this.nowMs() + expiresInSeconds * 1_000,
-    }));
+    try {
+      await this.initialize();
+      const objectPath = this.resolveObjectPath(objectKey, 'token');
+      this.assertTtl(expiresInSeconds);
+      const stored = await this.readStoredObject(`${objectPath}.json`, objectKey);
+      if (!stored || !await this.contentMatches(objectPath, stored)) throw new Error('FORBIDDEN');
+      return this.urlFor(this.sign({
+        operation: 'read',
+        objectKey,
+        mimeType: stored.mimeType,
+        sizeBytes: stored.sizeBytes,
+        sha256: stored.sha256,
+        expiresAt: this.nowMs() + expiresInSeconds * 1_000,
+      }));
+    } catch (error) {
+      this.rethrowStorageError(error);
+    }
   }
 
   public async readObject(token: string): Promise<LocalPilotObject> {
-    const payload = this.verifyToken(token, 'read');
-    await this.initialize();
-    const objectPath = this.resolveObjectPath(payload.objectKey, 'token');
-    const stored = await this.readStoredObject(`${objectPath}.json`, payload.objectKey);
-    if (!stored || !this.sameMetadata(stored, payload)) throw new Error('FORBIDDEN');
     try {
+      const payload = this.verifyToken(token, 'read');
+      await this.initialize();
+      const objectPath = this.resolveObjectPath(payload.objectKey, 'token');
+      const stored = await this.readStoredObject(`${objectPath}.json`, payload.objectKey);
+      if (!stored || !this.sameMetadata(stored, payload)) throw new Error('FORBIDDEN');
       const bytes = await this.readBoundedRegularFile(objectPath, stored.sizeBytes);
       if (bytes.length !== stored.sizeBytes
         || this.digest(bytes) !== stored.sha256
         || !this.matchesDeclaredMime(stored.mimeType, bytes)) throw new Error('FORBIDDEN');
       return { bytes, mimeType: stored.mimeType };
-    } catch {
-      throw new Error('FORBIDDEN');
+    } catch (error) {
+      if (this.isCode(error, 'ENOENT')) throw new Error('FORBIDDEN');
+      this.rethrowStorageError(error);
     }
   }
 
@@ -298,6 +332,19 @@ export class LocalPilotObjectStorage implements ObjectStorage {
     for (const entry of names) {
       if (TEMPORARY_NAME.test(entry.name) && !entry.isDirectory()) {
         await this.safeUnlink(path.join(this.rootDir, entry.name));
+      } else {
+        const staleMatch = entry.name.match(ROOT_STALE_NAME);
+        if (staleMatch && entry.isFile()) {
+          const stalePath = path.join(this.rootDir, entry.name);
+          const stats = await lstat(stalePath);
+          if (Date.now() - stats.mtimeMs > ROOT_LEASE_WAIT_MS) {
+            const observed = await this.readLeaseFile(stalePath);
+            if (!observed || observed.lease.id !== staleMatch[1]) {
+              throw new Error('EVIDENCE_STORAGE_UNAVAILABLE');
+            }
+            await this.unlinkVerified(stalePath, observed.identity);
+          }
+        }
       }
     }
     names = await readdir(this.rootDir, { withFileTypes: true });
@@ -353,16 +400,28 @@ export class LocalPilotObjectStorage implements ObjectStorage {
         && bytes.subarray(12, 16).toString('ascii') === 'IHDR';
     }
     if (mimeType === 'image/jpeg') {
-      const firstMarker = bytes[3];
-      return bytes.length >= 8
-        && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
-        && firstMarker !== undefined
-        && firstMarker >= 0xc0
-        && firstMarker !== 0xff
-        && firstMarker !== 0xd8
-        && firstMarker !== 0xd9
-        && !(firstMarker >= 0xd0 && firstMarker <= 0xd7)
-        && bytes.at(-2) === 0xff && bytes.at(-1) === 0xd9;
+      if (bytes.length < 8 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return false;
+      let offset = 2;
+      while (offset < bytes.length) {
+        if (bytes[offset] !== 0xff) return false;
+        while (bytes[offset] === 0xff) offset += 1;
+        const marker = bytes[offset];
+        if (marker === undefined || marker === 0x00 || marker === 0xd8) return false;
+        offset += 1;
+        if (marker === 0xd9) return true;
+        if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+        if (offset + 2 > bytes.length) return false;
+        const segmentLength = bytes.readUInt16BE(offset);
+        if (segmentLength < 2 || offset + segmentLength > bytes.length) return false;
+        if (marker === 0xda) {
+          for (let cursor = offset + segmentLength; cursor + 1 < bytes.length; cursor += 1) {
+            if (bytes[cursor] === 0xff && bytes[cursor + 1] === 0xd9) return true;
+          }
+          return false;
+        }
+        offset += segmentLength;
+      }
+      return false;
     }
     if (mimeType === 'image/webp') {
       if (bytes.length < 16
@@ -373,10 +432,23 @@ export class LocalPilotObjectStorage implements ObjectStorage {
     }
     if (mimeType === 'video/mp4' || mimeType === 'video/quicktime') {
       if (bytes.length < 16 || bytes.subarray(4, 8).toString('ascii') !== 'ftyp') return false;
-      const boxSize = bytes.readUInt32BE(0);
-      if (boxSize < 16 || boxSize > bytes.length || boxSize % 4 !== 0) return false;
-      const brands = [bytes.subarray(8, 12).toString('ascii')];
-      for (let offset = 16; offset + 4 <= boxSize; offset += 4) {
+      const size32 = bytes.readUInt32BE(0);
+      let headerSize = 8;
+      let boxSize = size32;
+      if (size32 === 1) {
+        if (bytes.length < 24) return false;
+        const extended = bytes.readBigUInt64BE(8);
+        if (extended > BigInt(Number.MAX_SAFE_INTEGER)) return false;
+        boxSize = Number(extended);
+        headerSize = 16;
+      } else if (size32 === 0) {
+        boxSize = bytes.length;
+      }
+      if (boxSize < headerSize + 8
+        || boxSize > bytes.length
+        || (boxSize - headerSize - 8) % 4 !== 0) return false;
+      const brands = [bytes.subarray(headerSize, headerSize + 4).toString('ascii')];
+      for (let offset = headerSize + 8; offset + 4 <= boxSize; offset += 4) {
         brands.push(bytes.subarray(offset, offset + 4).toString('ascii'));
       }
       return mimeType === 'video/quicktime'
@@ -387,12 +459,16 @@ export class LocalPilotObjectStorage implements ObjectStorage {
   }
 
   private assertWithinQuota(entries: QuotaEntry[], addition: QuotaEntry): void {
-    const orderCount = entries.filter((entry) => entry.orderId === addition.orderId).length;
-    const actorCount = entries.filter((entry) => entry.actorId === addition.actorId).length;
+    const orderEntries = entries.filter((entry) => entry.orderId === addition.orderId);
+    const actorEntries = entries.filter((entry) => entry.actorId === addition.actorId);
+    const orderBytes = orderEntries.reduce((sum, entry) => sum + entry.sizeBytes, 0);
+    const actorBytes = actorEntries.reduce((sum, entry) => sum + entry.sizeBytes, 0);
     const totalBytes = entries.reduce((sum, entry) => sum + entry.sizeBytes, 0);
-    if (orderCount + 1 > this.quotas.maxObjectsPerOrder
-      || actorCount + 1 > this.quotas.maxObjectsPerActor
+    if (orderEntries.length + 1 > this.quotas.maxObjectsPerOrder
+      || actorEntries.length + 1 > this.quotas.maxObjectsPerActor
       || entries.length + 1 > this.quotas.maxTotalObjects
+      || orderBytes + addition.sizeBytes > this.quotas.maxBytesPerOrder
+      || actorBytes + addition.sizeBytes > this.quotas.maxBytesPerActor
       || totalBytes + addition.sizeBytes > this.quotas.maxTotalBytes) {
       throw new Error('EVIDENCE_QUOTA_EXCEEDED');
     }
@@ -495,8 +571,15 @@ export class LocalPilotObjectStorage implements ObjectStorage {
   }
 
   private async readRecord(filePath: string, maxBytes: number): Promise<Record<string, unknown> | null> {
+    let encoded: Buffer;
     try {
-      const encoded = await this.readBoundedRegularFile(filePath, maxBytes);
+      encoded = await this.readBoundedRegularFile(filePath, maxBytes);
+    } catch (error) {
+      if (this.isCode(error, 'ENOENT')
+        || (error instanceof Error && error.message === 'FORBIDDEN')) return null;
+      throw error;
+    }
+    try {
       const parsed: unknown = JSON.parse(encoded.toString('utf8'));
       return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
         ? parsed as Record<string, unknown>
@@ -560,8 +643,10 @@ export class LocalPilotObjectStorage implements ObjectStorage {
       return bytes.length === metadata.sizeBytes
         && this.digest(bytes) === metadata.sha256
         && this.matchesDeclaredMime(metadata.mimeType, bytes);
-    } catch {
-      return false;
+    } catch (error) {
+      if (this.isCode(error, 'ENOENT')
+        || (error instanceof Error && error.message === 'FORBIDDEN')) return false;
+      throw error;
     }
   }
 
@@ -590,7 +675,17 @@ export class LocalPilotObjectStorage implements ObjectStorage {
   }
 
   private assertQuotas(quotas: LocalPilotStorageQuotas): void {
-    if (Object.values(quotas).some((value) => !Number.isSafeInteger(value) || value <= 0)) {
+    const keys = [
+      'maxBytesPerActor', 'maxBytesPerOrder', 'maxObjectsPerActor',
+      'maxObjectsPerOrder', 'maxTotalBytes', 'maxTotalObjects',
+    ];
+    if (typeof quotas !== 'object' || quotas === null
+      || Object.keys(quotas).sort().join(',') !== keys.join(',')
+      || Object.values(quotas).some((value) => !Number.isSafeInteger(value) || value <= 0)
+      || quotas.maxObjectsPerOrder > quotas.maxObjectsPerActor
+      || quotas.maxObjectsPerActor > quotas.maxTotalObjects
+      || quotas.maxBytesPerOrder > quotas.maxBytesPerActor
+      || quotas.maxBytesPerActor > quotas.maxTotalBytes) {
       throw new Error('PILOT_EVIDENCE_QUOTA_INVALID');
     }
   }
@@ -617,8 +712,9 @@ export class LocalPilotObjectStorage implements ObjectStorage {
     try {
       await access(filePath);
       return true;
-    } catch {
-      return false;
+    } catch (error) {
+      if (this.isCode(error, 'ENOENT')) return false;
+      throw error;
     }
   }
 
@@ -747,6 +843,7 @@ export class LocalPilotObjectStorage implements ObjectStorage {
       if (!this.rootIdentity) this.rootIdentity = currentIdentity;
       await this.assertRootIdentity();
       lease = await this.acquireRootLease();
+      await this.ensureRootManifest();
       return await operation();
     } finally {
       if (lease) await this.releaseRootLease(lease);
@@ -756,61 +853,178 @@ export class LocalPilotObjectStorage implements ObjectStorage {
   }
 
   private async acquireRootLease(): Promise<RootLease> {
-    const leasePath = path.join(this.rootDir, ROOT_LEASE_NAME);
+    const lease: RootLease = { id: randomUUID(), pid: process.pid, createdAt: Date.now() };
+    const leasePath = path.join(this.rootDir, `.pilot-storage.lease.${lease.id}`);
     const deadline = Date.now() + ROOT_LEASE_WAIT_MS;
-    for (;;) {
-      const lease: RootLease = { id: randomUUID(), pid: process.pid, createdAt: Date.now() };
-      try {
-        await this.assertDirectRootChild(leasePath);
-        const handle = await open(leasePath, 'wx', 0o600);
-        try {
-          await handle.writeFile(JSON.stringify(lease), { encoding: 'utf8' });
-        } finally {
-          await handle.close();
+    await this.writeExclusive(leasePath, JSON.stringify(lease));
+    try {
+      for (;;) {
+        let retry = false;
+        const contenders: RootLease[] = [];
+        const names = await readdir(this.rootDir);
+        for (const name of names) {
+          const staleMatch = name.match(ROOT_STALE_NAME);
+          if (staleMatch) {
+            // Quarantine cleanup happens only after one contender owns the root lease.
+            continue;
+          }
+          const match = name.match(ROOT_LEASE_NAME);
+          if (!match) continue;
+          const contenderPath = path.join(this.rootDir, name);
+          const observed = await this.readLeaseFile(contenderPath);
+          if (!observed) {
+            retry = true;
+            continue;
+          }
+          if (observed.lease.id !== match[1]) {
+            throw new Error('EVIDENCE_STORAGE_UNAVAILABLE');
+          }
+          if (!this.processIsAlive(observed.lease.pid)) {
+            // Give isolated processes that observed the same generation a deterministic race.
+            await new Promise<void>((resolve) => { setTimeout(resolve, ROOT_LEASE_RETRY_MS); });
+            await this.quarantineLease(contenderPath, observed);
+            retry = true;
+            continue;
+          }
+          contenders.push(observed.lease);
         }
-        ACTIVE_ROOT_LEASES.add(lease.id);
-        await this.assertRootIdentity();
-        return lease;
-      } catch (error) {
-        if (!this.isCode(error, 'EEXIST')) throw error;
-        if (await this.removeStaleRootLease(leasePath)) continue;
+        if (retry) {
+          if (Date.now() >= deadline) throw new Error('EVIDENCE_STORAGE_UNAVAILABLE');
+          continue;
+        }
+        contenders.sort((left, right) => left.createdAt - right.createdAt
+          || left.id.localeCompare(right.id));
+        if (contenders[0]?.id === lease.id) return lease;
         if (Date.now() >= deadline) throw new Error('EVIDENCE_STORAGE_UNAVAILABLE');
         await new Promise<void>((resolve) => { setTimeout(resolve, ROOT_LEASE_RETRY_MS); });
       }
+    } catch (error) {
+      await this.releaseRootLease(lease);
+      throw error;
     }
   }
 
-  private async removeStaleRootLease(leasePath: string): Promise<boolean> {
-    let existing: RootLease | undefined;
+  private async readLeaseFile(filePath: string): Promise<{ lease: RootLease; identity: FileIdentity } | null> {
     try {
       const parsed: unknown = JSON.parse((await this.readBoundedRegularFile(
-        leasePath,
+        filePath,
         ROOT_LEASE_MAX_BYTES,
       )).toString('utf8'));
-      if (this.isRootLease(parsed)) existing = parsed;
-    } catch {
-      // A partially written lease is removable after its owner has had time to finish.
+      const after = await lstat(filePath);
+      if (!this.isRootLease(parsed)) return null;
+      return { lease: parsed, identity: this.fileIdentity(after) };
+    } catch (error) {
+      if (this.isCode(error, 'ENOENT')) return null;
+      throw error;
     }
-    if (existing && ACTIVE_ROOT_LEASES.has(existing.id)) return false;
-    if (existing && this.processIsAlive(existing.pid)) return false;
-    const stats = await lstat(leasePath);
-    if (!existing && Date.now() - stats.mtimeMs < ROOT_LEASE_WAIT_MS) return false;
-    await this.safeUnlink(leasePath);
-    return true;
   }
 
   private async releaseRootLease(lease: RootLease): Promise<void> {
-    ACTIVE_ROOT_LEASES.delete(lease.id);
-    const leasePath = path.join(this.rootDir, ROOT_LEASE_NAME);
+    const leasePath = path.join(this.rootDir, `.pilot-storage.lease.${lease.id}`);
     try {
-      const parsed: unknown = JSON.parse((await this.readBoundedRegularFile(
-        leasePath,
-        ROOT_LEASE_MAX_BYTES,
-      )).toString('utf8'));
-      if (this.isRootLease(parsed) && parsed.id === lease.id) await this.safeUnlink(leasePath);
+      const observed = await this.readLeaseFile(leasePath);
+      if (observed?.lease.id === lease.id) await this.quarantineLease(leasePath, observed);
     } catch {
       // Do not perform path-based cleanup if the root or lease changed underneath us.
     }
+  }
+
+  private async quarantineLease(
+    leasePath: string,
+    observed: { lease: RootLease; identity: FileIdentity },
+  ): Promise<boolean> {
+    const quarantinePath = path.join(
+      this.rootDir,
+      `.pilot-storage.stale.${observed.lease.id}.${randomUUID()}`,
+    );
+    try {
+      await this.assertDirectRootChild(leasePath);
+      await this.assertDirectRootChild(quarantinePath);
+      await rename(leasePath, quarantinePath);
+    } catch (error) {
+      if (this.isCode(error, 'ENOENT')) return false;
+      throw error;
+    }
+    // The source name is a never-reused generation and the unique destination embeds it.
+    // A successful rename is therefore the CAS winner; losers see ENOENT and retry.
+    let movedIdentity: FileIdentity;
+    try {
+      movedIdentity = this.fileIdentity(await lstat(quarantinePath));
+    } catch (error) {
+      // On Windows two concurrent renames of the same generation can both report success;
+      // only the contender whose unique quarantine path exists won the move.
+      if (this.isCode(error, 'ENOENT')) return false;
+      throw error;
+    }
+    await this.unlinkVerified(quarantinePath, movedIdentity);
+    return true;
+  }
+
+  private async unlinkVerified(filePath: string, expected: FileIdentity): Promise<void> {
+    await this.assertDirectRootChild(filePath);
+    const current = this.fileIdentity(await lstat(filePath));
+    if (!this.sameIdentityValue(current, expected)) throw new Error('EVIDENCE_STORAGE_UNAVAILABLE');
+    await unlink(filePath);
+    await this.assertRootIdentity();
+  }
+
+  private fileIdentity(stats: Awaited<ReturnType<typeof lstat>>): FileIdentity {
+    return {
+      dev: Number(stats.dev), ino: Number(stats.ino), size: Number(stats.size),
+      birthtimeMs: Number(stats.birthtimeMs),
+    };
+  }
+
+  private sameIdentityValue(left: FileIdentity, right: FileIdentity): boolean {
+    return left.dev === right.dev && left.ino === right.ino
+      && left.size === right.size && left.birthtimeMs === right.birthtimeMs;
+  }
+
+  private async ensureRootManifest(): Promise<void> {
+    const manifestPath = path.join(this.rootDir, ROOT_MANIFEST_NAME);
+    if (!await this.exists(manifestPath)) {
+      const names = (await readdir(this.rootDir)).filter((name) => !ROOT_LEASE_NAME.test(name)
+        && !ROOT_STALE_NAME.test(name));
+      if (names.length > 0) throw new Error('EVIDENCE_STORAGE_UNAVAILABLE');
+      const manifest: RootManifest = {
+        formatVersion: ROOT_FORMAT_VERSION,
+        keyId: this.keyId,
+        integrity: this.manifestIntegrity(ROOT_FORMAT_VERSION, this.keyId),
+      };
+      await this.writeExclusive(manifestPath, JSON.stringify(manifest));
+      return;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse((await this.readBoundedRegularFile(manifestPath, MAX_METADATA_BYTES))
+        .toString('utf8'));
+    } catch {
+      throw new Error('EVIDENCE_STORAGE_UNAVAILABLE');
+    }
+    if (!this.isRootManifest(parsed)
+      || parsed.formatVersion !== ROOT_FORMAT_VERSION
+      || parsed.keyId !== this.keyId
+      || parsed.integrity !== this.manifestIntegrity(parsed.formatVersion, parsed.keyId)) {
+      throw new Error('EVIDENCE_STORAGE_UNAVAILABLE');
+    }
+  }
+
+  private isRootManifest(value: unknown): value is RootManifest {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+    const candidate = value as Record<string, unknown>;
+    return Object.keys(candidate).sort().join(',') === 'formatVersion,integrity,keyId'
+      && typeof candidate.formatVersion === 'number'
+      && Number.isSafeInteger(candidate.formatVersion)
+      && typeof candidate.keyId === 'string'
+      && /^[a-f0-9]{16}$/.test(candidate.keyId)
+      && typeof candidate.integrity === 'string'
+      && /^[a-f0-9]{64}$/.test(candidate.integrity);
+  }
+
+  private manifestIntegrity(formatVersion: number, keyId: string): string {
+    return createHmac('sha256', this.signingKey)
+      .update(JSON.stringify(['pilot-storage-manifest', formatVersion, keyId]), 'utf8')
+      .digest('hex');
   }
 
   private isRootLease(value: unknown): value is RootLease {
@@ -835,7 +1049,9 @@ export class LocalPilotObjectStorage implements ObjectStorage {
     }
   }
 
-  private rethrowStorageError(error: unknown, safeMessages: string[]): never {
+  private rethrowStorageError(error: unknown, safeMessages: string[] = [
+    'UPLOAD_INVALID', 'FORBIDDEN', 'EVIDENCE_QUOTA_EXCEEDED', 'EVIDENCE_STORAGE_UNAVAILABLE',
+  ]): never {
     if (error instanceof Error && safeMessages.includes(error.message)) throw error;
     throw new Error('EVIDENCE_STORAGE_UNAVAILABLE');
   }

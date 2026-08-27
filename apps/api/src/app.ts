@@ -113,7 +113,7 @@ export function createApp(dependencies: AppDependencies) {
       }
       return reply.code(503).send({ code: 'SERVICE_UNAVAILABLE' });
     }
-    return reply.send(error);
+    return reply.code(503).send({ code: 'SERVICE_UNAVAILABLE' });
   });
   if (dependencies.pilot) {
     installPilotCookieBridge(app);

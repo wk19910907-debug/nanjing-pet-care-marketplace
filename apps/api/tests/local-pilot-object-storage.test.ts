@@ -3,17 +3,23 @@ import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import Fastify from 'fastify';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LocalPilotObjectStorage } from '../src/adapters/local-pilot-object-storage.js';
 import { createApp } from '../src/app.js';
 import { registerLocalUploadRoutes } from '../src/pilot/local-upload-routes.js';
 
 const PNG_BYTES = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
-const JPEG_BYTES = Buffer.from('ffd8ffe000104a4649460001010000010001ffD9', 'hex');
+const JPEG_BYTES = Buffer.from('ffd8ffe0000e4a4649460001010000010001ffd9', 'hex');
 const JPEG_DQT_BYTES = Buffer.from('ffd8ffdb00040000ffd9', 'hex');
+const JPEG_FILL_TRAILING_BYTES = Buffer.from('ffd8ffffdb00040000ffd9001122', 'hex');
 const WEBP_BYTES = Buffer.from('5249464608000000574542505650384c', 'hex');
 const MP4_BYTES = Buffer.from('000000186674797069736f6d000000006d70343269736f6d', 'hex');
 const QUICKTIME_BYTES = Buffer.from('0000001466747970717420200000000071742020', 'hex');
+const EXTENDED_MP4_BYTES = Buffer.from(
+  '000000016674797000000000000000206d703432000000006d7034324d534e56',
+  'hex',
+);
+const MANIFEST_NAME = '.pilot-storage.manifest.json';
 const MAX_UPLOAD_BYTES = 1024;
 const SIGNING_SECRET = Buffer.alloc(32, 0x47);
 
@@ -91,7 +97,7 @@ describe('LocalPilotObjectStorage', () => {
     expect(read).toEqual({ bytes: PNG_BYTES, mimeType: 'image/png' });
     expect(issued.uploadUrl).not.toContain(rootDir);
     expect(readUrl).not.toContain(rootDir);
-    expect(await entries()).toHaveLength(2);
+    expect(await entries()).toHaveLength(3);
     expect(await entries()).toEqual(expect.arrayContaining([
       expect.stringMatching(/^[a-f0-9]{64}$/),
       expect.stringMatching(/^[a-f0-9]{64}\.json$/),
@@ -109,6 +115,7 @@ describe('LocalPilotObjectStorage', () => {
   it('does not follow a symlinked object-key ancestor outside the configured root', async () => {
     const outsideDir = await mkdtemp(path.join(tmpdir(), 'petcare-evidence-outside-'));
     try {
+      await storage.initialize();
       await symlink(outsideDir, path.join(rootDir, 'orders'), 'junction');
       const issued = await issue();
 
@@ -126,6 +133,7 @@ describe('LocalPilotObjectStorage', () => {
     const outsideDir = await mkdtemp(path.join(tmpdir(), 'petcare-evidence-planted-'));
     const objectKey = 'orders/11111111-1111-4111-8111-111111111111/evidence-1';
     try {
+      await storage.initialize();
       const plantedPath = path.join(outsideDir, ...objectKey.split('/').slice(1));
       await mkdir(path.dirname(plantedPath), { recursive: true });
       await writeFile(plantedPath, PNG_BYTES);
@@ -204,7 +212,7 @@ describe('LocalPilotObjectStorage', () => {
       payload.operation = 'read';
     });
     await expect(storage.acceptUpload(readToken, PNG_BYTES)).rejects.toThrow('FORBIDDEN');
-    expect(await entries()).toEqual([]);
+    expect(await entries()).toEqual([MANIFEST_NAME]);
   });
 
   it('enforces declared type, size, digest, expiry, and safe object-key limits at issuance', async () => {
@@ -279,8 +287,10 @@ describe('LocalPilotObjectStorage', () => {
   it.each([
     ['image/png', PNG_BYTES],
     ['image/jpeg', JPEG_BYTES],
+    ['image/jpeg', JPEG_FILL_TRAILING_BYTES],
     ['image/webp', WEBP_BYTES],
     ['video/mp4', MP4_BYTES],
+    ['video/mp4', EXTENDED_MP4_BYTES],
     ['video/quicktime', QUICKTIME_BYTES],
   ] as const)('accepts bytes with a strict %s signature', async (mimeType, bytes) => {
     const objectKey = `orders/11111111-1111-4111-8111-111111111111/${mimeType.replace('/', '-')}`;
@@ -345,7 +355,7 @@ describe('LocalPilotObjectStorage', () => {
 
     await expect(storage.acceptUpload(tokenFrom(issued.uploadUrl), bytes))
       .rejects.toThrow('UPLOAD_INVALID');
-    expect(await entries()).toEqual([]);
+    expect(await entries()).toEqual([MANIFEST_NAME]);
   });
 
   it('atomically bounds concurrent pending and stored objects per order and actor', async () => {
@@ -358,6 +368,8 @@ describe('LocalPilotObjectStorage', () => {
         maxObjectsPerOrder: 1,
         maxObjectsPerActor: 2,
         maxTotalObjects: 3,
+        maxBytesPerOrder: 100,
+        maxBytesPerActor: 100,
         maxTotalBytes: 100,
       },
     });
@@ -388,18 +400,61 @@ describe('LocalPilotObjectStorage', () => {
     await expect(limited.issueUpload(input('order-c', 'evidence-after-expiry'))).resolves.toBeDefined();
   });
 
-  it('rejects non-positive, fractional, or unsafe local quota configuration', () => {
+  it('bounds pending and stored bytes per order and actor across adapter instances', async () => {
+    const options = {
+      rootDir,
+      signingSecret: SIGNING_SECRET,
+      maxUploadBytes: MAX_UPLOAD_BYTES,
+      now: () => now,
+      quotas: {
+        maxObjectsPerOrder: 10,
+        maxObjectsPerActor: 10,
+        maxTotalObjects: 20,
+        maxBytesPerOrder: PNG_BYTES.length,
+        maxBytesPerActor: PNG_BYTES.length * 2,
+        maxTotalBytes: PNG_BYTES.length * 10,
+      },
+    };
+    const first = new LocalPilotObjectStorage(options);
+    const second = new LocalPilotObjectStorage(options);
+    const request = (orderId: string, suffix: string) => ({
+      objectKey: `orders/${orderId}/${suffix}`,
+      mimeType: 'image/png', sizeBytes: PNG_BYTES.length, sha256: sha256(PNG_BYTES),
+      expiresInSeconds: 600,
+      quotaScope: { actorId: 'actor-bytes', orderId },
+    });
+
+    const sameOrder = await Promise.allSettled([
+      first.issueUpload(request('order-a', 'a')),
+      second.issueUpload(request('order-a', 'b')),
+    ]);
+    expect(sameOrder.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(sameOrder.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    await expect(first.issueUpload(request('order-b', 'c'))).resolves.toBeDefined();
+    await expect(second.issueUpload(request('order-c', 'd')))
+      .rejects.toThrow('EVIDENCE_QUOTA_EXCEEDED');
+  });
+
+  it('rejects non-positive, fractional, unsafe, partial, extra, or inverted quota configuration', () => {
     const validQuotas = {
       maxObjectsPerOrder: 1,
       maxObjectsPerActor: 2,
       maxTotalObjects: 3,
+      maxBytesPerOrder: 50,
+      maxBytesPerActor: 75,
       maxTotalBytes: 100,
     };
     for (const quotas of [
       { ...validQuotas, maxObjectsPerOrder: 0 },
       { ...validQuotas, maxObjectsPerActor: 1.5 },
       { ...validQuotas, maxTotalObjects: Number.MAX_SAFE_INTEGER + 1 },
+      { ...validQuotas, maxBytesPerOrder: 0 },
       { ...validQuotas, maxTotalBytes: -1 },
+      { ...validQuotas, maxObjectsPerOrder: 3, maxObjectsPerActor: 2 },
+      { ...validQuotas, maxBytesPerOrder: 76, maxBytesPerActor: 75 },
+      { maxObjectsPerOrder: 1, maxObjectsPerActor: 2, maxTotalObjects: 3,
+        maxBytesPerOrder: 50, maxTotalBytes: 100 } as never,
+      { ...validQuotas, unexpected: 1 },
     ]) {
       expect(() => new LocalPilotObjectStorage({
         rootDir,
@@ -418,9 +473,11 @@ describe('LocalPilotObjectStorage', () => {
       maxUploadBytes: MAX_UPLOAD_BYTES,
       now: () => now,
       quotas: {
-        maxObjectsPerOrder: 2,
-        maxObjectsPerActor: 2,
+        maxObjectsPerOrder: 1,
+        maxObjectsPerActor: 1,
         maxTotalObjects: 1,
+        maxBytesPerOrder: PNG_BYTES.length,
+        maxBytesPerActor: PNG_BYTES.length,
         maxTotalBytes: PNG_BYTES.length,
       },
     });
@@ -455,6 +512,8 @@ describe('LocalPilotObjectStorage', () => {
         maxObjectsPerOrder: 1,
         maxObjectsPerActor: 1,
         maxTotalObjects: 1,
+        maxBytesPerOrder: PNG_BYTES.length,
+        maxBytesPerActor: PNG_BYTES.length,
         maxTotalBytes: PNG_BYTES.length,
       },
     };
@@ -489,6 +548,72 @@ describe('LocalPilotObjectStorage', () => {
     })).toBe(true);
   });
 
+  it('creates an authenticated versioned manifest only for an empty root', async () => {
+    await storage.initialize();
+    const manifest = JSON.parse(await readFile(path.join(rootDir, MANIFEST_NAME), 'utf8')) as Record<string, unknown>;
+    expect(manifest).toMatchObject({ formatVersion: 1 });
+    expect(manifest.keyId).toMatch(/^[a-f0-9]{16}$/);
+    expect(manifest.integrity).toMatch(/^[a-f0-9]{64}$/);
+    expect(Object.keys(manifest).sort()).toEqual(['formatVersion', 'integrity', 'keyId']);
+  });
+
+  it('fails closed without modifying a legacy non-empty root that lacks a manifest', async () => {
+    const legacyObject = 'a'.repeat(64);
+    await writeFile(path.join(rootDir, legacyObject), PNG_BYTES);
+    await writeFile(path.join(rootDir, `${legacyObject}.json`), '{"legacy":true}');
+    const before = await entries();
+
+    await expect(storage.initialize()).rejects.toThrow('EVIDENCE_STORAGE_UNAVAILABLE');
+    expect(await entries()).toEqual(before);
+  });
+
+  it('fails closed on signing-key or manifest-version mismatch without scavenging valid pairs', async () => {
+    const issued = await issue();
+    await storage.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES);
+    const before = await entries();
+    const wrongKey = new LocalPilotObjectStorage({
+      rootDir, signingSecret: Buffer.alloc(32, 0x19), maxUploadBytes: MAX_UPLOAD_BYTES, now: () => now,
+    });
+    await expect(wrongKey.initialize()).rejects.toThrow('EVIDENCE_STORAGE_UNAVAILABLE');
+    expect(await entries()).toEqual(before);
+
+    const manifestPath = path.join(rootDir, MANIFEST_NAME);
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>;
+    manifest.formatVersion = 999;
+    await writeFile(manifestPath, JSON.stringify(manifest));
+    const unknownVersion = new LocalPilotObjectStorage({
+      rootDir, signingSecret: SIGNING_SECRET, maxUploadBytes: MAX_UPLOAD_BYTES, now: () => now,
+    });
+    const versionBefore = await entries();
+    await expect(unknownVersion.initialize()).rejects.toThrow('EVIDENCE_STORAGE_UNAVAILABLE');
+    expect(await entries()).toEqual(versionBefore);
+  });
+
+  it('atomically quarantines one observed stale lease across isolated module instances', async () => {
+    await storage.initialize();
+    const staleId = '11111111-1111-4111-8111-111111111111';
+    await writeFile(path.join(rootDir, `.pilot-storage.lease.${staleId}`), JSON.stringify({
+      id: staleId, pid: 2_147_483_647, createdAt: 1,
+    }));
+    vi.resetModules();
+    const FirstStorage = (await import('../src/adapters/local-pilot-object-storage.js'))
+      .LocalPilotObjectStorage;
+    vi.resetModules();
+    const SecondStorage = (await import('../src/adapters/local-pilot-object-storage.js'))
+      .LocalPilotObjectStorage;
+    expect(FirstStorage).not.toBe(SecondStorage);
+    const first = new FirstStorage({
+      rootDir, signingSecret: SIGNING_SECRET, maxUploadBytes: MAX_UPLOAD_BYTES, now: () => now,
+    });
+    const second = new SecondStorage({
+      rootDir, signingSecret: SIGNING_SECRET, maxUploadBytes: MAX_UPLOAD_BYTES, now: () => now,
+    });
+
+    await expect(Promise.all([first.initialize(), second.initialize()])).resolves.toEqual([undefined, undefined]);
+    expect((await entries()).filter((name) => name.includes('.pilot-storage.lease')
+      || name.includes('.pilot-storage.stale'))).toEqual([]);
+  });
+
   it('scavenges stale temporary and incomplete pairs while preserving valid objects', async () => {
     const issued = await issue();
     await storage.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES);
@@ -512,10 +637,11 @@ describe('LocalPilotObjectStorage', () => {
     expect((await entries()).filter((entry) => entry.includes('.tmp-'))).toEqual([]);
     expect(await entries()).not.toContain(orphanObject);
     expect(await entries()).not.toContain(`${orphanMetadata}.json`);
-    expect(await entries()).toHaveLength(2);
+    expect(await entries()).toHaveLength(3);
   });
 
   it('scavenges an exact-shape malformed record instead of wedging initialization', async () => {
+    await storage.initialize();
     const base = 'd'.repeat(64);
     await writeFile(path.join(rootDir, base), PNG_BYTES);
     await writeFile(path.join(rootDir, `${base}.json`), JSON.stringify({
@@ -538,6 +664,36 @@ describe('LocalPilotObjectStorage', () => {
     await expect(restarted.initialize()).resolves.toBeUndefined();
     expect(await entries()).not.toContain(base);
     expect(await entries()).not.toContain(`${base}.json`);
+  });
+
+  it('normalizes lazy initialization and native storage failures from every public method', async () => {
+    const issued = await issue();
+    await storage.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES);
+    const readToken = tokenFrom(await storage.issueReadUrl(issued.objectKey, 300));
+    await writeFile(path.join(rootDir, MANIFEST_NAME), '{"nativePath":"C:\\\\private-evidence"}');
+    const restarted = new LocalPilotObjectStorage({
+      rootDir, signingSecret: SIGNING_SECRET, maxUploadBytes: MAX_UPLOAD_BYTES, now: () => now,
+    });
+    const expected = { mimeType: 'image/png', sizeBytes: PNG_BYTES.length, sha256: sha256(PNG_BYTES) };
+    const validRequest = {
+      objectKey: 'orders/11111111-1111-4111-8111-111111111111/another',
+      ...expected,
+      expiresInSeconds: 600,
+      quotaScope: {
+        actorId: 'actor-11111111', orderId: '11111111-1111-4111-8111-111111111111',
+      },
+    };
+
+    for (const call of [
+      () => restarted.initialize(),
+      () => restarted.issueUpload(validRequest),
+      () => restarted.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES),
+      () => restarted.verifyUpload(issued.objectKey, expected),
+      () => restarted.issueReadUrl(issued.objectKey, 300),
+      () => restarted.readObject(readToken),
+    ]) {
+      await expect(call()).rejects.toThrow('EVIDENCE_STORAGE_UNAVAILABLE');
+    }
   });
 
   it('rejects a configured evidence path with a junction ancestor before writing', async () => {
@@ -705,6 +861,32 @@ describe('registerLocalUploadRoutes', () => {
     expect(response.statusCode).toBe(503);
     expect(response.json()).toEqual({ code: 'SERVICE_UNAVAILABLE' });
     expect(response.body).not.toContain('C:\\private-evidence');
+    await serviceApp.close();
+  });
+
+  it('does not echo an unexpected native storage error on the authenticated non-pilot route', async () => {
+    const nativePath = 'EACCES: denied C:\\private-evidence\\secret-object';
+    const serviceApp = createApp({
+      auth: {
+        authenticate: async () => ({ userId: 'provider-1', role: 'PROVIDER' as const }),
+      },
+      pets: {} as never,
+      addresses: {} as never,
+      fulfillment: {
+        issueUpload: async () => { throw new Error(nativePath); },
+      } as never,
+    });
+    const response = await serviceApp.inject({
+      method: 'POST',
+      url: '/v1/orders/order-1/evidence/uploads',
+      headers: { authorization: 'Bearer provider-1' },
+      payload: {
+        mimeType: 'image/png', sizeBytes: PNG_BYTES.length, sha256: sha256(PNG_BYTES),
+      },
+    });
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ code: 'SERVICE_UNAVAILABLE' });
+    expect(response.body).not.toContain(nativePath);
     await serviceApp.close();
   });
 });
