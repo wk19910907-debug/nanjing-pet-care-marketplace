@@ -13,10 +13,15 @@ export type ProviderApplication = {
   dogExperienceMonths: number;
 };
 
+export interface ProviderApplicationPolicy {
+  assertSupported(application: ProviderApplication): void;
+}
+
 export class ProviderService {
   public constructor(
     private readonly prisma: PrismaClient,
     private readonly audit: AuditRepository,
+    private readonly applicationPolicy?: ProviderApplicationPolicy,
   ) {}
 
   public async getProfile(actor: ActorContext) {
@@ -28,9 +33,13 @@ export class ProviderService {
 
   public async apply(actor: ActorContext, application: ProviderApplication) {
     authorizeRole(actor, ['PROVIDER']);
-    if (application.serviceTypes.length === 0 || application.radiusKm <= 0) {
+    if (application.serviceTypes.length === 0
+      || application.serviceTypes.length > 2
+      || new Set(application.serviceTypes).size !== application.serviceTypes.length
+      || application.serviceTypes.some((service) => !['CAT_FEEDING', 'DOG_WALKING'].includes(service))) {
       throw new Error('VALIDATION_ERROR');
     }
+    this.applicationPolicy?.assertSupported(application);
     return this.prisma.$transaction(async (tx) => {
       const profile = await tx.providerProfile.create({
         data: { userId: actor.userId, ...application },
@@ -51,8 +60,15 @@ export class ProviderService {
     }
     return this.prisma.$transaction(async (tx) => {
       const profile = await tx.providerProfile.update({
-        where: { id: profileId }, data: { reviewStatus: status },
+        where: { id: profileId },
+        data: { reviewStatus: status, acceptsInvitations: status === 'APPROVED' },
       });
+      if (status !== 'APPROVED') {
+        await tx.dispatchInvitation.updateMany({
+          where: { providerId: profileId, status: 'PENDING' },
+          data: { status: 'CANCELLED', respondedAt: new Date() },
+        });
+      }
       await this.audit.append({
         actorId: actor.userId, actorRole: actor.role, action: 'PROVIDER_REVIEWED',
         entityType: 'ProviderProfile', entityId: profile.id, metadata: { status },

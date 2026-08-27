@@ -39,13 +39,30 @@ describe('dispatch routes', () => {
       method: 'POST', url: '/v1/providers/applications',
       headers: { authorization: `Bearer ${user.id}` },
       payload: {
-        serviceTypes: ['DOG_WALKING'], serviceZone: '百家湖',
-        latitude: 31.94, longitude: 118.82, radiusKm: 4,
+        serviceTypes: ['DOG_WALKING'], serviceZone: '秦淮区',
+        latitude: 32.039, longitude: 118.795, radiusKm: 5,
         catExperienceMonths: 0, dogExperienceMonths: 24,
       },
     });
     expect(application.statusCode).toBe(201);
-    expect(application.json()).toMatchObject({ reviewStatus: 'PENDING', serviceZone: '百家湖' });
+    expect(application.json()).toEqual({ id: expect.any(String), reviewStatus: 'PENDING' });
+    const profileId = application.json<{ id: string }>().id;
+
+    for (const payload of [
+      { serviceTypes: ['DOG_WALKING'], serviceZone: '百家湖', latitude: 31.94, longitude: 118.82, radiusKm: 5 },
+      { serviceTypes: ['DOG_WALKING'], serviceZone: '秦淮区', latitude: 32.04, longitude: 118.795, radiusKm: 5 },
+      { serviceTypes: ['DOG_WALKING'], serviceZone: '秦淮区', latitude: 32.039, longitude: 118.795, radiusKm: 4 },
+      { serviceTypes: ['DOG_WALKING', 'DOG_WALKING'], serviceZone: '秦淮区', latitude: 32.039, longitude: 118.795, radiusKm: 5 },
+    ]) {
+      const attacker = await prisma.user.create({ data: { role: 'PROVIDER', phoneHash: randomUUID() } });
+      const rejected = await app.inject({
+        method: 'POST', url: '/v1/providers/applications',
+        headers: { authorization: `Bearer ${attacker.id}` },
+        payload: { ...payload, catExperienceMonths: 0, dogExperienceMonths: 1 },
+      });
+      expect(rejected.statusCode).toBe(400);
+      expect(await prisma.providerProfile.findUnique({ where: { userId: attacker.id } })).toBeNull();
+    }
 
     const startsAt = new Date(Date.now() + 86_400_000);
     const availability = await app.inject({
@@ -54,5 +71,44 @@ describe('dispatch routes', () => {
       payload: { startsAt: startsAt.toISOString(), endsAt: new Date(startsAt.getTime() + 3_600_000).toISOString() },
     });
     expect(availability.statusCode).toBe(201);
+    expect(availability.json()).toEqual({
+      id: expect.any(String), startsAt: startsAt.toISOString(),
+      endsAt: new Date(startsAt.getTime() + 3_600_000).toISOString(),
+    });
+
+    const admin = await prisma.user.create({ data: { role: 'ADMIN', phoneHash: randomUUID() } });
+    const reviewed = await app.inject({
+      method: 'POST', url: `/v1/providers/${profileId}/review`,
+      headers: { authorization: `Bearer ${admin.id}` }, payload: { status: 'APPROVED' },
+    });
+    expect(reviewed.statusCode).toBe(200);
+    expect(reviewed.json()).toEqual({ id: profileId, reviewStatus: 'APPROVED' });
+
+    const owner = await prisma.user.create({ data: { role: 'OWNER', phoneHash: randomUUID() } });
+    const address = await prisma.serviceAddress.create({ data: {
+      ownerId: owner.id, city: '南京市', district: '秦淮区', serviceZone: '秦淮区',
+      latitude: 32.039, longitude: 118.795, detailCiphertext: new Uint8Array([1]),
+      detailNonce: new Uint8Array([1]), detailAuthTag: new Uint8Array([1]), encryptionKeyVersion: 1,
+    }});
+    const order = await prisma.order.create({ data: {
+      ownerId: owner.id, addressId: address.id, idempotencyKey: randomUUID(),
+      serviceType: 'DOG_WALKING', status: 'PENDING_DISPATCH', startsAt,
+      durationMinutes: 30, quoteSnapshot: { totalFen: 3900 }, totalFen: 3900,
+    }});
+    const dispatched = await app.inject({
+      method: 'POST', url: `/v1/dispatch/${order.id}/start`,
+      headers: { authorization: `Bearer ${admin.id}` },
+    });
+    expect(dispatched.statusCode).toBe(200);
+    expect(dispatched.json()).toEqual([{
+      id: expect.any(String), status: 'PENDING', expiresAt: expect.any(String),
+    }]);
+    const invitationId = dispatched.json<Array<{ id: string }>>()[0]!.id;
+    const accepted = await app.inject({
+      method: 'POST', url: `/v1/invitations/${invitationId}/accept`,
+      headers: { authorization: `Bearer ${user.id}` },
+    });
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.json()).toEqual({ id: order.id, status: 'PENDING_SERVICE' });
   });
 });

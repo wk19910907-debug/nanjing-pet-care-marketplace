@@ -5,33 +5,87 @@ import { registerPetRoutes, type PetRoutesDependencies } from './pets/routes.js'
 import { registerDispatchRoutes, type DispatchRoutesDependencies } from './dispatch/routes.js';
 import { registerFulfillmentRoutes, type FulfillmentRoutesDependencies } from './fulfillment/routes.js';
 import { registerDisputeRoutes, type DisputeRoutesDependencies } from './disputes/routes.js';
+import {
+  installPilotCookieBridge,
+  registerPilotAuthRoutes,
+  type PilotAuthRoutesDependencies,
+} from './auth/pilot-routes.js';
+import { requirePilotOrigin } from './auth/pilot-origin-guard.js';
+import { registerPilotRoutes, type PilotRoutesDependencies } from './pilot/pilot-routes.js';
+
+const SAFE_PILOT_FRAMEWORK_ERRORS: ReadonlyMap<string, number> = new Map([
+  ['FST_ERR_CTP_INVALID_JSON_BODY', 400],
+  ['FST_ERR_CTP_BODY_TOO_LARGE', 413],
+  ['FST_ERR_CTP_INVALID_MEDIA_TYPE', 415],
+]);
 
 type AppDependencies = PetRoutesDependencies
   & Partial<Omit<OrderRoutesDependencies, 'auth'>>
   & Partial<Omit<DispatchRoutesDependencies, 'auth'>>
   & Partial<Omit<FulfillmentRoutesDependencies, 'auth'>>
-  & Partial<Omit<DisputeRoutesDependencies, 'auth'>>;
+  & Partial<Omit<DisputeRoutesDependencies, 'auth'>>
+  & {
+    pilot?: PilotAuthRoutesDependencies;
+    pilotBusiness?: Omit<PilotRoutesDependencies, 'sessions'>;
+  };
 
-export function createApp(dependencies: AppDependencies) {
-  const app = Fastify({ logger: false });
-  app.setErrorHandler((error, _request, reply) => {
+type AppOptions = {
+  apiPrefix?: string;
+  clientFulfillmentTimestampsEnabled?: boolean;
+  paymentWebhookEnabled?: boolean;
+};
+
+export function createApp(dependencies: AppDependencies, options: AppOptions = {}) {
+  if (dependencies.pilotBusiness && !dependencies.pilot) {
+    throw new Error('PILOT_SECURITY_CONFIGURATION_REQUIRED');
+  }
+  const trustedProxies = dependencies.pilot?.config.pilot?.trustedProxies;
+  const app = Fastify({
+    logger: false,
+    ...(trustedProxies ? { trustProxy: trustedProxies } : {}),
+  });
+  app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {
       return reply.code(400).send({ code: 'VALIDATION_ERROR', issues: error.issues });
     }
     if (error instanceof Error && error.message === 'UNAUTHENTICATED') {
       return reply.code(401).send({ code: 'UNAUTHENTICATED' });
     }
+    if (error instanceof Error && error.message === 'INVITE_INVALID') {
+      return reply.code(401).send({ code: 'INVITE_INVALID' });
+    }
+    if (error instanceof Error && error.message === 'LOGIN_RATE_LIMITED') {
+      return reply.code(429).send({ code: 'LOGIN_RATE_LIMITED' });
+    }
     if (error instanceof Error && error.message === 'FORBIDDEN') {
       return reply.code(403).send({ code: 'FORBIDDEN' });
+    }
+    if (error instanceof Error && error.message === 'ONBOARDING_REQUIRED') {
+      return reply.code(403).send({ code: 'ONBOARDING_REQUIRED' });
     }
     if (error instanceof Error && error.message === 'VALIDATION_ERROR') {
       return reply.code(400).send({ code: 'VALIDATION_ERROR' });
     }
+    if (error instanceof Error && error.message === 'DISPLAY_NAME_INVALID') {
+      return reply.code(400).send({ code: 'DISPLAY_NAME_INVALID' });
+    }
     if (error instanceof Error && error.message === 'PAYMENT_VERIFICATION_FAILED') {
       return reply.code(400).send({ code: 'PAYMENT_VERIFICATION_FAILED' });
     }
+    if (error instanceof Error && error.message === 'EVIDENCE_QUOTA_EXCEEDED') {
+      return reply.code(429).send({ code: 'EVIDENCE_QUOTA_EXCEEDED' });
+    }
+    if (error instanceof Error && error.message === 'EVIDENCE_STORAGE_UNAVAILABLE') {
+      return reply.code(503).send({ code: 'SERVICE_UNAVAILABLE' });
+    }
     if (error instanceof Error && ['DISPATCH_NOT_ALLOWED', 'DISPATCH_CONFLICT'].includes(error.message)) {
       return reply.code(409).send({ code: error.message });
+    }
+    if (error instanceof Error && ['MANUAL_FEE_CONFLICT'].includes(error.message)) {
+      return reply.code(409).send({ code: error.message });
+    }
+    if (error instanceof Error && error.message === 'ORDER_NOT_FOUND') {
+      return reply.code(404).send({ code: 'ORDER_NOT_FOUND' });
     }
     if (error instanceof Error && error.message === 'PROVIDER_NOT_FOUND') {
       return reply.code(404).send({ code: 'PROVIDER_NOT_FOUND' });
@@ -52,34 +106,70 @@ export function createApp(dependencies: AppDependencies) {
     ].includes(error.message)) {
       return reply.code(409).send({ code: error.message });
     }
-    return reply.send(error);
+    if (request.url.startsWith('/api/v1/pilot/')) {
+      const frameworkCode = typeof error === 'object' && error !== null
+        && 'code' in error && typeof error.code === 'string'
+        ? error.code
+        : undefined;
+      const frameworkStatus = frameworkCode
+        ? SAFE_PILOT_FRAMEWORK_ERRORS.get(frameworkCode)
+        : undefined;
+      if (frameworkCode && frameworkStatus) {
+        return reply.code(frameworkStatus).send({ code: frameworkCode });
+      }
+      return reply.code(503).send({ code: 'SERVICE_UNAVAILABLE' });
+    }
+    return reply.code(503).send({ code: 'SERVICE_UNAVAILABLE' });
   });
-  void app.register(registerPetRoutes, dependencies);
-  if (dependencies.quotes && dependencies.orders && dependencies.payments) {
-    void app.register(registerOrderRoutes, {
-      auth: dependencies.auth,
-      quotes: dependencies.quotes,
-      orders: dependencies.orders,
-      payments: dependencies.payments,
+  if (dependencies.pilot) {
+    installPilotCookieBridge(app);
+    if (dependencies.pilot.config.nodeEnv === 'production') {
+      const origin = dependencies.pilot.config.pilot?.publicOrigin;
+      if (!origin) throw new Error('PILOT_PUBLIC_ORIGIN_REQUIRED');
+      app.addHook('onRequest', requirePilotOrigin(origin));
+    }
+    void app.register(registerPilotAuthRoutes, dependencies.pilot);
+  }
+  if (dependencies.pilotBusiness) {
+    void app.register(registerPilotRoutes, {
+      ...dependencies.pilotBusiness,
+      sessions: dependencies.pilot!.sessions,
     });
   }
-  if (dependencies.providers && dependencies.dispatch) {
-    void app.register(registerDispatchRoutes, {
-      auth: dependencies.auth,
-      providers: dependencies.providers,
-      dispatch: dependencies.dispatch,
-    });
-  }
-  if (dependencies.fulfillment) {
-    void app.register(registerFulfillmentRoutes, {
-      auth: dependencies.auth, fulfillment: dependencies.fulfillment,
-    });
-  }
-  if (dependencies.settlements && dependencies.refunds && dependencies.disputes) {
-    void app.register(registerDisputeRoutes, {
-      auth: dependencies.auth, settlements: dependencies.settlements,
-      refunds: dependencies.refunds, disputes: dependencies.disputes,
-    });
-  }
+  void app.register(async (api) => {
+    await api.register(registerPetRoutes, dependencies);
+    if (dependencies.quotes && dependencies.orders && dependencies.payments) {
+      await api.register(registerOrderRoutes, {
+        auth: dependencies.auth,
+        quotes: dependencies.quotes,
+        orders: dependencies.orders,
+        payments: dependencies.payments,
+        ...(options.paymentWebhookEnabled === undefined
+          ? {}
+          : { paymentWebhookEnabled: options.paymentWebhookEnabled }),
+      });
+    }
+    if (dependencies.providers && dependencies.dispatch) {
+      await api.register(registerDispatchRoutes, {
+        auth: dependencies.auth,
+        providers: dependencies.providers,
+        dispatch: dependencies.dispatch,
+      });
+    }
+    if (dependencies.fulfillment) {
+      await api.register(registerFulfillmentRoutes, {
+        auth: dependencies.auth, fulfillment: dependencies.fulfillment,
+        ...(options.clientFulfillmentTimestampsEnabled === undefined
+          ? {}
+          : { clientTimestampsEnabled: options.clientFulfillmentTimestampsEnabled }),
+      });
+    }
+    if (dependencies.settlements && dependencies.refunds && dependencies.disputes) {
+      await api.register(registerDisputeRoutes, {
+        auth: dependencies.auth, settlements: dependencies.settlements,
+        refunds: dependencies.refunds, disputes: dependencies.disputes,
+      });
+    }
+  }, { prefix: options.apiPrefix ?? '' });
   return app;
 }

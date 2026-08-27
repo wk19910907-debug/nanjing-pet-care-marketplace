@@ -1,19 +1,32 @@
-import type { ObjectStorage, UploadDescriptor } from './object-storage.js';
+import type {
+  EvidenceQuotaScope,
+  ObjectStorage,
+  UploadDescriptor,
+  UploadRequest,
+} from './object-storage.js';
 
-type StoredUpload = { mimeType: string; sizeBytes: number; sha256: string; completed: boolean };
+type StoredUpload = {
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+  completed: boolean;
+  quotaScope?: EvidenceQuotaScope;
+};
 
 export class FakeObjectStorage implements ObjectStorage {
   private readonly uploads = new Map<string, StoredUpload>();
 
-  public async issueUpload(input: {
-    objectKey: string; mimeType: string; sizeBytes: number; sha256: string; expiresInSeconds: number;
-  }): Promise<UploadDescriptor> {
+  public async issueUpload(input: UploadRequest): Promise<UploadDescriptor> {
     this.uploads.set(input.objectKey, { ...input, completed: false });
     return {
       objectKey: input.objectKey,
       uploadUrl: `https://storage.invalid/upload-token/${encodeURIComponent(input.objectKey)}`,
       expiresInSeconds: input.expiresInSeconds,
     };
+  }
+
+  public issuedQuotaScope(objectKey: string): EvidenceQuotaScope | undefined {
+    return this.uploads.get(objectKey)?.quotaScope;
   }
 
   public completeUpload(objectKey: string): void {

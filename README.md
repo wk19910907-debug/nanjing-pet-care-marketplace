@@ -55,15 +55,31 @@ pnpm dev
 
 正式对外运营前仍需完成：手机号验证、微信支付商户接入、文件存储、地图定位、生产数据库、域名与备案、微信小程序审核、隐私政策和服务人员真实审核流程。
 
+## 邀请制试运营
+
+仓库同时包含独立的邀请制试运营入口。它使用同源 Fastify、PostgreSQL 和仅存于 HttpOnly Cookie 的服务器会话，让受控邀请的宠主、平台运营和服务人员在不同浏览器共同完成真实共享数据闭环。该入口不提供公开注册、手机号、微信二维码、在线支付或联系方式。
+
+单机试点启动、一次性管理员邀请码和安全清理步骤见 [`docs/operations/pilot-quickstart.md`](docs/operations/pilot-quickstart.md)。它需要 Node.js 22、pnpm 10 和 PostgreSQL 16；不要把公开 GitHub Pages 体验版与试运营入口混用。
+
 ## 开发验证
 
-完整 API 集成测试需要 PostgreSQL：
+不需要预先准备数据库的真实试运营闭环验收：
 
 ```powershell
-$env:DATABASE_URL='postgresql://petcare:petcare@127.0.0.1:54329/petcare'
-pnpm check
+pnpm test:e2e:live
+```
+
+该命令会自行创建、迁移并清理 PostgreSQL 16、API 进程和证据目录。普通静态检查、构建与公开演示浏览器测试可在 clean shell 中直接运行：
+
+```powershell
+pnpm lint
+pnpm typecheck
 pnpm build
 pnpm --filter @pet/admin test:e2e
 ```
+
+`pnpm test` 和聚合命令 `pnpm check` 包含 API 集成测试，要求 `DATABASE_URL` 指向已执行全部 Prisma 迁移的 PostgreSQL。可按 [`docs/operations/pilot-quickstart.md`](docs/operations/pilot-quickstart.md) 的容器、就绪等待和迁移步骤准备一次性数据库；不要在 clean shell 中裸跑后误判结果。
+
+验收范围、隔离边界和故障处理见 [`docs/testing/pilot-live-acceptance.md`](docs/testing/pilot-live-acceptance.md)。
 
 详细的基础设施说明见 `docs/operations/LOCAL.md`。

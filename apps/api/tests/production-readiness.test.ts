@@ -17,6 +17,15 @@ const productionEnvironment = {
   WECHAT_APP_ID: 'wx-app-id', WECHAT_APP_SECRET: 'wx-app-secret',
 };
 
+const pilotProductionEnvironment = {
+  NODE_ENV: 'production', DATABASE_URL: 'postgresql://db.internal/pilot',
+  PILOT_MODE: 'enabled', PILOT_PUBLIC_ORIGIN: 'https://pilot.example.com',
+  PILOT_AUTH_PEPPER: Buffer.alloc(32, 9).toString('base64'),
+  FIELD_ENCRYPTION_KEY_V1: Buffer.alloc(32, 2).toString('base64'),
+  S3_ENDPOINT: 'https://objects.example.com', S3_BUCKET: 'pilot-evidence',
+  S3_ACCESS_KEY_ID: 'pilot-access-id', S3_SECRET_ACCESS_KEY: 'pilot-storage-secret',
+};
+
 describe('production readiness', () => {
   it.each(Object.keys(productionEnvironment).filter((key) => !['NODE_ENV'].includes(key)))
   ('fails closed when production configuration omits %s', (key) => {
@@ -35,6 +44,30 @@ describe('production readiness', () => {
     for (const secret of ['v3-secret-value', 'private-key-value', 'access-secret-value', 'wx-app-secret']) {
       expect(serialized).not.toContain(secret);
     }
+  });
+
+  it.each([
+    'DATABASE_URL', 'PILOT_PUBLIC_ORIGIN', 'PILOT_AUTH_PEPPER', 'FIELD_ENCRYPTION_KEY_V1',
+    'S3_ENDPOINT', 'S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY',
+  ])('fails closed when pilot production configuration omits %s', (key) => {
+    expect(() => loadConfig({ ...pilotProductionEnvironment, [key]: undefined })).toThrow(key);
+  });
+
+  it('does not require WeChat secrets for pilot production and exposes no pilot secrets', () => {
+    const config = loadConfig(pilotProductionEnvironment);
+    const response = readinessSnapshot(config, { database: true });
+    expect(response).toEqual({
+      ready: true, database: true, encryption: true,
+      paymentProvider: 'manual', objectStorageProvider: 's3', notificationProvider: 'disabled',
+    });
+    const serialized = JSON.stringify(response);
+    for (const secret of [
+      pilotProductionEnvironment.PILOT_AUTH_PEPPER,
+      pilotProductionEnvironment.FIELD_ENCRYPTION_KEY_V1,
+      pilotProductionEnvironment.S3_ACCESS_KEY_ID,
+      pilotProductionEnvironment.S3_SECRET_ACCESS_KEY,
+      pilotProductionEnvironment.PILOT_PUBLIC_ORIGIN,
+    ]) expect(serialized).not.toContain(secret);
   });
 });
 

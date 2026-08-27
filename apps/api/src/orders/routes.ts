@@ -20,6 +20,7 @@ export type OrderRoutesDependencies = {
   quotes: QuoteService;
   orders: OrderService;
   payments: PaymentService;
+  paymentWebhookEnabled?: boolean;
 };
 
 export async function registerOrderRoutes(app: FastifyInstance, deps: OrderRoutesDependencies) {
@@ -45,7 +46,9 @@ export async function registerOrderRoutes(app: FastifyInstance, deps: OrderRoute
       paymentToken: result.paymentToken,
     });
   });
-  app.post('/v1/payments/webhooks/fake', async (request) => deps.payments.handleWebhook(
-    request.body, request.headers['x-payment-signature'] as string | undefined,
-  ));
+  if (deps.paymentWebhookEnabled !== false) {
+    app.post('/v1/payments/webhooks/fake', async (request) => deps.payments.handleWebhook(
+      request.body, request.headers['x-payment-signature'] as string | undefined,
+    ));
+  }
 }

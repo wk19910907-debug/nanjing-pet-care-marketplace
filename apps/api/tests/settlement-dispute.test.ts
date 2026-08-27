@@ -68,7 +68,10 @@ describe('confirmation, cancellation, disputes and settlement', () => {
       headers: { authorization: `Bearer ${item.owner.userId}` },
     });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ orderId: item.order.id, commissionBps: 2000 });
+    expect(response.json()).toEqual({
+      orderId: item.order.id, status: 'COMPLETED', confirmedAt: expect.any(String),
+    });
+    expect(response.body).not.toMatch(/providerId|providerFen|commissionFen|commissionBps|availableAt/);
   });
 
   it('creates withdrawable integer settlement only after owner confirmation', async () => {

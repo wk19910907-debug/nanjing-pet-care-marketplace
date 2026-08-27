@@ -27,6 +27,22 @@ export class DispatchService {
   ) {}
 
   public async start(orderId: string, now: Date) {
+    const pendingProviders = await this.prisma.dispatchInvitation.findMany({
+      where: { orderId, status: 'PENDING', expiresAt: { gt: now } },
+      select: {
+        id: true,
+        provider: { select: { reviewStatus: true, acceptsInvitations: true } },
+      },
+    });
+    const ineligibleInvitationIds = pendingProviders
+      .filter(({ provider }) => provider.reviewStatus !== 'APPROVED' || !provider.acceptsInvitations)
+      .map(({ id }) => id);
+    if (ineligibleInvitationIds.length > 0) {
+      await this.prisma.dispatchInvitation.updateMany({
+        where: { id: { in: ineligibleInvitationIds }, status: 'PENDING' },
+        data: { status: 'CANCELLED', respondedAt: now },
+      });
+    }
     const current = await this.prisma.dispatchInvitation.findMany({
       where: { orderId, status: 'PENDING', expiresAt: { gt: now } },
       orderBy: [{ wave: 'asc' }, { createdAt: 'asc' }],
@@ -120,10 +136,13 @@ export class DispatchService {
   public async acceptInvitation(invitationId: string, providerId: string, now: Date) {
     return this.prisma.$transaction(async (tx) => {
       const invitation = await tx.dispatchInvitation.findUniqueOrThrow({
-        where: { id: invitationId }, include: { order: true },
+        where: { id: invitationId }, include: { order: true, provider: true },
       });
-      if (invitation.providerId !== providerId || invitation.status !== 'PENDING'
-        || invitation.expiresAt <= now || invitation.order.status !== 'PENDING_DISPATCH') {
+      if (invitation.providerId !== providerId) throw new Error('FORBIDDEN');
+      if (invitation.status !== 'PENDING' || invitation.expiresAt <= now
+        || invitation.order.status !== 'PENDING_DISPATCH'
+        || invitation.provider.reviewStatus !== 'APPROVED'
+        || !invitation.provider.acceptsInvitations) {
         throw new Error('DISPATCH_CONFLICT');
       }
       const claimed = await tx.order.updateMany({

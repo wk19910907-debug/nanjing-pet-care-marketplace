@@ -58,6 +58,10 @@ async function attachPhoto(actor: ActorContext, orderId: string, capturedAt: Dat
   const upload = await fulfillment.issueUpload(actor, orderId, {
     mimeType: 'image/jpeg', sizeBytes: 1024, sha256: 'a'.repeat(64),
   });
+  expect(storage.issuedQuotaScope(upload.objectKey)).toEqual({
+    actorId: actor.userId,
+    orderId,
+  });
   storage.completeUpload(upload.objectKey);
   return fulfillment.attachEvidence(actor, orderId, {
     objectKey: upload.objectKey, mimeType: 'image/jpeg', sizeBytes: 1024,
@@ -76,7 +80,45 @@ describe('fulfillment evidence workflow', () => {
       payload: { checkedInAt: fixture.order.startsAt.toISOString(), beforeState: { petSafe: true } },
     });
     expect(response.statusCode).toBe(201);
-    expect(response.json()).toMatchObject({ orderId: fixture.order.id });
+    expect(response.json()).toEqual({
+      id: expect.any(String), orderId: fixture.order.id,
+      checkedInAt: fixture.order.startsAt.toISOString(),
+    });
+
+    const issued = await app.inject({
+      method: 'POST', url: `/v1/orders/${fixture.order.id}/evidence/uploads`,
+      headers: { authorization: `Bearer ${fixture.provider.userId}` },
+      payload: { mimeType: 'image/jpeg', sizeBytes: 1024, sha256: 'a'.repeat(64) },
+    });
+    const descriptor = issued.json<{ objectKey: string }>();
+    storage.completeUpload(descriptor.objectKey);
+    const attached = await app.inject({
+      method: 'POST', url: `/v1/orders/${fixture.order.id}/evidence`,
+      headers: { authorization: `Bearer ${fixture.provider.userId}` },
+      payload: {
+        objectKey: descriptor.objectKey, mimeType: 'image/jpeg', sizeBytes: 1024,
+        sha256: 'a'.repeat(64), capturedAt: fixture.order.startsAt.toISOString(),
+      },
+    });
+    expect(attached.statusCode).toBe(201);
+    expect(attached.json()).toEqual({ id: expect.any(String) });
+
+    const report = await app.inject({
+      method: 'POST', url: `/v1/orders/${fixture.order.id}/report`,
+      headers: { authorization: `Bearer ${fixture.provider.userId}` },
+      payload: {
+        checklist: {
+          petCountConfirmed: true, foodRefilled: true,
+          waterRefilled: true, litterCleaned: true,
+        },
+        afterState: { petSafe: true }, notes: '',
+        checkedOutAt: new Date(fixture.order.startsAt.getTime() + 30 * 60_000).toISOString(),
+      },
+    });
+    expect(report.statusCode).toBe(200);
+    expect(report.json()).toEqual({
+      id: expect.any(String), orderId: fixture.order.id, submittedAt: expect.any(String),
+    });
   });
 
   it.each([
@@ -100,6 +142,24 @@ describe('fulfillment evidence workflow', () => {
       .toMatchObject({ status: 'PENDING_CONFIRMATION', version: 2 });
   });
 
+  it('rejects an adversarial checklist through the raw HTTP API before persistence', async () => {
+    const fixture = await assignedOrder('DOG_WALKING');
+    await fulfillment.checkIn(fixture.provider, fixture.order.id, fixture.order.startsAt, { petSafe: true });
+    await attachPhoto(fixture.provider, fixture.order.id, fixture.order.startsAt);
+    const response = await app.inject({
+      method: 'POST', url: `/v1/orders/${fixture.order.id}/report`,
+      headers: { authorization: `Bearer ${fixture.provider.userId}` },
+      payload: {
+        checklist: { leashSecured: true, walkDurationMinutes: 30, poison: { nested: true } },
+        afterState: { petSafe: true }, notes: '',
+        checkedOutAt: new Date(fixture.order.startsAt.getTime() + 30 * 60_000).toISOString(),
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'CHECKLIST_INCOMPLETE' });
+    expect((await prisma.fulfillmentReport.findUniqueOrThrow({ where: { orderId: fixture.order.id } })).checklist).toBeNull();
+  });
+
   it('rejects incomplete service-specific checklists', async () => {
     const fixture = await assignedOrder('DOG_WALKING');
     await fulfillment.checkIn(fixture.provider, fixture.order.id, fixture.order.startsAt, { petSafe: true });
@@ -108,6 +168,44 @@ describe('fulfillment evidence workflow', () => {
       checklist: { leashSecured: false, walkDurationMinutes: 0 }, afterState: { petSafe: true },
       notes: '', checkedOutAt: new Date(fixture.order.startsAt.getTime() + 30 * 60_000),
     })).rejects.toThrow('CHECKLIST_INCOMPLETE');
+  });
+
+  it.each([
+    ['CAT_FEEDING', { petCountConfirmed: true, foodRefilled: true, waterRefilled: true, litterCleaned: true, injected: true }],
+    ['DOG_WALKING', { leashSecured: true, walkDurationMinutes: 30, nested: { poison: true } }],
+    ['DOG_WALKING', { leashSecured: true, walkDurationMinutes: 30, array: [true] }],
+  ] as const)('rejects extra or structured %s checklist values before persistence', async (serviceType, checklist) => {
+    const fixture = await assignedOrder(serviceType);
+    await fulfillment.checkIn(fixture.provider, fixture.order.id, fixture.order.startsAt, { petSafe: true });
+    await attachPhoto(fixture.provider, fixture.order.id, fixture.order.startsAt);
+    await expect(fulfillment.submitReport(fixture.provider, fixture.order.id, {
+      checklist, afterState: { petSafe: true }, notes: '',
+      checkedOutAt: new Date(fixture.order.startsAt.getTime() + 30 * 60_000),
+    })).rejects.toThrow('CHECKLIST_INCOMPLETE');
+    expect((await prisma.fulfillmentReport.findUniqueOrThrow({ where: { orderId: fixture.order.id } })).checklist).toBeNull();
+  });
+
+  it('replays an identical evidence attachment without duplicate rows or audit events', async () => {
+    const fixture = await assignedOrder('CAT_FEEDING');
+    await fulfillment.checkIn(
+      fixture.provider, fixture.order.id, fixture.order.startsAt, { petSafe: true },
+    );
+    const upload = await fulfillment.issueUpload(fixture.provider, fixture.order.id, {
+      mimeType: 'image/jpeg', sizeBytes: 1024, sha256: 'a'.repeat(64),
+    });
+    storage.completeUpload(upload.objectKey);
+    const input = {
+      objectKey: upload.objectKey, mimeType: 'image/jpeg', sizeBytes: 1024,
+      sha256: 'a'.repeat(64), capturedAt: fixture.order.startsAt,
+    };
+    const first = await fulfillment.attachEvidence(fixture.provider, fixture.order.id, input);
+    const replay = await fulfillment.attachEvidence(fixture.provider, fixture.order.id, input);
+
+    expect(replay.id).toBe(first.id);
+    expect(await prisma.mediaEvidence.count({ where: { objectKey: upload.objectKey } })).toBe(1);
+    expect(await prisma.auditEvent.count({
+      where: { action: 'SERVICE_EVIDENCE_ATTACHED', entityId: fixture.order.id },
+    })).toBe(1);
   });
 
   it('enforces upload and evidence read authorization and media limits', async () => {
