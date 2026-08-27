@@ -851,6 +851,10 @@ export class LocalPilotObjectStorage implements ObjectStorage {
     ROOT_MUTATION_TAILS.set(rootKey, current);
     await previous;
     let lease: HeldRootLease | undefined;
+    let result!: T;
+    let operationFailed = false;
+    let operationError: unknown;
+    let heartbeatFailure: unknown;
     try {
       await this.prepareRoot();
       const currentIdentity = await this.currentRootIdentity();
@@ -858,15 +862,18 @@ export class LocalPilotObjectStorage implements ObjectStorage {
       await this.assertRootIdentity();
       lease = await this.acquireRootLease();
       await this.ensureRootManifest();
-      const result = await operation();
-      const heartbeatFailure = lease.heartbeatFailure();
-      if (heartbeatFailure) throw heartbeatFailure;
-      return result;
+      result = await operation();
+    } catch (error) {
+      operationFailed = true;
+      operationError = error;
     } finally {
-      if (lease) await this.releaseRootLease(lease);
+      if (lease) heartbeatFailure = await this.releaseRootLease(lease);
       release();
       if (ROOT_MUTATION_TAILS.get(rootKey) === current) ROOT_MUTATION_TAILS.delete(rootKey);
     }
+    if (operationFailed) throw operationError;
+    if (heartbeatFailure) throw heartbeatFailure;
+    return result;
   }
 
   private async acquireRootLease(): Promise<HeldRootLease> {
@@ -1000,8 +1007,14 @@ export class LocalPilotObjectStorage implements ObjectStorage {
     };
   }
 
-  private async releaseRootLease(held: HeldRootLease): Promise<void> {
-    await held.stopHeartbeat();
+  private async releaseRootLease(held: HeldRootLease): Promise<unknown> {
+    let failure: unknown;
+    try {
+      await held.stopHeartbeat();
+    } catch (error) {
+      failure = error;
+    }
+    failure ??= held.heartbeatFailure();
     const lease = held.record;
     const leasePath = path.join(this.rootDir, `.pilot-storage.lease.${lease.id}`);
     try {
@@ -1010,6 +1023,7 @@ export class LocalPilotObjectStorage implements ObjectStorage {
     } catch {
       // Do not perform path-based cleanup if the root or lease changed underneath us.
     }
+    return failure;
   }
 
   private async quarantineLease(

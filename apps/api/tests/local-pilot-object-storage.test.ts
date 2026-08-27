@@ -77,6 +77,31 @@ describe('LocalPilotObjectStorage', () => {
     return (await readdir(rootDir, { recursive: true })).map(String).sort();
   }
 
+  function injectHeartbeatFailureDuringStop(target: LocalPilotObjectStorage): void {
+    type LeaseRecord = { id: string; pid: number; createdAt: number };
+    type HeldLease = {
+      record: LeaseRecord;
+      stopHeartbeat: () => Promise<void>;
+      heartbeatFailure: () => unknown;
+    };
+    const mutable = target as unknown as {
+      startRootLeaseHeartbeat: (record: LeaseRecord) => HeldLease;
+    };
+    const original = mutable.startRootLeaseHeartbeat.bind(target);
+    mutable.startRootLeaseHeartbeat = (record) => {
+      const held = original(record);
+      let injectedFailure: unknown;
+      return {
+        record: held.record,
+        heartbeatFailure: () => injectedFailure ?? held.heartbeatFailure(),
+        stopHeartbeat: async () => {
+          await held.stopHeartbeat();
+          injectedFailure = new Error('EACCES: C:\\private-evidence\\lease');
+        },
+      };
+    };
+  }
+
   it('atomically accepts a signed upload, verifies metadata, and permits a signed read', async () => {
     const issued = await issue();
     await storage.acceptUpload(tokenFrom(issued.uploadUrl), PNG_BYTES);
@@ -683,6 +708,35 @@ describe('LocalPilotObjectStorage', () => {
     await expect(initializing).resolves.toBeUndefined();
     expect((await entries()).filter((name) => name.includes(generationId))).toEqual([]);
   }, 15_000);
+
+  it('fails a successful mutation when heartbeat fails during stop and await', async () => {
+    await storage.initialize();
+    injectHeartbeatFailureDuringStop(storage);
+
+    await expect(storage.issueUpload({
+      objectKey: 'orders/order-heartbeat/success-race',
+      mimeType: 'image/png', sizeBytes: PNG_BYTES.length, sha256: sha256(PNG_BYTES),
+      expiresInSeconds: 600,
+      quotaScope: { actorId: 'actor-heartbeat', orderId: 'order-heartbeat' },
+    })).rejects.toThrow('EVIDENCE_STORAGE_UNAVAILABLE');
+  });
+
+  it('preserves an operation domain error when heartbeat also fails during stop and await', async () => {
+    const request = {
+      objectKey: 'orders/order-heartbeat/domain-race',
+      mimeType: 'image/png', sizeBytes: PNG_BYTES.length, sha256: sha256(PNG_BYTES),
+      expiresInSeconds: 600,
+      quotaScope: { actorId: 'actor-heartbeat', orderId: 'order-heartbeat' },
+    };
+    await storage.issueUpload(request);
+    const restarted = new LocalPilotObjectStorage({
+      rootDir, signingSecret: SIGNING_SECRET, maxUploadBytes: MAX_UPLOAD_BYTES, now: () => now,
+    });
+    await restarted.initialize();
+    injectHeartbeatFailureDuringStop(restarted);
+
+    await expect(restarted.issueUpload(request)).rejects.toThrow('UPLOAD_INVALID');
+  });
 
   it('scavenges stale temporary and incomplete pairs while preserving valid objects', async () => {
     const issued = await issue();
