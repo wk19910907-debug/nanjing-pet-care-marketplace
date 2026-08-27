@@ -61,6 +61,7 @@ describe('loadConfig', () => {
       PILOT_PUBLIC_ORIGIN: 'https://pilot.example.com', PILOT_AUTH_PEPPER: pepper,
       PILOT_SESSION_DAYS: '30', PILOT_INVITE_HOURS: '168',
       PILOT_EVIDENCE_DIR: 'D:\\pilot-evidence',
+      PILOT_TRUST_PROXY: '127.0.0.1/32, ::1/128',
       FIELD_ENCRYPTION_KEY_V1: Buffer.alloc(32, 1).toString('base64'),
       S3_ENDPOINT: 'https://objects.example.com', S3_BUCKET: 'pilot-evidence',
       S3_ACCESS_KEY_ID: 'access-id', S3_SECRET_ACCESS_KEY: 'access-secret',
@@ -68,9 +69,20 @@ describe('loadConfig', () => {
     expect(config.pilot).toEqual({
       enabled: true, host: '0.0.0.0', port: 43124,
       publicOrigin: 'https://pilot.example.com', authPepper: Buffer.alloc(48, 9),
-      sessionDays: 30, inviteHours: 168, evidenceDir: 'D:\\pilot-evidence', secureCookies: true,
+      sessionDays: 30, inviteHours: 168, evidenceDir: 'D:\\pilot-evidence',
+      trustedProxies: ['127.0.0.1/32', '::1/128'], secureCookies: true,
     });
     expect(config.production).not.toHaveProperty('wechatPay');
     expect(config.production).not.toHaveProperty('wechatNotifications');
+  });
+
+  it.each(['true', '*', '0.0.0.0/0', '::/0', '127.0.0.1/33', 'example.com'])
+  ('rejects unsafe or malformed trusted proxy value %s', (trustedProxy) => {
+    expect(() => loadConfig({
+      DATABASE_URL: 'postgresql://petcare:petcare@localhost:54329/petcare',
+      PILOT_MODE: 'enabled',
+      PILOT_AUTH_PEPPER: Buffer.alloc(32, 1).toString('base64'),
+      PILOT_TRUST_PROXY: trustedProxy,
+    })).toThrow('PILOT_TRUST_PROXY');
   });
 });

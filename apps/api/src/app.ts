@@ -20,8 +20,12 @@ type AppDependencies = PetRoutesDependencies
   & { pilot?: PilotAuthRoutesDependencies };
 
 export function createApp(dependencies: AppDependencies) {
-  const app = Fastify({ logger: false });
-  app.setErrorHandler((error, _request, reply) => {
+  const trustedProxies = dependencies.pilot?.config.pilot?.trustedProxies;
+  const app = Fastify({
+    logger: false,
+    ...(trustedProxies ? { trustProxy: trustedProxies } : {}),
+  });
+  app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {
       return reply.code(400).send({ code: 'VALIDATION_ERROR', issues: error.issues });
     }
@@ -30,6 +34,9 @@ export function createApp(dependencies: AppDependencies) {
     }
     if (error instanceof Error && error.message === 'INVITE_INVALID') {
       return reply.code(401).send({ code: 'INVITE_INVALID' });
+    }
+    if (error instanceof Error && error.message === 'LOGIN_RATE_LIMITED') {
+      return reply.code(429).send({ code: 'LOGIN_RATE_LIMITED' });
     }
     if (error instanceof Error && error.message === 'FORBIDDEN') {
       return reply.code(403).send({ code: 'FORBIDDEN' });
@@ -64,6 +71,9 @@ export function createApp(dependencies: AppDependencies) {
       'CONFIRMATION_NOT_ALLOWED', 'CANCELLATION_NOT_ALLOWED', 'DISPUTE_NOT_ALLOWED',
     ].includes(error.message)) {
       return reply.code(409).send({ code: error.message });
+    }
+    if (request.url.startsWith('/api/v1/pilot/')) {
+      return reply.code(503).send({ code: 'SERVICE_UNAVAILABLE' });
     }
     return reply.send(error);
   });

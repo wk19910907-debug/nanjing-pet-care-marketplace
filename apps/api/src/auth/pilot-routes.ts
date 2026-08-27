@@ -1,8 +1,8 @@
 import cookie, { type FastifyCookieOptions } from '@fastify/cookie';
-import rateLimit from '@fastify/rate-limit';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { AppConfig } from '../config.js';
+import { FailedLoginLimiter } from './failed-login-limiter.js';
 import type { PilotSessionService } from './pilot-session-service.js';
 
 const SESSION_COOKIE = 'petcare_pilot_session';
@@ -45,15 +45,23 @@ export async function registerPilotAuthRoutes(
   app: FastifyInstance,
   dependencies: PilotAuthRoutesDependencies,
 ): Promise<void> {
-  await app.register(rateLimit, { global: false });
   const authorization = (request: FastifyRequest) => request.headers.authorization;
   const secureCookies = dependencies.config.pilot?.secureCookies ?? false;
+  const failedLogins = new FailedLoginLimiter(5, 10 * 60 * 1_000);
 
-  app.post('/api/v1/pilot/sessions', {
-    config: { rateLimit: { max: 5, timeWindow: '10 minutes' } },
-  }, async (request, reply) => {
+  app.post('/api/v1/pilot/sessions', async (request, reply) => {
     const { inviteCode } = LoginSchema.parse(request.body);
-    const session = await dependencies.sessions.redeem(inviteCode);
+    const clientKey = request.ip;
+    failedLogins.assertAllowed(clientKey);
+    let session;
+    try {
+      session = await dependencies.sessions.redeem(inviteCode);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'INVITE_INVALID') {
+        failedLogins.recordFailure(clientKey);
+      }
+      throw error;
+    }
     writeSessionCookie(reply, secureCookies, session);
     return reply.code(201).send({ expiresAt: session.expiresAt.toISOString() });
   });

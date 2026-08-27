@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isIP } from 'node:net';
 
 const PILOT_DEFAULT_HOST = '127.0.0.1';
 const PILOT_DEFAULT_PORT = 3000;
@@ -15,6 +16,36 @@ const PublicOriginSchema = z.url().refine((value) => {
   const url = new URL(value);
   return ['http:', 'https:'].includes(url.protocol) && url.origin === value;
 }, 'PILOT_PUBLIC_ORIGIN must be an exact HTTP(S) origin');
+
+const TrustedProxiesSchema = z.string().trim().min(1).transform((value) => (
+  value.split(',').map((entry) => entry.trim())
+)).superRefine((entries, context) => {
+  if (entries.length > 16) {
+    context.addIssue({ code: 'custom', message: 'PILOT_TRUST_PROXY accepts at most 16 entries' });
+  }
+  const unique = new Set<string>();
+  for (const [index, entry] of entries.entries()) {
+    if (!entry || unique.has(entry)) {
+      context.addIssue({ code: 'custom', path: [index], message: 'PILOT_TRUST_PROXY entries must be unique IP/CIDR values' });
+      continue;
+    }
+    unique.add(entry);
+    const separator = entry.lastIndexOf('/');
+    const address = separator === -1 ? entry : entry.slice(0, separator);
+    const family = isIP(address);
+    if (family === 0) {
+      context.addIssue({ code: 'custom', path: [index], message: 'PILOT_TRUST_PROXY entries must be IP/CIDR values' });
+      continue;
+    }
+    if (separator === -1) continue;
+    const prefixText = entry.slice(separator + 1);
+    const prefix = Number(prefixText);
+    const maximum = family === 4 ? 32 : 128;
+    if (!/^\d+$/.test(prefixText) || !Number.isInteger(prefix) || prefix < 1 || prefix > maximum) {
+      context.addIssue({ code: 'custom', path: [index], message: 'PILOT_TRUST_PROXY CIDR prefix is unsafe or invalid' });
+    }
+  }
+});
 
 const EnvironmentSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -39,6 +70,7 @@ const EnvironmentSchema = z.object({
   PILOT_SESSION_DAYS: z.coerce.number().int().min(1).max(30).default(7),
   PILOT_INVITE_HOURS: z.coerce.number().int().min(1).max(168).default(24),
   PILOT_EVIDENCE_DIR: z.string().trim().min(1).optional(),
+  PILOT_TRUST_PROXY: TrustedProxiesSchema.optional(),
 }).superRefine((environment, context) => {
   const pilotEnabled = environment.PILOT_MODE === 'enabled';
   if (pilotEnabled) {
@@ -73,6 +105,7 @@ export type PilotConfig = {
   sessionDays: number;
   inviteHours: number;
   evidenceDir?: string;
+  trustedProxies?: string[];
   secureCookies: boolean;
 };
 
@@ -114,6 +147,7 @@ export function loadConfig(environment: Record<string, string | undefined>): App
     sessionDays: parsed.PILOT_SESSION_DAYS,
     inviteHours: parsed.PILOT_INVITE_HOURS,
     ...(parsed.PILOT_EVIDENCE_DIR ? { evidenceDir: parsed.PILOT_EVIDENCE_DIR } : {}),
+    ...(parsed.PILOT_TRUST_PROXY ? { trustedProxies: parsed.PILOT_TRUST_PROXY } : {}),
     secureCookies: parsed.NODE_ENV === 'production',
   } satisfies PilotConfig : undefined;
 

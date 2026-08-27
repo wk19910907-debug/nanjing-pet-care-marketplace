@@ -14,7 +14,10 @@ type SessionRecord = {
   revoked: boolean;
 };
 
-function pilotConfig(nodeEnv: 'development' | 'production'): AppConfig {
+function pilotConfig(
+  nodeEnv: 'development' | 'production',
+  trustedProxies?: string[],
+): AppConfig {
   return {
     nodeEnv,
     databaseUrl: 'postgresql://petcare:petcare@127.0.0.1:54329/pilot-test',
@@ -37,12 +40,16 @@ function pilotConfig(nodeEnv: 'development' | 'production'): AppConfig {
       authPepper: Buffer.alloc(32, 7),
       sessionDays: 7,
       inviteHours: 24,
+      ...(trustedProxies ? { trustedProxies } : {}),
       secureCookies: nodeEnv === 'production',
     },
   };
 }
 
-function createPilotTestApp(nodeEnv: 'development' | 'production' = 'production') {
+function createPilotTestApp(
+  nodeEnv: 'development' | 'production' = 'production',
+  trustedProxies?: string[],
+) {
   const sessions = new Map<string, SessionRecord>();
   let nextSession = 0;
   const pilotSessions = {
@@ -84,9 +91,9 @@ function createPilotTestApp(nodeEnv: 'development' | 'production' = 'production'
     auth: pilotSessions,
     pets: {} as never,
     addresses: {} as never,
-    pilot: { config: pilotConfig(nodeEnv), sessions: pilotSessions },
+    pilot: { config: pilotConfig(nodeEnv, trustedProxies), sessions: pilotSessions },
   });
-  return { app, sessions };
+  return { app, sessions, pilotSessions };
 }
 
 describe('pilot authentication routes', () => {
@@ -225,6 +232,116 @@ describe('pilot authentication routes', () => {
       expect(response.statusCode).toBe(attempt <= 5 ? 401 : 429);
       expect(response.body).not.toContain(inviteCode);
     }
+    await app.close();
+  });
+
+  it('counts only failed invite redemptions toward the login limit', async () => {
+    const { app } = createPilotTestApp('development');
+
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const success = await app.inject({
+        method: 'POST', url: '/api/v1/pilot/sessions', payload: { inviteCode: 'owner-invite' },
+      });
+      expect(success.statusCode).toBe(201);
+    }
+
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const malformed = await app.inject({
+        method: 'POST', url: '/api/v1/pilot/sessions', payload: { inviteCode: '' },
+      });
+      expect(malformed.statusCode).toBe(400);
+    }
+
+    for (let attempt = 1; attempt <= 6; attempt += 1) {
+      const invalid = await app.inject({
+        method: 'POST', url: '/api/v1/pilot/sessions', payload: { inviteCode: 'invalid-invite' },
+      });
+      expect(invalid.statusCode).toBe(attempt <= 5 ? 401 : 429);
+    }
+    await app.close();
+  });
+
+  it('partitions failed-login budgets by client behind an explicitly trusted proxy', async () => {
+    const { app } = createPilotTestApp('development', ['127.0.0.1/32']);
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const response = await app.inject({
+        method: 'POST', url: '/api/v1/pilot/sessions',
+        headers: { 'x-forwarded-for': '203.0.113.10' },
+        payload: { inviteCode: 'invalid-invite' },
+      });
+      expect(response.statusCode).toBe(401);
+    }
+
+    const otherClient = await app.inject({
+      method: 'POST', url: '/api/v1/pilot/sessions',
+      headers: { 'x-forwarded-for': '203.0.113.11' },
+      payload: { inviteCode: 'invalid-invite' },
+    });
+    expect(otherClient.statusCode).toBe(401);
+
+    const limitedClient = await app.inject({
+      method: 'POST', url: '/api/v1/pilot/sessions',
+      headers: { 'x-forwarded-for': '203.0.113.10' },
+      payload: { inviteCode: 'invalid-invite' },
+    });
+    expect(limitedClient.statusCode).toBe(429);
+    await app.close();
+  });
+
+  it('ignores spoofed forwarding headers from an untrusted direct peer', async () => {
+    const { app } = createPilotTestApp('development', ['10.0.0.0/8']);
+    for (let attempt = 1; attempt <= 6; attempt += 1) {
+      const response = await app.inject({
+        method: 'POST', url: '/api/v1/pilot/sessions',
+        headers: { 'x-forwarded-for': `203.0.113.${attempt}` },
+        payload: { inviteCode: 'invalid-invite' },
+      });
+      expect(response.statusCode).toBe(attempt <= 5 ? 401 : 429);
+    }
+    await app.close();
+  });
+
+  it.each(['redeem', 'authenticate', 'setDisplayName', 'revoke'] as const)
+  ('returns a fixed safe 503 when %s has an unexpected operational failure', async (operation) => {
+    const { app, pilotSessions } = createPilotTestApp('development');
+    const internalDetail = `postgresql://internal/${operation}?token=secret`;
+    let cookie: string | undefined;
+
+    if (operation !== 'redeem') {
+      const login = await app.inject({
+        method: 'POST', url: '/api/v1/pilot/sessions', payload: { inviteCode: 'owner-invite' },
+      });
+      const setCookie = login.headers['set-cookie'];
+      cookie = Array.isArray(setCookie) ? setCookie[0] : setCookie;
+    }
+
+    if (operation === 'redeem') {
+      pilotSessions.redeem = async () => { throw new Error(internalDetail); };
+    } else if (operation === 'authenticate') {
+      pilotSessions.authenticate = async () => { throw new Error(internalDetail); };
+    } else if (operation === 'setDisplayName') {
+      pilotSessions.setDisplayName = async () => { throw new Error(internalDetail); };
+    } else {
+      pilotSessions.revoke = async () => { throw new Error(internalDetail); };
+    }
+
+    const response = operation === 'redeem'
+      ? await app.inject({
+        method: 'POST', url: '/api/v1/pilot/sessions', payload: { inviteCode: 'owner-invite' },
+      })
+      : operation === 'authenticate'
+        ? await app.inject({ method: 'GET', url: '/api/v1/pilot/session', headers: { cookie } })
+        : operation === 'setDisplayName'
+          ? await app.inject({
+            method: 'PATCH', url: '/api/v1/pilot/me', headers: { cookie },
+            payload: { displayName: '安心宠主' },
+          })
+          : await app.inject({ method: 'DELETE', url: '/api/v1/pilot/session', headers: { cookie } });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ code: 'SERVICE_UNAVAILABLE' });
+    expect(response.body).not.toContain(internalDetail);
+    expect(response.body).not.toContain('postgresql://');
     await app.close();
   });
 });
