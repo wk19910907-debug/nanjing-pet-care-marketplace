@@ -44,14 +44,24 @@ export function validateAcceptanceState(value, tempDirectory) {
   };
 }
 
-export async function writeAcceptanceState(statePath, state, tempDirectory) {
+function validatedStateWrite(statePath, state, tempDirectory) {
   const validated = validateAcceptanceState(state, tempDirectory);
   const resolvedState = path.resolve(statePath);
   if (resolvedState !== acceptanceStatePath(tempDirectory)) {
     throw new Error('Refusing to write an unexpected acceptance state path');
   }
+  return { resolvedState, serialized: `${JSON.stringify(validated)}\n` };
+}
+
+export async function acquireAcceptanceState(statePath, state, tempDirectory) {
+  const { resolvedState, serialized } = validatedStateWrite(statePath, state, tempDirectory);
+  await writeFile(resolvedState, serialized, { encoding: 'utf8', flag: 'wx' });
+}
+
+export async function writeAcceptanceState(statePath, state, tempDirectory) {
+  const { resolvedState, serialized } = validatedStateWrite(statePath, state, tempDirectory);
   const pending = `${resolvedState}.${process.pid}.tmp`;
-  await writeFile(pending, `${JSON.stringify(validated)}\n`, { encoding: 'utf8', flag: 'wx' });
+  await writeFile(pending, serialized, { encoding: 'utf8', flag: 'wx' });
   try {
     await rename(pending, resolvedState);
   } catch (error) {

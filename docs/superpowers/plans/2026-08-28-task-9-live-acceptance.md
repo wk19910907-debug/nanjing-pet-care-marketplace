@@ -50,7 +50,7 @@
 - Create: `apps/admin/e2e/pilot-live.spec.ts`
 
 **Interfaces:**
-- Consumes: `PILOT_ACCEPTANCE_BASE_URL`, `PILOT_ACCEPTANCE_ADMIN_INVITE`, and `PILOT_ACCEPTANCE_CONTROL_URL` from Task 1.
+- Consumes: `PILOT_ACCEPTANCE_BASE_URL` and a loopback-only `PILOT_ACCEPTANCE_CONTROL_URL` from Task 1; the administrator invite is read once from that control endpoint and is not placed in the child environment.
 - Produces: one serial scenario covering bootstrap login, nicknames, owner/provider invitations, provider review, pet/address/order creation, fee confirmation, dispatch, invitation acceptance, address window, check-in state, evidence, checklist/report, owner confirmation, restart persistence, role privacy, and mobile boundaries.
 
 - [x] **Step 1: Write the scenario through owner order creation and run RED**

@@ -16,7 +16,7 @@
     "pilot:start": "pnpm pilot:build && pnpm --filter @pet/api start:pilot",
     "pilot:bootstrap": "pnpm --silent --filter @pet/api bootstrap:pilot",
     "test:e2e:live": "node scripts/run-pilot-live-acceptance.mjs",
-    "test:live-cleanup": "node --test scripts/pilot-live-state.test.mjs"
+    "test:live-cleanup": "node --test scripts/pilot-live-state.test.mjs scripts/pilot-live-children.test.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.16.1"

@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  acquireAcceptanceState,
   acceptanceStatePath,
   reclaimStaleRun,
   validateAcceptanceState,
@@ -50,6 +51,18 @@ test('atomically stores only the non-secret stale-run recovery fields', async (t
   assert.doesNotMatch(await readFile(statePath, 'utf8'), /password|pepper|cookie|invite|token/i);
   await writeAcceptanceState(statePath, { ...state, apiPid: null }, sandbox);
   assert.equal(JSON.parse(await readFile(statePath, 'utf8')).apiPid, null);
+});
+
+test('acquires the fixed marker exclusively without overwriting the winner', async (t) => {
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), 'petcare-live-state-test-'));
+  t.after(() => rm(sandbox, { recursive: true, force: true }));
+  const statePath = acceptanceStatePath(sandbox);
+  const winner = stateFor(path.join(sandbox, 'petcare-live-winner'));
+  const loser = { ...stateFor(path.join(sandbox, 'petcare-live-loser')), runId: 'fedcba9876543210', containerName: 'petcare-live-fedcba9876543210' };
+
+  await acquireAcceptanceState(statePath, winner, sandbox);
+  await assert.rejects(acquireAcceptanceState(statePath, loser, sandbox), (error) => error.code === 'EEXIST');
+  assert.deepEqual(JSON.parse(await readFile(statePath, 'utf8')), winner);
 });
 
 test('reclaims one validated stale run and only its exact resources', async (t) => {

@@ -2,7 +2,7 @@
 
 日期：2026-08-28
 基线：`616de65`
-运行时：Node.js 22.23.2、pnpm 10.15.0、PostgreSQL 16（一次性 Docker 容器）、Chrome/Playwright
+运行时：Node.js 22.22.2、pnpm 10.15.0、PostgreSQL 16（一次性 Docker 容器）、Chrome/Playwright
 
 ## 交付
 
@@ -25,7 +25,7 @@
 ## 实时验收结果
 
 - 空数据库迁移：5/5。
-- Playwright live：1/1；首次完整 GREEN 10.3 秒，final-review expanded 独立复验 13.0 秒。
+- Playwright live：1/1；首次完整 GREEN 10.3 秒，final-review expanded 独立复验 13.0 秒，final-rereview expanded 最终复验 14.4 秒。
 - 服务器重启次数：1；重启后三个原浏览器会话和 owner 订单继续有效。
 - 清理：API 进程、`petcare-live-*` PostgreSQL 容器、临时证据和 Playwright 输出均已删除。
 
@@ -33,12 +33,12 @@
 
 - `pnpm lint`：通过，0 warnings。
 - `pnpm typecheck`：5 个工作区通过。
-- `pnpm test`：在另一个已执行 5 个迁移的全新 PostgreSQL 16 上通过，共 358/358（Admin 142、Contracts 7、Mini Program 11、Domain 18、API 180）。
+- `pnpm test`：在另一个已执行 5 个迁移的全新 PostgreSQL 16 上通过，共 359/359（Admin 142、Contracts 7、Mini Program 11、Domain 18、API 181）。
 - `pnpm build` 与 `pnpm pilot:build`：通过；pilot 产物 44 modules，JavaScript 248.12 kB（gzip 75.53 kB）。
 - `pnpm --filter @pet/admin test:e2e`：16/16。
 - `pnpm --filter @pet/admin test:e2e:pilot`：4/4。
-- `pnpm test:live-cleanup`：stale-run 清理模拟 4/4。
-- `pnpm test:e2e:live`：final-review expanded 独立复验 1/1（13.0 秒）。
+- `pnpm test:live-cleanup`：stale-run、子进程等待与独占锁模拟 6/6。
+- `pnpm test:e2e:live`：final-rereview expanded 最终复验 1/1（14.4 秒）。
 - 提交前残留检查：没有 `petcare-live-*` / `petcare-suite-*` 容器，没有 `petcare-live-*` 临时目录。
 
 ## 关注项
@@ -54,3 +54,12 @@
 - 证据读取改为逐字节比对上传 PNG。观察业务请求集不含支付路径，并对已知 payment/webhook/WeChat payment 路径逐一断言 404。
 - runner 增加 distinct port reservations、SIGINT/SIGTERM 幂等清理、SIGKILL 后的无敏感字段 marker、Docker label、API PID/命令行身份校验和下次运行精确回收。确定性 stale-run smoke 4/4 通过；一次真实失败残留也已由下一次 live 开始时成功回收。
 - README 不再建议 clean shell 裸跑依赖数据库的 `pnpm check`；quickstart 在迁移前轮询 `pg_isready` 和 SQL 主版本。
+
+## Final rereview 补强（2026-08-28）
+
+- 新增服务人员同角色写隔离的精确回归：第一服务人员保留一个状态仍为 `PENDING` 的邀请，第二服务人员对该邀请接受写入只能得到 403/404，而非先被状态冲突 409 掩盖；随后第二服务人员只接受自己的邀请。focused API 测试已在全新迁移 PG16 上由 RED（`DISPATCH_CONFLICT`）转为 GREEN。
+- live runner 的 `run`、`capture`、API、Prisma、Vite、Playwright 和 Docker CLI 子进程统一进入 owned-child registry；SIGINT/SIGTERM 清理终止并等待全部精确子进程。即使 `docker run` 尚未返回，清理仍检查并只移除本次名称及 run label 一致的容器。
+- 固定 stale marker 改为独占创建锁，并发 runner 不覆盖现有 marker；管理员邀请码不再进入 Playwright 环境变量，而由 loopback control server 一次性读取。确定性 cleanup/lock 测试为 6/6。
+- ADMIN、OWNER、PROVIDER 的关键中间态与最终态均复用原三个 context 切到 1280×800，执行与 390×844 相同的 44px、横向溢出、storage、HttpOnly Cookie 不可见及正文/控件属性敏感字段断言，再恢复手机视口。
+- console error 豁免不再依赖宽泛状态文本，只接受已登记的精确 page、URL、状态且必须观察到对应失败 response；pageerror 仍要求为空。
+- rereview expanded live 在 Node.js 22.22.2、全新 PG16、真实 API/构建 UI、恰好三个 context 下最终通过 1/1（14.4 秒），结束后 runner 报告并验证资源清理成功。

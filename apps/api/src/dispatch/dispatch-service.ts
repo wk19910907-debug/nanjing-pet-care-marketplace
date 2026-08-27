@@ -122,8 +122,9 @@ export class DispatchService {
       const invitation = await tx.dispatchInvitation.findUniqueOrThrow({
         where: { id: invitationId }, include: { order: true },
       });
-      if (invitation.providerId !== providerId || invitation.status !== 'PENDING'
-        || invitation.expiresAt <= now || invitation.order.status !== 'PENDING_DISPATCH') {
+      if (invitation.providerId !== providerId) throw new Error('FORBIDDEN');
+      if (invitation.status !== 'PENDING' || invitation.expiresAt <= now
+        || invitation.order.status !== 'PENDING_DISPATCH') {
         throw new Error('DISPATCH_CONFLICT');
       }
       const claimed = await tx.order.updateMany({

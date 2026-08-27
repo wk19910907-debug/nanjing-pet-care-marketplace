@@ -1,10 +1,9 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 
 const baseUrl = process.env.PILOT_ACCEPTANCE_BASE_URL;
-const adminInvite = process.env.PILOT_ACCEPTANCE_ADMIN_INVITE;
 const controlUrl = process.env.PILOT_ACCEPTANCE_CONTROL_URL;
 
-if (!baseUrl || !adminInvite || !controlUrl) {
+if (!baseUrl || !controlUrl) {
   throw new Error('Live acceptance must be launched through pnpm test:e2e:live');
 }
 
@@ -84,7 +83,7 @@ async function contextStatus(context: BrowserContext, path: string): Promise<num
   return (await context.request.get(`${baseUrl}${path}`)).status();
 }
 
-async function assertMobilePrivacy(page: Page) {
+async function assertViewportPrivacy(page: Page, viewport: { width: number; height: number }) {
   const result = await page.evaluate(() => ({
     localStorage: localStorage.length,
     sessionStorage: sessionStorage.length,
@@ -109,7 +108,7 @@ async function assertMobilePrivacy(page: Page) {
     location: window.location.href,
     cookie: document.cookie,
   }));
-  expect(page.viewportSize()).toEqual({ width: 390, height: 844 });
+  expect(page.viewportSize()).toEqual(viewport);
   expect(result.localStorage).toBe(0);
   expect(result.sessionStorage).toBe(0);
   expect(result.overflow).toBe(false);
@@ -121,15 +120,17 @@ async function assertMobilePrivacy(page: Page) {
   expect(result.cookie).not.toContain('petcare_pilot_session');
 }
 
-async function assertDesktopLayout(page: Page, workspace: string) {
+async function assertMobilePrivacy(page: Page) {
+  await assertViewportPrivacy(page, { width: 390, height: 844 });
+}
+
+async function assertDesktopPrivacy(page: Page, workspace: string) {
   await page.setViewportSize({ width: 1280, height: 800 });
   await expect(page.getByRole('heading', { name: workspace })).toBeVisible();
-  const result = await page.evaluate(() => ({
-    overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
-    text: document.body.textContent ?? '',
-  }));
-  expect(result.overflow).toBe(false);
-  expect(result.text).not.toMatch(forbiddenSensitiveCopy);
+  await assertViewportPrivacy(page, { width: 1280, height: 800 });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole('heading', { name: workspace })).toBeVisible();
+  await assertMobilePrivacy(page);
 }
 
 async function logoutAndAssertRevoked(context: BrowserContext, page: Page) {
@@ -148,7 +149,12 @@ async function logoutAndAssertRevoked(context: BrowserContext, page: Page) {
 test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop', async ({ browser }) => {
   test.setTimeout(180_000);
   const requests: string[] = [];
-  const consoleErrors: string[] = [];
+  let eventSequence = 0;
+  const consoleErrors: Array<{ page: string; text: string; url: string; sequence: number }> = [];
+  const failedResponses: Array<{ key: string; sequence: number }> = [];
+  const negativeWindows: Array<{
+    page: string; path: string; statuses: readonly number[]; start: number; end: number | undefined;
+  }> = [];
   const pageErrors: string[] = [];
   const contexts = await Promise.all([
     browser.newContext({ viewport: { width: 390, height: 844 } }),
@@ -161,16 +167,77 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
   const adminPage = await adminContext.newPage();
   const ownerPage = await ownerContext.newPage();
   const providerPage = await providerContext.newPage();
+  const pageNames = new Map<Page, string>([
+    [adminPage, 'admin'], [ownerPage, 'owner'], [providerPage, 'provider'],
+  ]);
+  const responseKey = (page: Page, requestPath: string, status: number) => (
+    `${pageNames.get(page)}|${new URL(requestPath, baseUrl).pathname}|${status}`
+  );
   for (const page of [adminPage, ownerPage, providerPage]) {
     page.on('request', (request) => requests.push(request.url()));
     page.on('console', (message) => {
-      if (message.type() === 'error') consoleErrors.push(message.text());
+      if (message.type() === 'error') {
+        consoleErrors.push({
+          page: pageNames.get(page)!,
+          text: message.text(),
+          url: message.location().url,
+          sequence: ++eventSequence,
+        });
+      }
     });
     page.on('pageerror', (error) => pageErrors.push(error.message));
+    page.on('response', (response) => {
+      if (response.status() >= 400) {
+        failedResponses.push({
+          key: responseKey(page, response.url(), response.status()),
+          sequence: ++eventSequence,
+        });
+      }
+    });
   }
+  async function withinNegativeWindow<T>(
+    page: Page,
+    requestPath: string,
+    allowedStatuses: readonly number[],
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const window = {
+      page: pageNames.get(page)!,
+      path: new URL(requestPath, baseUrl).pathname,
+      statuses: allowedStatuses,
+      start: eventSequence + 1,
+      end: undefined as number | undefined,
+    };
+    negativeWindows.push(window);
+    try {
+      return await operation();
+    } finally {
+      await page.waitForTimeout(0);
+      window.end = eventSequence;
+    }
+  }
+  const deliberateNegative = async (
+    page: Page,
+    requestPath: string,
+    allowedStatuses: readonly number[],
+    init: { method?: string; body?: unknown; headers?: Record<string, string> } = {},
+  ) => {
+    return withinNegativeWindow(page, requestPath, allowedStatuses, async () => {
+      const result = await browserFetch(page, requestPath, init);
+      expect(allowedStatuses).toContain(result.status);
+      return result;
+    });
+  };
 
   try {
-    await login(adminPage, adminInvite!, '试点运营员', '平台工作区');
+    const bootstrapResponse = await fetch(`${controlUrl}/admin-invite`);
+    expect(bootstrapResponse.status).toBe(200);
+    const adminInvite = (await bootstrapResponse.json() as { inviteCode: string }).inviteCode;
+    expect(adminInvite).toBeTruthy();
+    expect((await fetch(`${controlUrl}/admin-invite`)).status).toBe(410);
+    await withinNegativeWindow(adminPage, '/api/v1/pilot/session', [401], () => (
+      login(adminPage, adminInvite, '试点运营员', '平台工作区')
+    ));
     await assertSessionCookie(adminContext, adminPage);
 
     await adminPage.getByRole('combobox', { name: '邀请角色', exact: true }).selectOption('OWNER');
@@ -194,8 +261,12 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await assertMobilePrivacy(adminPage);
 
     await Promise.all([
-      login(ownerPage, ownerInvite!, '建邺团子家', '宠主工作区'),
-      login(providerPage, providerInvite!, '建邺小周', '服务人员工作区'),
+      withinNegativeWindow(ownerPage, '/api/v1/pilot/session', [401], () => (
+        login(ownerPage, ownerInvite!, '建邺团子家', '宠主工作区')
+      )),
+      withinNegativeWindow(providerPage, '/api/v1/pilot/session', [401], () => (
+        login(providerPage, providerInvite!, '建邺小周', '服务人员工作区')
+      )),
     ]);
     await Promise.all([
       assertSessionCookie(ownerContext, ownerPage),
@@ -252,6 +323,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     expect(order).toMatchObject({ status: 'PENDING_PAYMENT', paymentToken: null });
     const orderId = order.id;
     await assertMobilePrivacy(ownerPage);
+    await assertDesktopPrivacy(ownerPage, '宠主工作区');
 
     const [adminOrdersBefore, providerOrdersBefore] = await Promise.all([
       browserFetch(adminPage, '/api/v1/pilot/orders'),
@@ -260,7 +332,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     expect(JSON.stringify(adminOrdersBefore.body)).not.toContain(exactAddress);
     expect(JSON.stringify(providerOrdersBefore.body)).not.toContain(exactAddress);
 
-    const restart = await fetch(controlUrl!, { method: 'POST' });
+    const restart = await fetch(`${controlUrl}/restart`, { method: 'POST' });
     expect(restart.status).toBe(200);
     expect((await restart.json() as { generation: number }).generation).toBe(2);
     await Promise.all([adminPage.reload(), ownerPage.reload(), providerPage.reload()]);
@@ -308,8 +380,8 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     expect(firstDispatchInvitations).toEqual([
       expect.objectContaining({ status: 'PENDING' }),
     ]);
-    const firstProviderInvitationId = firstDispatchInvitations[0]!.id;
     await assertMobilePrivacy(adminPage);
+    await assertDesktopPrivacy(adminPage, '平台工作区');
 
     await providerPage.getByRole('button', { name: '刷新我的任务' }).click();
     await expect(providerPage.getByRole('button', { name: `接受邀请 ${orderId}` })).toBeVisible();
@@ -333,6 +405,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await taskCard.getByRole('button', { name: `订单 ${orderId} 签到` }).click();
     await expect(taskCard.getByRole('heading', { name: '履约图片与服务清单' })).toBeVisible();
     await assertMobilePrivacy(providerPage);
+    await assertDesktopPrivacy(providerPage, '服务人员工作区');
 
     await taskCard.getByLabel('履约图片').setInputFiles({
       name: 'service-evidence.png', mimeType: 'image/png', buffer: validPng,
@@ -348,6 +421,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await expect(providerPage.getByText('服务报告已提交，等待宠主确认。')).toBeVisible();
     await expect(providerPage.getByText(exactAddress)).toHaveCount(0);
     await assertMobilePrivacy(providerPage);
+    await assertDesktopPrivacy(providerPage, '服务人员工作区');
 
     const providerOrdersAfter = await browserFetch(providerPage, '/api/v1/pilot/orders');
     const providerOrder = (providerOrdersAfter.body as Array<{ id: string; evidence?: Array<{ id: string }> }>)
@@ -375,22 +449,57 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await ownerPage.getByRole('button', { name: '确认服务完成' }).click();
     await expect(ownerPage.getByText('服务已完成')).toBeVisible();
     expect(await contextStatus(providerContext, `/api/v1/orders/${orderId}/address/assigned`)).toBe(403);
+    await assertDesktopPrivacy(ownerPage, '宠主工作区');
 
-    await logoutAndAssertRevoked(ownerContext, ownerPage);
-    await login(ownerPage, secondOwnerInvite!, '建邺布丁家', '宠主工作区');
+    const holdingOrderResponse = await browserFetch(ownerPage, '/api/v1/orders', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': 'provider-one-pending-isolation-order' },
+      body: ownerOrderInput,
+    });
+    expect(holdingOrderResponse.status).toBe(201);
+    const holdingOrder = holdingOrderResponse.body as { id: string; status: string };
+    expect(holdingOrder.status).toBe('PENDING_PAYMENT');
+    expect(holdingOrder.id).not.toBe(orderId);
+    const holdingFee = await browserFetch(
+      adminPage,
+      `/api/v1/pilot/orders/${holdingOrder.id}/manual-fee-confirmation`,
+      { method: 'POST', headers: { 'Idempotency-Key': 'provider-one-pending-isolation-fee' } },
+    );
+    expect(holdingFee.status).toBe(200);
+    const holdingDispatch = await browserFetch(adminPage, `/api/v1/dispatch/${holdingOrder.id}/start`, {
+      method: 'POST',
+    });
+    expect(holdingDispatch.status).toBe(200);
+    const holdingInvitation = (holdingDispatch.body as Array<{ id: string; status: string }>)[0]!;
+    expect(holdingInvitation.status).toBe('PENDING');
+    await providerPage.getByRole('button', { name: '刷新我的任务' }).click();
+    const providerOnePendingOrders = await browserFetch(providerPage, '/api/v1/pilot/orders');
+    expect(providerOnePendingOrders.body).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: holdingOrder.id,
+        invitation: expect.objectContaining({ id: holdingInvitation.id, status: 'PENDING' }),
+      }),
+    ]));
+
+    await withinNegativeWindow(ownerPage, '/api/v1/pilot/session', [401], () => (
+      logoutAndAssertRevoked(ownerContext, ownerPage)
+    ));
+    await withinNegativeWindow(ownerPage, '/api/v1/pilot/session', [401], () => (
+      login(ownerPage, secondOwnerInvite!, '建邺布丁家', '宠主工作区')
+    ));
     await assertSessionCookie(ownerContext, ownerPage);
 
     for (const result of [
-      await browserFetch(ownerPage, `/api/v1/pilot/orders/${orderId}`),
-      await browserFetch(ownerPage, `/api/v1/orders/${orderId}/address/candidate`),
-      await browserFetch(ownerPage, `/api/v1/orders/${orderId}/address/assigned`),
-      await browserFetch(ownerPage, `/api/v1/evidence/${evidenceId}/read-url`),
-      await browserFetch(ownerPage, `/api/v1/orders/${orderId}/confirm`, { method: 'POST' }),
-      await browserFetch(ownerPage, `/api/v1/pilot/orders/${orderId}/report`, {
+      await deliberateNegative(ownerPage, `/api/v1/pilot/orders/${orderId}`, [403, 404]),
+      await deliberateNegative(ownerPage, `/api/v1/orders/${orderId}/address/candidate`, [403, 404]),
+      await deliberateNegative(ownerPage, `/api/v1/orders/${orderId}/address/assigned`, [403, 404]),
+      await deliberateNegative(ownerPage, `/api/v1/evidence/${evidenceId}/read-url`, [403, 404]),
+      await deliberateNegative(ownerPage, `/api/v1/orders/${orderId}/confirm`, [403, 404], { method: 'POST' }),
+      await deliberateNegative(ownerPage, `/api/v1/pilot/orders/${orderId}/report`, [403, 404], {
         method: 'POST',
         body: { checklist: {}, afterState: {}, notes: 'cross-owner-write' },
       }),
-      await browserFetch(ownerPage, '/api/v1/orders', {
+      await deliberateNegative(ownerPage, '/api/v1/orders', [403, 404], {
         method: 'POST',
         headers: { 'Idempotency-Key': 'owner2-foreign-resource-check' },
         body: ownerOrderInput,
@@ -402,8 +511,12 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     expect(secondOwnerOrdersBefore.body).toEqual([]);
     expect(JSON.stringify(secondOwnerOrdersBefore.body)).not.toContain(exactAddress);
 
-    await logoutAndAssertRevoked(providerContext, providerPage);
-    await login(providerPage, secondProviderInvite!, '建邺小吴', '服务人员工作区');
+    await withinNegativeWindow(providerPage, '/api/v1/pilot/session', [401], () => (
+      logoutAndAssertRevoked(providerContext, providerPage)
+    ));
+    await withinNegativeWindow(providerPage, '/api/v1/pilot/session', [401], () => (
+      login(providerPage, secondProviderInvite!, '建邺小吴', '服务人员工作区')
+    ));
     await assertSessionCookie(providerContext, providerPage);
     await providerPage.getByRole('checkbox', { name: '上门喂猫' }).check();
     await providerPage.getByRole('combobox', { name: '申请服务区' }).selectOption('建邺区');
@@ -466,16 +579,20 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     expect(await providerPage.getByText(exactAddress).count()).toBe(0);
 
     for (const result of [
-      await browserFetch(providerPage, `/api/v1/pilot/orders/${orderId}`),
-      await browserFetch(providerPage, `/api/v1/orders/${orderId}/address/candidate`),
-      await browserFetch(providerPage, `/api/v1/orders/${orderId}/address/assigned`),
-      await browserFetch(providerPage, `/api/v1/evidence/${evidenceId}/read-url`),
-      await browserFetch(providerPage, `/api/v1/invitations/${firstProviderInvitationId}/accept`, {
-        method: 'POST',
-      }),
+      await deliberateNegative(providerPage, `/api/v1/pilot/orders/${orderId}`, [403, 404]),
+      await deliberateNegative(providerPage, `/api/v1/orders/${orderId}/address/candidate`, [403, 404]),
+      await deliberateNegative(providerPage, `/api/v1/orders/${orderId}/address/assigned`, [403, 404]),
+      await deliberateNegative(providerPage, `/api/v1/evidence/${evidenceId}/read-url`, [403, 404]),
     ]) {
-      expect([403, 404, 409]).toContain(result.status);
+      expect([403, 404]).toContain(result.status);
     }
+    const foreignPendingAccept = await deliberateNegative(
+      providerPage,
+      `/api/v1/invitations/${holdingInvitation.id}/accept`,
+      [403, 404],
+      { method: 'POST' },
+    );
+    expect([403, 404]).toContain(foreignPendingAccept.status);
     const secondAccept = await browserFetch(
       providerPage,
       `/api/v1/invitations/${secondProviderOrder.invitation.id}/accept`,
@@ -491,6 +608,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     expect(JSON.stringify(secondAssignedAddress.body)).not.toContain(exactAddress);
     await providerPage.getByRole('button', { name: '刷新我的任务' }).click();
     await assertMobilePrivacy(providerPage);
+    await assertDesktopPrivacy(providerPage, '服务人员工作区');
 
     const applicationRequests = [...requests];
     for (const path of [
@@ -499,21 +617,42 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
       '/api/v1/payments/webhooks/fake',
       '/api/v1/wechat/pay',
     ]) {
-      expect((await browserFetch(adminPage, path, { method: 'POST' })).status).toBe(404);
+      expect((await deliberateNegative(adminPage, path, [404], { method: 'POST' })).status).toBe(404);
     }
 
     await Promise.all([assertMobilePrivacy(adminPage), assertMobilePrivacy(ownerPage), assertMobilePrivacy(providerPage)]);
     await Promise.all([
-      assertDesktopLayout(adminPage, '平台工作区'),
-      assertDesktopLayout(ownerPage, '宠主工作区'),
-      assertDesktopLayout(providerPage, '服务人员工作区'),
+      assertDesktopPrivacy(adminPage, '平台工作区'),
+      assertDesktopPrivacy(ownerPage, '宠主工作区'),
+      assertDesktopPrivacy(providerPage, '服务人员工作区'),
     ]);
     await Promise.all([
-      logoutAndAssertRevoked(ownerContext, ownerPage),
-      logoutAndAssertRevoked(providerContext, providerPage),
+      withinNegativeWindow(ownerPage, '/api/v1/pilot/session', [401], () => (
+        logoutAndAssertRevoked(ownerContext, ownerPage)
+      )),
+      withinNegativeWindow(providerPage, '/api/v1/pilot/session', [401], () => (
+        logoutAndAssertRevoked(providerContext, providerPage)
+      )),
     ]);
     expect(applicationRequests.some((url) => /\/payments(?:\/|$)|wechat|phone|qr/i.test(new URL(url).pathname))).toBe(false);
-    expect(consoleErrors.filter((message) => !/Failed to load resource.*\b(?:401|403|404|409)\b/i.test(message))).toEqual([]);
+    const unexpectedConsoleErrors = consoleErrors.filter((entry) => {
+      const statusMatch = entry.text.match(/\b([45]\d\d)\b/);
+      if (!statusMatch || !entry.url) return true;
+      const key = `${entry.page}|${new URL(entry.url, baseUrl).pathname}|${statusMatch[1]}`;
+      const matchingWindow = negativeWindows.find((window) => (
+        window.page === entry.page
+        && window.path === new URL(entry.url, baseUrl).pathname
+        && window.statuses.includes(Number(statusMatch[1]))
+        && entry.sequence >= window.start
+        && entry.sequence <= (window.end ?? -1)
+      ));
+      return !matchingWindow || !failedResponses.some((response) => (
+        response.key === key
+        && response.sequence >= matchingWindow.start
+        && response.sequence <= (matchingWindow.end ?? -1)
+      ));
+    });
+    expect(unexpectedConsoleErrors).toEqual([]);
     expect(pageErrors).toEqual([]);
   } finally {
     await Promise.all(contexts.map((context) => context.close()));

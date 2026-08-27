@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm, unlink } from 'node:fs/promises';
 import http from 'node:http';
@@ -8,15 +7,18 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import {
+  acquireAcceptanceState,
   acceptanceStatePath,
   reclaimStaleRun,
   writeAcceptanceState,
 } from './pilot-live-state.mjs';
+import { createOwnedChildRegistry } from './pilot-live-children.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dockerImage = 'postgres:16-alpine';
 const resourcePrefix = 'petcare-live-';
 const nodeMajor = Number(process.versions.node.split('.')[0]);
+const ownedChildren = createOwnedChildRegistry();
 
 if (nodeMajor !== 22) {
   process.stderr.write(`Live acceptance requires Node.js 22.x; received ${process.version}.\n`);
@@ -25,7 +27,7 @@ if (nodeMajor !== 22) {
 
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const child = ownedChildren.spawn(command, args, {
       cwd: repositoryRoot,
       env: process.env,
       stdio: 'inherit',
@@ -42,7 +44,7 @@ function run(command, args, options = {}) {
 
 function capture(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const child = ownedChildren.spawn(command, args, {
       cwd: repositoryRoot,
       env: process.env,
       windowsHide: true,
@@ -91,16 +93,6 @@ async function waitFor(predicate, label, timeoutMs = 60_000) {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`${label} did not become ready${lastError instanceof Error ? `: ${lastError.message}` : ''}`);
-}
-
-async function stopChild(child) {
-  const exited = () => child.exitCode !== null || child.signalCode !== null;
-  if (!child || exited()) return;
-  child.kill('SIGTERM');
-  await waitFor(exited, 'child process exit after SIGTERM', 5_000).catch(() => undefined);
-  if (exited()) return;
-  child.kill('SIGKILL');
-  await waitFor(exited, 'child process exit after SIGKILL', 5_000);
 }
 
 const tsxCli = path.join(repositoryRoot, 'apps/api/node_modules/tsx/dist/cli.mjs');
@@ -188,6 +180,13 @@ const tempRoot = await mkdtemp(path.join(os.tmpdir(), resourcePrefix));
 const evidenceDir = path.join(tempRoot, 'evidence');
 const playwrightOutput = path.join(tempRoot, 'playwright');
 const containerName = `${resourcePrefix}${runId}`;
+let state = { version: 1, runId, runnerPid: process.pid, apiPid: null, containerName, tempRoot };
+try {
+  await acquireAcceptanceState(statePath, state, os.tmpdir());
+} catch (error) {
+  await rm(tempRoot, { recursive: true, force: true });
+  throw error;
+}
 let databaseReservation = await reservePort();
 let pilotReservation = await reservePort();
 let controlReservation = await reservePort();
@@ -216,9 +215,8 @@ let pilotProcess;
 let controlServer;
 let restartGeneration = 0;
 let cleanupPromise;
-let state = { version: 1, runId, runnerPid: process.pid, apiPid: null, containerName, tempRoot };
-
-await writeAcceptanceState(statePath, state, os.tmpdir());
+let shuttingDown = false;
+let containerStartAttempted = false;
 
 async function persistState(apiPid) {
   state = { ...state, apiPid };
@@ -237,7 +235,8 @@ async function releaseReservation(name) {
 }
 
 async function startPilot() {
-  const child = spawn(process.execPath, [tsxCli, apiEntry, `--pilot-acceptance-run=${runId}`], {
+  if (shuttingDown) throw new Error('Acceptance cleanup is in progress');
+  const child = ownedChildren.spawn(process.execPath, [tsxCli, apiEntry, `--pilot-acceptance-run=${runId}`], {
     cwd: repositoryRoot,
     env: serverEnvironment,
     stdio: ['ignore', 'inherit', 'inherit'],
@@ -256,9 +255,10 @@ async function startPilot() {
 }
 
 async function restartPilot() {
-  await stopChild(pilotProcess);
+  await ownedChildren.stop(pilotProcess);
   pilotProcess = undefined;
   await persistState(null);
+  if (shuttingDown) throw new Error('Acceptance cleanup is in progress');
   await startPilot();
   process.stdout.write(`[live] Pilot server restart ${restartGeneration - 1} completed.\n`);
 }
@@ -266,6 +266,7 @@ async function restartPilot() {
 async function cleanup() {
   if (cleanupPromise) return cleanupPromise;
   cleanupPromise = (async () => {
+    shuttingDown = true;
     await Promise.all([
       releaseReservation('database'), releaseReservation('pilot'), releaseReservation('control'),
     ]);
@@ -273,14 +274,23 @@ async function cleanup() {
       await new Promise((resolve) => controlServer.close(() => resolve()));
       controlServer = undefined;
     }
-    await stopChild(pilotProcess);
+    await ownedChildren.stopAll();
     pilotProcess = undefined;
     await persistState(null);
-    if (containerStarted) {
-      const label = await inspectContainer(containerName);
-      if (label !== runId) throw new Error('Refusing to remove a container with a mismatched live-run label');
-      await capture('docker', ['rm', '-f', containerName]);
-      containerStarted = false;
+    if (containerStartAttempted) {
+      let label = await inspectContainer(containerName);
+      if (label === null && !containerStarted) {
+        await waitFor(async () => {
+          label = await inspectContainer(containerName);
+          return label !== null;
+        }, 'Docker start attempt settlement', 3_000).catch(() => undefined);
+      }
+      if (label === null) containerStarted = false;
+      else {
+        if (label !== runId) throw new Error('Refusing to remove a container with a mismatched live-run label');
+        await capture('docker', ['rm', '-f', containerName]);
+        containerStarted = false;
+      }
     }
     const resolvedTemp = path.resolve(tempRoot);
     const resolvedOsTemp = path.resolve(os.tmpdir());
@@ -289,6 +299,7 @@ async function cleanup() {
     }
     await rm(resolvedTemp, { recursive: true, force: true });
     await unlink(statePath);
+    if (ownedChildren.size !== 0) throw new Error('Owned child registry was not empty after cleanup');
   })();
   return cleanupPromise;
 }
@@ -313,6 +324,7 @@ try {
   await mkdir(playwrightOutput, { recursive: true });
 
   await releaseReservation('database');
+  containerStartAttempted = true;
   await capture('docker', [
     'run', '--detach', '--rm', '--name', containerName,
     '--label', 'com.petcare.live-acceptance=true',
@@ -349,7 +361,7 @@ try {
     path.join(repositoryRoot, 'apps/admin/node_modules/vite/bin/vite.js'), 'build', '--mode', 'pilot',
   ], { cwd: path.join(repositoryRoot, 'apps/admin') });
 
-  const adminInvite = await capture(process.execPath, [
+  let adminInvite = await capture(process.execPath, [
     tsxCli, path.join(repositoryRoot, 'apps/api/src/pilot/bootstrap.ts'),
   ], { env: serverEnvironment });
   if (!adminInvite) throw new Error('Pilot bootstrap did not return an invitation');
@@ -360,9 +372,21 @@ try {
   process.stdout.write('[live] Actual pilot server and built UI are ready.\n');
 
   const controlSecret = randomBytes(24).toString('base64url');
-  const controlPath = `/restart/${controlSecret}`;
+  const controlPath = `/control/${controlSecret}`;
   controlServer = http.createServer((request, response) => {
-    if (request.method !== 'POST' || request.url !== controlPath) {
+    if (request.method === 'GET' && request.url === `${controlPath}/admin-invite`) {
+      if (!adminInvite) {
+        response.writeHead(410, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        response.end(JSON.stringify({ code: 'INVITATION_CONSUMED' }));
+        return;
+      }
+      const inviteCode = adminInvite;
+      adminInvite = '';
+      response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      response.end(JSON.stringify({ inviteCode }));
+      return;
+    }
+    if (request.method !== 'POST' || request.url !== `${controlPath}/restart`) {
       response.writeHead(404).end();
       return;
     }
@@ -386,7 +410,6 @@ try {
   ], { env: {
     ...process.env,
     PILOT_ACCEPTANCE_BASE_URL: pilotBaseUrl,
-    PILOT_ACCEPTANCE_ADMIN_INVITE: adminInvite,
     PILOT_ACCEPTANCE_CONTROL_URL: `http://127.0.0.1:${controlPort}${controlPath}`,
     PILOT_ACCEPTANCE_OUTPUT_DIR: playwrightOutput,
   }});
@@ -394,11 +417,16 @@ try {
 } catch (error) {
   process.stderr.write(`[live] Acceptance failed: ${error instanceof Error ? error.message : 'unknown error'}\n`);
 } finally {
-  await cleanup().catch((error) => {
+  let cleanupSucceeded = false;
+  await cleanup().then(() => {
+    cleanupSucceeded = true;
+  }).catch((error) => {
     exitCode = 1;
     process.stderr.write(`[live] Cleanup failed: ${error instanceof Error ? error.message : 'unknown error'}\n`);
   });
-  process.stdout.write('[live] API, database container, and temporary evidence artifacts removed.\n');
+  if (cleanupSucceeded) {
+    process.stdout.write('[live] API, database container, and temporary evidence artifacts removed.\n');
+  }
 }
 
 process.exitCode = exitCode;

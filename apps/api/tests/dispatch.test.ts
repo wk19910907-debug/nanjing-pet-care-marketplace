@@ -73,6 +73,21 @@ describe('managed dispatch', () => {
     expect(saved.assignedProviderId).toBeTruthy();
   });
 
+  it('hides a still-pending invitation from a different provider', async () => {
+    const order = await createOrder();
+    await createProvider(40, order.startsAt);
+    const invitations = await dispatch.start(order.id, new Date());
+    const pending = invitations[0]!;
+    const outsider = await createProvider(41, order.startsAt);
+
+    await expect(dispatch.acceptInvitation(pending.id, outsider.profile.id, new Date()))
+      .rejects.toThrow('FORBIDDEN');
+    expect(await prisma.dispatchInvitation.findUniqueOrThrow({ where: { id: pending.id } }))
+      .toMatchObject({ status: 'PENDING', providerId: pending.providerId });
+    expect(await prisma.order.findUniqueOrThrow({ where: { id: order.id } }))
+      .toMatchObject({ status: 'PENDING_DISPATCH', assignedProviderId: null });
+  });
+
   it('expires waves, tries a second wave, then fails closed with an alert', async () => {
     const order = await createOrder();
     await Promise.all(Array.from({ length: 6 }, (_, index) => createProvider(index + 20, order.startsAt)));
