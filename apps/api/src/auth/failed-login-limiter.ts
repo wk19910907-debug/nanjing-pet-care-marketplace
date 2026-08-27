@@ -7,6 +7,7 @@ type FailureWindow = {
 
 export class FailedLoginLimiter {
   private readonly clients = new Map<string, FailureWindow>();
+  private readonly clientQueues = new Map<string, Promise<void>>();
 
   constructor(
     private readonly maximumFailures: number,
@@ -14,14 +15,38 @@ export class FailedLoginLimiter {
     private readonly now: () => number = Date.now,
   ) {}
 
-  assertAllowed(clientKey: string): void {
+  async attempt<T>(clientKey: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.clientQueues.get(clientKey) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => { release = resolve; });
+    const tail = previous.then(() => current);
+    this.clientQueues.set(clientKey, tail);
+    await previous;
+
+    try {
+      this.assertAllowed(clientKey);
+      try {
+        return await operation();
+      } catch (error) {
+        if (error instanceof Error && error.message === 'INVITE_INVALID') {
+          this.recordFailure(clientKey);
+        }
+        throw error;
+      }
+    } finally {
+      release();
+      if (this.clientQueues.get(clientKey) === tail) this.clientQueues.delete(clientKey);
+    }
+  }
+
+  private assertAllowed(clientKey: string): void {
     const current = this.activeWindow(clientKey);
     if (current && current.failures >= this.maximumFailures) {
       throw new Error('LOGIN_RATE_LIMITED');
     }
   }
 
-  recordFailure(clientKey: string): void {
+  private recordFailure(clientKey: string): void {
     const now = this.now();
     const current = this.activeWindow(clientKey, now);
     if (current) {

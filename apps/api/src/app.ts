@@ -12,6 +12,12 @@ import {
 } from './auth/pilot-routes.js';
 import { requirePilotOrigin } from './auth/pilot-origin-guard.js';
 
+const SAFE_PILOT_FRAMEWORK_ERRORS: ReadonlyMap<string, number> = new Map([
+  ['FST_ERR_CTP_INVALID_JSON_BODY', 400],
+  ['FST_ERR_CTP_BODY_TOO_LARGE', 413],
+  ['FST_ERR_CTP_INVALID_MEDIA_TYPE', 415],
+]);
+
 type AppDependencies = PetRoutesDependencies
   & Partial<Omit<OrderRoutesDependencies, 'auth'>>
   & Partial<Omit<DispatchRoutesDependencies, 'auth'>>
@@ -73,6 +79,16 @@ export function createApp(dependencies: AppDependencies) {
       return reply.code(409).send({ code: error.message });
     }
     if (request.url.startsWith('/api/v1/pilot/')) {
+      const frameworkCode = typeof error === 'object' && error !== null
+        && 'code' in error && typeof error.code === 'string'
+        ? error.code
+        : undefined;
+      const frameworkStatus = frameworkCode
+        ? SAFE_PILOT_FRAMEWORK_ERRORS.get(frameworkCode)
+        : undefined;
+      if (frameworkCode && frameworkStatus) {
+        return reply.code(frameworkStatus).send({ code: frameworkCode });
+      }
       return reply.code(503).send({ code: 'SERVICE_UNAVAILABLE' });
     }
     return reply.send(error);

@@ -261,6 +261,39 @@ describe('pilot authentication routes', () => {
     await app.close();
   });
 
+  it('admits at most five concurrent invalid redemptions for one client', async () => {
+    const { app, pilotSessions } = createPilotTestApp('development');
+    await app.ready();
+    let redeemCalls = 0;
+    let releaseRedemptions!: () => void;
+    let signalFirstRedemption!: () => void;
+    const redemptionsReleased = new Promise<void>((resolve) => { releaseRedemptions = resolve; });
+    const firstRedemption = new Promise<void>((resolve) => { signalFirstRedemption = resolve; });
+    pilotSessions.redeem = async () => {
+      redeemCalls += 1;
+      signalFirstRedemption();
+      await redemptionsReleased;
+      throw new Error('INVITE_INVALID');
+    };
+
+    const pending = Array.from({ length: 10 }, () => app.inject({
+      method: 'POST', url: '/api/v1/pilot/sessions', payload: { inviteCode: 'invalid-invite' },
+    }));
+    await firstRedemption;
+    for (let turn = 0; turn < 3; turn += 1) {
+      await new Promise<void>((resolve) => { setImmediate(resolve); });
+    }
+    const callsBeforeRelease = redeemCalls;
+    releaseRedemptions();
+    const responses = await Promise.all(pending);
+
+    expect(callsBeforeRelease).toBe(1);
+    expect(redeemCalls).toBe(5);
+    expect(responses.filter((response) => response.statusCode === 401)).toHaveLength(5);
+    expect(responses.filter((response) => response.statusCode === 429)).toHaveLength(5);
+    await app.close();
+  });
+
   it('partitions failed-login budgets by client behind an explicitly trusted proxy', async () => {
     const { app } = createPilotTestApp('development', ['127.0.0.1/32']);
     for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -342,6 +375,35 @@ describe('pilot authentication routes', () => {
     expect(response.json()).toEqual({ code: 'SERVICE_UNAVAILABLE' });
     expect(response.body).not.toContain(internalDetail);
     expect(response.body).not.toContain('postgresql://');
+    await app.close();
+  });
+
+  it.each([
+    {
+      label: 'malformed JSON', contentType: 'application/json', payload: '{"inviteCode":',
+      statusCode: 400, code: 'FST_ERR_CTP_INVALID_JSON_BODY',
+    },
+    {
+      label: 'unsupported content type', contentType: 'application/xml', payload: '<invite />',
+      statusCode: 415, code: 'FST_ERR_CTP_INVALID_MEDIA_TYPE',
+    },
+    {
+      label: 'oversized body', contentType: 'application/json',
+      payload: JSON.stringify({ inviteCode: 'x'.repeat(1_048_576) }),
+      statusCode: 413, code: 'FST_ERR_CTP_BODY_TOO_LARGE',
+    },
+  ])('preserves a safe framework 4xx response for $label', async ({
+    contentType, payload, statusCode, code,
+  }) => {
+    const { app } = createPilotTestApp('development');
+    const response = await app.inject({
+      method: 'POST', url: '/api/v1/pilot/sessions',
+      headers: { 'content-type': contentType }, payload,
+    });
+
+    expect(response.statusCode).toBe(statusCode);
+    expect(response.json()).toEqual({ code });
+    expect(response.body).not.toContain(payload.slice(0, 32));
     await app.close();
   });
 });

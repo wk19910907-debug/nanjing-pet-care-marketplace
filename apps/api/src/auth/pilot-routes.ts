@@ -52,16 +52,10 @@ export async function registerPilotAuthRoutes(
   app.post('/api/v1/pilot/sessions', async (request, reply) => {
     const { inviteCode } = LoginSchema.parse(request.body);
     const clientKey = request.ip;
-    failedLogins.assertAllowed(clientKey);
-    let session;
-    try {
-      session = await dependencies.sessions.redeem(inviteCode);
-    } catch (error) {
-      if (error instanceof Error && error.message === 'INVITE_INVALID') {
-        failedLogins.recordFailure(clientKey);
-      }
-      throw error;
-    }
+    const session = await failedLogins.attempt(
+      clientKey,
+      () => dependencies.sessions.redeem(inviteCode),
+    );
     writeSessionCookie(reply, secureCookies, session);
     return reply.code(201).send({ expiresAt: session.expiresAt.toISOString() });
   });
