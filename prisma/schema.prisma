@@ -290,18 +290,19 @@ model MediaEvidence {
 }
 
 model Payment {
-  id                String        @id @default(uuid()) @db.Uuid
-  orderId           String        @unique @db.Uuid
-  provider          String
-  providerPaymentId String?       @unique
-  providerEventId   String?       @unique
-  status            PaymentStatus @default(CREATED)
-  amountFen         Int
-  currency          String        @default("CNY") @db.Char(3)
-  createdAt         DateTime      @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime      @updatedAt @db.Timestamptz(3)
-  order             Order         @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  refunds           Refund[]
+  id                    String        @id @default(uuid()) @db.Uuid
+  orderId               String        @unique @db.Uuid
+  provider              String
+  providerPaymentId     String?       @unique
+  providerEventId       String?       @unique
+  manualConfirmationKey String?       @unique @db.VarChar(100)
+  status                PaymentStatus @default(CREATED)
+  amountFen             Int
+  currency              String        @default("CNY") @db.Char(3)
+  createdAt             DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime      @updatedAt @db.Timestamptz(3)
+  order                 Order         @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  refunds               Refund[]
 }
 
 model Refund {

@@ -24,7 +24,13 @@ export class OrderService {
       }},
       include: { payment: true },
     });
-    if (existing) return { order: existing, paymentToken: existing.payment?.providerPaymentId, replay: true };
+    if (existing) return {
+      order: existing,
+      paymentToken: existing.payment?.provider === 'pilot-manual'
+        ? null
+        : existing.payment?.providerPaymentId ?? null,
+      replay: true,
+    };
 
     const quote = await this.quotes.quote(actor, request);
     const orderId = randomUUID();

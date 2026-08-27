@@ -11,6 +11,7 @@ import {
   type PilotAuthRoutesDependencies,
 } from './auth/pilot-routes.js';
 import { requirePilotOrigin } from './auth/pilot-origin-guard.js';
+import { registerPilotRoutes, type PilotRoutesDependencies } from './pilot/pilot-routes.js';
 
 const SAFE_PILOT_FRAMEWORK_ERRORS: ReadonlyMap<string, number> = new Map([
   ['FST_ERR_CTP_INVALID_JSON_BODY', 400],
@@ -23,9 +24,15 @@ type AppDependencies = PetRoutesDependencies
   & Partial<Omit<DispatchRoutesDependencies, 'auth'>>
   & Partial<Omit<FulfillmentRoutesDependencies, 'auth'>>
   & Partial<Omit<DisputeRoutesDependencies, 'auth'>>
-  & { pilot?: PilotAuthRoutesDependencies };
+  & {
+    pilot?: PilotAuthRoutesDependencies;
+    pilotBusiness?: PilotRoutesDependencies;
+  };
 
 export function createApp(dependencies: AppDependencies) {
+  if (dependencies.pilotBusiness && !dependencies.pilot) {
+    throw new Error('PILOT_SECURITY_CONFIGURATION_REQUIRED');
+  }
   const trustedProxies = dependencies.pilot?.config.pilot?.trustedProxies;
   const app = Fastify({
     logger: false,
@@ -58,6 +65,12 @@ export function createApp(dependencies: AppDependencies) {
     }
     if (error instanceof Error && ['DISPATCH_NOT_ALLOWED', 'DISPATCH_CONFLICT'].includes(error.message)) {
       return reply.code(409).send({ code: error.message });
+    }
+    if (error instanceof Error && ['MANUAL_FEE_CONFLICT'].includes(error.message)) {
+      return reply.code(409).send({ code: error.message });
+    }
+    if (error instanceof Error && error.message === 'ORDER_NOT_FOUND') {
+      return reply.code(404).send({ code: 'ORDER_NOT_FOUND' });
     }
     if (error instanceof Error && error.message === 'PROVIDER_NOT_FOUND') {
       return reply.code(404).send({ code: 'PROVIDER_NOT_FOUND' });
@@ -101,6 +114,9 @@ export function createApp(dependencies: AppDependencies) {
       app.addHook('onRequest', requirePilotOrigin(origin));
     }
     void app.register(registerPilotAuthRoutes, dependencies.pilot);
+  }
+  if (dependencies.pilotBusiness) {
+    void app.register(registerPilotRoutes, dependencies.pilotBusiness);
   }
   void app.register(registerPetRoutes, dependencies);
   if (dependencies.quotes && dependencies.orders && dependencies.payments) {

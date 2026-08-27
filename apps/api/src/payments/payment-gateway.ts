@@ -6,7 +6,7 @@ export type CreatePaymentRequest = {
 
 export type CreatedPayment = {
   providerPaymentId: string;
-  paymentToken: string;
+  paymentToken: string | null;
 };
 
 export type VerifiedPaymentEvent = {
