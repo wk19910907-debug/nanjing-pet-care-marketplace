@@ -237,4 +237,103 @@ describe('pilot API transport', () => {
       status: 503, code: 'SERVICE_UNAVAILABLE', message: '服务暂时不可用，请稍后重试',
     });
   });
+
+  it('uses the caller idempotency key for replay-safe owner order submission', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      id: '44444444-4444-4444-8444-444444444444', status: 'PENDING_DISPATCH',
+      totalFen: 3900, currency: 'CNY', paymentToken: null,
+    }, 200));
+    const api = createPilotApi(fetcher);
+    const input = {
+      serviceType: 'CAT_FEEDING' as const,
+      petIds: ['11111111-1111-4111-8111-111111111111'],
+      addressId: '33333333-3333-4333-8333-333333333333',
+      startsAt: '2026-09-10T02:00:00.000Z', durationMinutes: 30, notes: '',
+    };
+
+    await expect(api.createOrder(input, 'owner-order-retry-key')).resolves.toMatchObject({
+      status: 'PENDING_DISPATCH',
+    });
+
+    expect(fetcher).toHaveBeenCalledWith('/api/v1/orders', expect.objectContaining({
+      method: 'POST', body: JSON.stringify(input),
+      headers: expect.objectContaining({ 'Idempotency-Key': 'owner-order-retry-key' }),
+    }));
+  });
+
+  it('normalizes owner resources, quote, and order read models to explicit allowlists', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse([{
+        id: '11111111-1111-4111-8111-111111111111', name: '团子', species: 'CAT',
+        sensitiveNotes: '怕生', ownerId: 'must-not-cross',
+      }]))
+      .mockResolvedValueOnce(jsonResponse([{
+        id: '33333333-3333-4333-8333-333333333333', city: '南京市',
+        district: '建邺区', serviceZone: '建邺区', detail: 'exact-secret',
+        accessInstructions: 'door-secret',
+      }]))
+      .mockResolvedValueOnce(jsonResponse({
+        baseFen: 3200, extraPetFen: 0, durationFen: 700, distanceFen: 0,
+        holidayFen: 0, totalFen: 3900, currency: 'CNY', internalRule: 'hidden',
+      }))
+      .mockResolvedValueOnce(jsonResponse([{
+        id: '44444444-4444-4444-8444-444444444444', serviceType: 'CAT_FEEDING',
+        status: 'PENDING_CONFIRMATION', startsAt: '2026-09-10T02:00:00.000Z',
+        durationMinutes: 30, totalFen: 3900, currency: 'CNY', city: '南京市',
+        district: '建邺区', serviceZone: '建邺区', notes: '轻声进门',
+        exactAddress: 'must-not-cross', accessInstructions: 'must-not-cross', ownerId: 'other-owner',
+        report: {
+          notes: '状态正常', submittedAt: '2026-09-10T03:00:00.000Z',
+          checklist: { fed: true }, evidence: ['must-not-cross'],
+        },
+      }]));
+    const api = createPilotApi(fetcher);
+
+    const [petRecords, addressRecords, quote, orderRecords] = await Promise.all([
+      api.listPets(), api.listAddresses(), api.getQuote({
+        serviceType: 'CAT_FEEDING', petIds: ['11111111-1111-4111-8111-111111111111'],
+        addressId: '33333333-3333-4333-8333-333333333333',
+        startsAt: '2026-09-10T02:00:00.000Z', durationMinutes: 30,
+      }), api.listOrders(),
+    ]);
+
+    expect(petRecords).toEqual([{
+      id: '11111111-1111-4111-8111-111111111111', name: '团子', species: 'CAT', sensitiveNotes: '怕生',
+    }]);
+    expect(addressRecords).toEqual([{
+      id: '33333333-3333-4333-8333-333333333333', city: '南京市',
+      district: '建邺区', serviceZone: '建邺区',
+    }]);
+    expect(quote).toEqual({
+      baseFen: 3200, extraPetFen: 0, durationFen: 700,
+      distanceFen: 0, holidayFen: 0, totalFen: 3900, currency: 'CNY',
+    });
+    expect(orderRecords[0]).toEqual({
+      id: '44444444-4444-4444-8444-444444444444', serviceType: 'CAT_FEEDING',
+      status: 'PENDING_CONFIRMATION', startsAt: '2026-09-10T02:00:00.000Z',
+      durationMinutes: 30, totalFen: 3900, currency: 'CNY', city: '南京市',
+      district: '建邺区', serviceZone: '建邺区', notes: '轻声进门',
+      report: { notes: '状态正常', submittedAt: '2026-09-10T03:00:00.000Z', checklist: { fed: true } },
+    });
+    expect(JSON.stringify({ addressRecords, orderRecords })).not.toMatch(/exact-secret|door-secret|must-not-cross/);
+  });
+
+  it('rejects online-payment tokens and malformed owner order read models', async () => {
+    const paymentApi = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      id: '44444444-4444-4444-8444-444444444444', status: 'PENDING_PAYMENT',
+      totalFen: 3900, currency: 'CNY', paymentToken: 'qr-or-payment-token',
+    }, 201)));
+    const malformedApi = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse([{
+      id: '44444444-4444-4444-8444-444444444444', serviceType: 'CAT_FEEDING',
+      status: 'UNKNOWN_STATE', startsAt: '2026-09-10T02:00:00.000Z', durationMinutes: 30,
+      totalFen: 3900, currency: 'CNY', city: '南京市', district: '建邺区', serviceZone: '建邺区',
+    }])));
+
+    await expect(paymentApi.createOrder({
+      serviceType: 'CAT_FEEDING', petIds: ['11111111-1111-4111-8111-111111111111'],
+      addressId: '33333333-3333-4333-8333-333333333333',
+      startsAt: '2026-09-10T02:00:00.000Z', durationMinutes: 30, notes: '',
+    }, 'owner-order-retry-key')).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+    await expect(malformedApi.listOrders()).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+  });
 });

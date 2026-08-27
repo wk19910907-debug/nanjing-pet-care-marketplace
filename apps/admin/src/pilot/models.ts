@@ -30,3 +30,89 @@ export type PilotInviteCreated = Omit<PilotInvite, 'consumedAt'> & {
   role: PilotInviteRole;
   code: string;
 };
+
+export type PetSpecies = 'CAT' | 'DOG';
+export type ServiceType = 'CAT_FEEDING' | 'DOG_WALKING';
+export type OrderStatus =
+  | 'PENDING_PAYMENT'
+  | 'PENDING_DISPATCH'
+  | 'PENDING_SERVICE'
+  | 'IN_SERVICE'
+  | 'PENDING_CONFIRMATION'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'REFUND_PENDING'
+  | 'REFUNDED'
+  | 'DISPUTED'
+  | 'DISPATCH_FAILED'
+  | 'EXPIRED';
+
+export type OwnerPet = {
+  id: string;
+  name: string;
+  species: PetSpecies;
+  sensitiveNotes: string;
+};
+
+export type OwnerAddress = {
+  id: string;
+  city: '南京市';
+  district: string;
+  serviceZone: string;
+};
+
+export type CreateOwnerPet = Pick<OwnerPet, 'name' | 'species' | 'sensitiveNotes'>;
+export type CreateOwnerAddress = Omit<OwnerAddress, 'id'> & {
+  latitude: number;
+  longitude: number;
+  detail: string;
+  accessInstructions: '';
+};
+
+export type QuoteRequest = {
+  serviceType: ServiceType;
+  petIds: string[];
+  addressId: string;
+  startsAt: string;
+  durationMinutes: number;
+};
+
+export type QuoteBreakdown = {
+  baseFen: number;
+  extraPetFen: number;
+  durationFen: number;
+  distanceFen: number;
+  holidayFen: number;
+  totalFen: number;
+  currency: 'CNY';
+};
+
+export type CreateOwnerOrder = QuoteRequest & { notes: string };
+export type OwnerOrderCreated = {
+  id: string;
+  status: OrderStatus;
+  totalFen: number;
+  currency: 'CNY';
+};
+
+export type PilotChecklist = Record<string, string | number | boolean | null>;
+
+export type OwnerOrder = {
+  id: string;
+  serviceType: ServiceType;
+  status: OrderStatus;
+  startsAt: string;
+  durationMinutes: number;
+  totalFen: number;
+  currency: 'CNY';
+  city: string;
+  district: string;
+  serviceZone: string;
+  providerDisplayName?: string;
+  notes?: string;
+  report?: {
+    notes: string;
+    submittedAt: string;
+    checklist: PilotChecklist;
+  };
+};

@@ -25,6 +25,14 @@ function fakeApi(overrides: Partial<PilotApi> = {}): PilotApi {
       expiresAt: '2026-08-28T10:00:00.000Z', createdAt: '2026-08-27T10:00:00.000Z',
     }),
     listInvites: vi.fn().mockResolvedValue([]),
+    listPets: vi.fn().mockResolvedValue([]),
+    createPet: vi.fn(),
+    listAddresses: vi.fn().mockResolvedValue([]),
+    createAddress: vi.fn(),
+    getQuote: vi.fn(),
+    createOrder: vi.fn(),
+    listOrders: vi.fn().mockResolvedValue([]),
+    confirmOrder: vi.fn(),
     ...overrides,
   };
 }
@@ -93,6 +101,7 @@ describe('PilotApp', () => {
 
     expect(api.updateProfile).toHaveBeenCalledWith('秦淮宠主');
     expect(await screen.findByRole('heading', { name: '宠主工作区' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: '宠物档案' })).toBeTruthy();
     expect(screen.queryByText('邀请码管理')).toBeNull();
     expect(screen.queryByRole('combobox', { name: /角色/ })).toBeNull();
   });

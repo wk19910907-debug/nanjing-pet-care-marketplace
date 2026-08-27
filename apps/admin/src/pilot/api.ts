@@ -5,7 +5,20 @@ import type {
   PilotProfile,
   PilotSession,
   PilotSessionCreated,
+  CreateOwnerAddress,
+  CreateOwnerOrder,
+  CreateOwnerPet,
+  OwnerAddress,
+  OwnerOrder,
+  OwnerOrderCreated,
+  OwnerPet,
+  OrderStatus,
+  PilotChecklist,
+  QuoteBreakdown,
+  QuoteRequest,
+  ServiceType,
 } from './models.js';
+import { PILOT_DISTRICTS } from './districts.js';
 
 const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   INVITE_INVALID: '邀请码无效或已失效',
@@ -42,6 +55,14 @@ export interface PilotApi {
   deleteSession(): Promise<void>;
   createInvite(role: PilotInviteRole): Promise<PilotInviteCreated>;
   listInvites(): Promise<PilotInvite[]>;
+  listPets(): Promise<OwnerPet[]>;
+  createPet(input: CreateOwnerPet): Promise<OwnerPet>;
+  listAddresses(): Promise<OwnerAddress[]>;
+  createAddress(input: CreateOwnerAddress): Promise<OwnerAddress>;
+  getQuote(input: QuoteRequest): Promise<QuoteBreakdown>;
+  createOrder(input: CreateOwnerOrder, idempotencyKey: string): Promise<OwnerOrderCreated>;
+  listOrders(): Promise<OwnerOrder[]>;
+  confirmOrder(orderId: string): Promise<void>;
 }
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -49,6 +70,14 @@ type JsonRecord = Record<string, unknown>;
 
 const PILOT_ROLES = ['OWNER', 'PROVIDER', 'ADMIN'] as const;
 const INVITE_ROLES = ['OWNER', 'PROVIDER'] as const;
+const PET_SPECIES = ['CAT', 'DOG'] as const;
+const SERVICE_TYPES = ['CAT_FEEDING', 'DOG_WALKING'] as const;
+const ORDER_STATUSES = [
+  'PENDING_PAYMENT', 'PENDING_DISPATCH', 'PENDING_SERVICE', 'IN_SERVICE',
+  'PENDING_CONFIRMATION', 'COMPLETED', 'CANCELLED', 'REFUND_PENDING',
+  'REFUNDED', 'DISPUTED', 'DISPATCH_FAILED', 'EXPIRED',
+] as const satisfies readonly OrderStatus[];
+const DISTRICTS = new Set<string>(PILOT_DISTRICTS.map(({ district }) => district));
 const CREDENTIAL_FIELD_NAMES = new Set([
   'codehash',
   'invitationcode',
@@ -70,6 +99,25 @@ function asString(record: JsonRecord, key: string, maximum = 512): string {
   const value = record[key];
   if (typeof value !== 'string' || value.length < 1 || value.length > maximum) invalidResponse();
   return value;
+}
+
+function asOptionalString(record: JsonRecord, key: string, maximum = 512): string | undefined {
+  if (record[key] === undefined) return undefined;
+  return asString(record, key, maximum);
+}
+
+function asInteger(record: JsonRecord, key: string, maximum = Number.MAX_SAFE_INTEGER): number {
+  const value = record[key];
+  if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > maximum) {
+    invalidResponse();
+  }
+  return value as number;
+}
+
+function asEnum<T extends string>(record: JsonRecord, key: string, values: readonly T[]): T {
+  const value = record[key];
+  if (typeof value !== 'string' || !values.includes(value as T)) invalidResponse();
+  return value as T;
 }
 
 function isStrictIsoTimestamp(value: string): boolean {
@@ -202,6 +250,121 @@ function parseInvites(value: unknown): PilotInvite[] {
   return value.map(parseInvite);
 }
 
+function parsePet(value: unknown): OwnerPet {
+  const record = asRecord(value);
+  return {
+    id: asString(record, 'id', 128),
+    name: asString(record, 'name', 50),
+    species: asEnum(record, 'species', PET_SPECIES),
+    sensitiveNotes: typeof record.sensitiveNotes === 'string' && record.sensitiveNotes.length <= 1000
+      ? record.sensitiveNotes
+      : invalidResponse(),
+  };
+}
+
+function parsePets(value: unknown): OwnerPet[] {
+  if (!Array.isArray(value) || value.length > 100) invalidResponse();
+  return value.map(parsePet);
+}
+
+function parseAddress(value: unknown): OwnerAddress {
+  const record = asRecord(value);
+  const city = asEnum(record, 'city', ['南京市'] as const);
+  const district = asString(record, 'district', 30);
+  const serviceZone = asString(record, 'serviceZone', 50);
+  if (!DISTRICTS.has(district) || serviceZone !== district) invalidResponse();
+  return { id: asString(record, 'id', 128), city, district, serviceZone };
+}
+
+function parseAddresses(value: unknown): OwnerAddress[] {
+  if (!Array.isArray(value) || value.length > 100) invalidResponse();
+  return value.map(parseAddress);
+}
+
+function parseQuote(value: unknown): QuoteBreakdown {
+  const record = asRecord(value);
+  return {
+    baseFen: asInteger(record, 'baseFen'),
+    extraPetFen: asInteger(record, 'extraPetFen'),
+    durationFen: asInteger(record, 'durationFen'),
+    distanceFen: asInteger(record, 'distanceFen'),
+    holidayFen: asInteger(record, 'holidayFen'),
+    totalFen: asInteger(record, 'totalFen'),
+    currency: asEnum(record, 'currency', ['CNY'] as const),
+  };
+}
+
+function parseChecklist(value: unknown): PilotChecklist {
+  const record = asRecord(value);
+  const entries = Object.entries(record);
+  if (entries.length > 30) invalidResponse();
+  const checklist: PilotChecklist = {};
+  for (const [key, item] of entries) {
+    if (key.length < 1 || key.length > 80) invalidResponse();
+    if (
+      item !== null
+      && typeof item !== 'boolean'
+      && typeof item !== 'number'
+      && (typeof item !== 'string' || item.length > 500)
+    ) invalidResponse();
+    checklist[key] = item as PilotChecklist[string];
+  }
+  return checklist;
+}
+
+function parseOrder(value: unknown): OwnerOrder {
+  const record = asRecord(value);
+  const reportValue = record.report;
+  let report: OwnerOrder['report'];
+  if (reportValue !== undefined) {
+    const reportRecord = asRecord(reportValue);
+    const notes = reportRecord.notes;
+    if (typeof notes !== 'string' || notes.length > 1000) invalidResponse();
+    report = {
+      notes,
+      submittedAt: asDate(reportRecord, 'submittedAt'),
+      checklist: parseChecklist(reportRecord.checklist),
+    };
+  }
+  return {
+    id: asString(record, 'id', 128),
+    serviceType: asEnum<ServiceType>(record, 'serviceType', SERVICE_TYPES),
+    status: asEnum<OrderStatus>(record, 'status', ORDER_STATUSES),
+    startsAt: asDate(record, 'startsAt'),
+    durationMinutes: asInteger(record, 'durationMinutes', 180),
+    totalFen: asInteger(record, 'totalFen'),
+    currency: asEnum(record, 'currency', ['CNY'] as const),
+    city: asString(record, 'city', 30),
+    district: asString(record, 'district', 30),
+    serviceZone: asString(record, 'serviceZone', 50),
+    ...(asOptionalString(record, 'providerDisplayName', 30) !== undefined
+      ? { providerDisplayName: asOptionalString(record, 'providerDisplayName', 30)! }
+      : {}),
+    ...(record.notes !== undefined
+      ? { notes: typeof record.notes === 'string' && record.notes.length <= 500
+          ? record.notes
+          : invalidResponse() }
+      : {}),
+    ...(report ? { report } : {}),
+  };
+}
+
+function parseOrders(value: unknown): OwnerOrder[] {
+  if (!Array.isArray(value) || value.length > 100) invalidResponse();
+  return value.map(parseOrder);
+}
+
+function parseOrderCreated(value: unknown): OwnerOrderCreated {
+  const record = asRecord(value);
+  if (record.paymentToken !== null) invalidResponse();
+  return {
+    id: asString(record, 'id', 128),
+    status: asEnum<OrderStatus>(record, 'status', ORDER_STATUSES),
+    totalFen: asInteger(record, 'totalFen'),
+    currency: asEnum(record, 'currency', ['CNY'] as const),
+  };
+}
+
 export function createIdempotencyKey(): string {
   return crypto.randomUUID();
 }
@@ -228,7 +391,7 @@ export function createPilotApi(fetcher: Fetcher = fetch): PilotApi {
   async function request(
     path: string,
     init: RequestInit = {},
-    expectedStatus = 200,
+    expectedStatus: number | readonly number[] = 200,
   ): Promise<unknown> {
     const method = init.method?.toUpperCase() ?? 'GET';
     const writeHeaders = method === 'GET' || method === 'HEAD'
@@ -249,7 +412,8 @@ export function createPilotApi(fetcher: Fetcher = fetch): PilotApi {
       throw new PilotApiError(503, 'SERVICE_UNAVAILABLE');
     }
     if (!response.ok) throw new PilotApiError(response.status, await safeErrorCode(response));
-    if (response.status !== expectedStatus) invalidResponse();
+    const expected = Array.isArray(expectedStatus) ? expectedStatus : [expectedStatus];
+    if (!expected.includes(response.status)) invalidResponse();
     if (response.status === 204) return undefined;
     try {
       return await response.json() as unknown;
@@ -277,6 +441,29 @@ export function createPilotApi(fetcher: Fetcher = fetch): PilotApi {
       201,
     )),
     listInvites: async () => parseInvites(await request('/v1/pilot/invites')),
+    listPets: async () => parsePets(await request('/v1/pets')),
+    createPet: async (input) => parsePet(await request(
+      '/v1/pets', { method: 'POST', body: JSON.stringify(input) }, 201,
+    )),
+    listAddresses: async () => parseAddresses(await request('/v1/addresses')),
+    createAddress: async (input) => parseAddress(await request(
+      '/v1/addresses', { method: 'POST', body: JSON.stringify(input) }, 201,
+    )),
+    getQuote: async (input) => parseQuote(await request(
+      '/v1/quotes', { method: 'POST', body: JSON.stringify(input) },
+    )),
+    createOrder: async (input, idempotencyKey) => parseOrderCreated(await request(
+      '/v1/orders',
+      {
+        method: 'POST', body: JSON.stringify(input),
+        headers: { 'Idempotency-Key': idempotencyKey },
+      },
+      [200, 201],
+    )),
+    listOrders: async () => parseOrders(await request('/v1/pilot/orders')),
+    confirmOrder: async (orderId) => {
+      await request(`/v1/orders/${encodeURIComponent(orderId)}/confirm`, { method: 'POST' });
+    },
   };
 }
 
