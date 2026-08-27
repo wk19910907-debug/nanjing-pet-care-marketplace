@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { navigationForRole, type OperatorRole } from './features/access.js';
 import { OperatorView } from './routes.js';
 import { DemoApp } from './demo/DemoApp.js';
+import { PilotApp } from './pilot/PilotApp.js';
 import './styles.css';
 
 function Console() {
@@ -23,4 +24,7 @@ function Console() {
 }
 
 const operatorFixture = new URLSearchParams(window.location.search).get('fixture') === 'operator-flow';
-createRoot(document.getElementById('root')!).render(<StrictMode>{operatorFixture ? <Console/> : <DemoApp/>}</StrictMode>);
+const pilotMode = import.meta.env.MODE === 'pilot';
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>{pilotMode ? <PilotApp/> : operatorFixture ? <Console/> : <DemoApp/>}</StrictMode>,
+);
