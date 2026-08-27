@@ -593,13 +593,16 @@ export function createPilotApi(fetcher: Fetcher = fetch): PilotApi {
     const writeHeaders = method === 'GET' || method === 'HEAD'
       ? {}
       : { 'Idempotency-Key': createIdempotencyKey() };
+    const contentHeaders = init.body === undefined
+      ? {}
+      : { 'Content-Type': 'application/json' };
     let response: Response;
     try {
       response = await fetcher(`/api${path}`, {
         ...init,
         credentials: 'same-origin',
         headers: {
-          'Content-Type': 'application/json',
+          ...contentHeaders,
           ...writeHeaders,
           ...init.headers,
         },

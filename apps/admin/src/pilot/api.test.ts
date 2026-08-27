@@ -12,7 +12,7 @@ describe('pilot API transport', () => {
     vi.unstubAllGlobals();
   });
 
-  it('uses same-origin cookies and JSON without touching browser storage', async () => {
+  it('uses same-origin cookies without a body content type or browser storage', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
       userId: 'admin-1',
       role: 'ADMIN',
@@ -26,8 +26,8 @@ describe('pilot API transport', () => {
 
     expect(fetcher).toHaveBeenCalledWith('/api/v1/pilot/session', expect.objectContaining({
       credentials: 'same-origin',
-      headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
     }));
+    expect(fetcher.mock.calls[0]![1]!.headers).not.toHaveProperty('Content-Type');
     expect(storage.getItem).not.toHaveBeenCalled();
     expect(storage.setItem).not.toHaveBeenCalled();
     expect(storage.removeItem).not.toHaveBeenCalled();

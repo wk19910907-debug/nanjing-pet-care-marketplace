@@ -37,6 +37,8 @@ describe('pilot task 8 API transport', () => {
       method: 'POST', headers: expect.objectContaining({ 'Idempotency-Key': 'manual-fee-retry-1' }),
     }));
     expect(fetcher).toHaveBeenNthCalledWith(4, '/api/v1/dispatch/22222222-2222-4222-8222-222222222222/start', expect.objectContaining({ method: 'POST' }));
+    expect(fetcher.mock.calls[2]![1]!.headers).not.toHaveProperty('Content-Type');
+    expect(fetcher.mock.calls[3]![1]!.headers).not.toHaveProperty('Content-Type');
   });
 
   it('keeps lifecycle timestamps server-owned and uploads through an uncredentialed signed capability', async () => {
