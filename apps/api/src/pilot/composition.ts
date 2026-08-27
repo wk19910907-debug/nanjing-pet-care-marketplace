@@ -121,8 +121,10 @@ export async function createPilotApplication(
       prisma,
       PILOT_PRICING,
       {
-        distanceKm: async ({ serviceZone }) => {
-          if (!PILOT_DISTRICTS.has(serviceZone)) throw new Error('FORBIDDEN');
+        distanceKm: async ({ district, serviceZone }) => {
+          if (!PILOT_DISTRICTS.has(district) || serviceZone !== district) {
+            throw new Error('FORBIDDEN');
+          }
           return 0;
         },
       },
@@ -155,7 +157,13 @@ export async function createPilotApplication(
     const app = createApp({
       auth: onboardedAuth,
       pets: new PetService(prisma, fieldCrypto),
-      addresses: new AddressService(prisma, fieldCrypto, audit),
+      addresses: new AddressService(prisma, fieldCrypto, audit, {
+        assertSupported: ({ district, serviceZone }) => {
+          if (!PILOT_DISTRICTS.has(district) || serviceZone !== district) {
+            throw new Error('VALIDATION_ERROR');
+          }
+        },
+      }),
       quotes,
       orders,
       payments,

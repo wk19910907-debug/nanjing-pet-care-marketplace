@@ -14,6 +14,10 @@ export type CreateAddressInput = {
   accessInstructions: string;
 };
 
+export interface AddressLocationPolicy {
+  assertSupported(location: Pick<CreateAddressInput, 'district' | 'serviceZone'>): void;
+}
+
 function distanceKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
   const toRadians = (degrees: number) => degrees * Math.PI / 180;
   const earthKm = 6371;
@@ -29,10 +33,12 @@ export class AddressService {
     private readonly prisma: PrismaClient,
     private readonly fieldCrypto: FieldCrypto,
     private readonly audit: AuditRepository,
+    private readonly locationPolicy?: AddressLocationPolicy,
   ) {}
 
   public async create(actor: ActorContext, input: CreateAddressInput) {
     authorizeRole(actor, ['OWNER']);
+    this.locationPolicy?.assertSupported(input);
     const detail = this.fieldCrypto.encrypt(input.detail);
     const access = input.accessInstructions ? this.fieldCrypto.encrypt(input.accessInstructions) : null;
     return this.prisma.serviceAddress.create({ data: {

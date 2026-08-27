@@ -13,7 +13,12 @@ export type QuoteRequest = {
 };
 
 export interface DistanceCalculator {
-  distanceKm(address: { latitude: number; longitude: number; serviceZone: string }): Promise<number>;
+  distanceKm(address: {
+    latitude: number;
+    longitude: number;
+    district: string;
+    serviceZone: string;
+  }): Promise<number>;
 }
 
 export interface HolidayCalendar {
@@ -40,6 +45,7 @@ export class QuoteService {
     const distanceKm = await this.distances.distanceKm({
       latitude: Number(address.latitude),
       longitude: Number(address.longitude),
+      district: address.district,
       serviceZone: address.serviceZone,
     });
     return calculateQuote({

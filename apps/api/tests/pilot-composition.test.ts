@@ -247,11 +247,19 @@ describe('pilot application composition', () => {
         latitude: 32.003, longitude: 118.732, detail: '测试地址', accessInstructions: '',
       },
     });
-    const outsideAddress = await application.app.inject({
+    const addressCountBeforeInvalidRequests = await application.prisma.serviceAddress.count();
+    const unsupportedDistrict = await application.app.inject({
       method: 'POST', url: '/api/v1/addresses', headers: { cookie: ownerCookie },
       payload: {
-        city: '南京市', district: '江宁区', serviceZone: '江宁区',
+        city: '南京市', district: '江宁区', serviceZone: '建邺区',
         latitude: 31.953, longitude: 118.839, detail: '测试地址', accessInstructions: '',
+      },
+    });
+    const mismatchedAllowedDistrict = await application.app.inject({
+      method: 'POST', url: '/api/v1/addresses', headers: { cookie: ownerCookie },
+      payload: {
+        city: '南京市', district: '鼓楼区', serviceZone: '建邺区',
+        latitude: 32.067, longitude: 118.769, detail: '测试地址', accessInstructions: '',
       },
     });
     const startsAt = '2026-09-15T08:00:00.000+08:00';
@@ -269,19 +277,40 @@ describe('pilot application composition', () => {
         addressId: allowedAddress.json().id, startsAt, durationMinutes: 30,
       },
     });
-    const outsideQuote = await application.app.inject({
+    await application.prisma.serviceAddress.update({
+      where: { id: allowedAddress.json().id },
+      data: { district: '江宁区', serviceZone: '建邺区' },
+    });
+    const unsupportedPersistedDistrictQuote = await application.app.inject({
       method: 'POST', url: '/api/v1/quotes', headers: { cookie: ownerCookie },
       payload: {
         serviceType: 'CAT_FEEDING', petIds: [cat.json().id],
-        addressId: outsideAddress.json().id, startsAt, durationMinutes: 25,
+        addressId: allowedAddress.json().id, startsAt, durationMinutes: 25,
+      },
+    });
+    await application.prisma.serviceAddress.update({
+      where: { id: allowedAddress.json().id },
+      data: { district: '鼓楼区', serviceZone: '建邺区' },
+    });
+    const mismatchedPersistedDistrictQuote = await application.app.inject({
+      method: 'POST', url: '/api/v1/quotes', headers: { cookie: ownerCookie },
+      payload: {
+        serviceType: 'CAT_FEEDING', petIds: [cat.json().id],
+        addressId: allowedAddress.json().id, startsAt, durationMinutes: 25,
       },
     });
 
+    expect(unsupportedDistrict.statusCode).toBe(400);
+    expect(unsupportedDistrict.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(mismatchedAllowedDistrict.statusCode).toBe(400);
+    expect(mismatchedAllowedDistrict.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(await application.prisma.serviceAddress.count()).toBe(addressCountBeforeInvalidRequests);
     expect(catQuote.statusCode).toBe(200);
     expect(catQuote.json()).toMatchObject({ totalFen: 3200 });
     expect(dogQuote.statusCode).toBe(200);
     expect(dogQuote.json()).toMatchObject({ totalFen: 3700 });
-    expect(outsideQuote.statusCode).toBe(403);
+    expect(unsupportedPersistedDistrictQuote.statusCode).toBe(403);
+    expect(mismatchedPersistedDistrictQuote.statusCode).toBe(403);
     await application.app.close();
   });
 
