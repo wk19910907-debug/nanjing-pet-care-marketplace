@@ -132,6 +132,9 @@ export function OwnerPilotWorkspace({ api, onError }: OwnerPilotWorkspaceProps) 
   const submitLock = useRef(false);
   const [confirmingId, setConfirmingId] = useState('');
   const confirmLocks = useRef(new Set<string>());
+  const [evidenceUrls, setEvidenceUrls] = useState<Record<string, string>>({});
+  const [evidenceLoading, setEvidenceLoading] = useState('');
+  const [evidenceErrors, setEvidenceErrors] = useState<Record<string, string>>({});
 
   const isCurrent = useCallback((generation: number) => (
     lifecycle.current.mounted && lifecycle.current.generation === generation
@@ -359,6 +362,23 @@ export function OwnerPilotWorkspace({ api, onError }: OwnerPilotWorkspaceProps) 
     }
   };
 
+  const viewEvidence = async (evidenceId: string) => {
+    if (evidenceLoading) return;
+    const generation = lifecycle.current.generation;
+    setEvidenceLoading(evidenceId);
+    setEvidenceErrors((current) => ({ ...current, [evidenceId]: '' }));
+    try {
+      const result = await api.getEvidenceReadUrl(evidenceId);
+      if (!isCurrent(generation)) return;
+      setEvidenceUrls((current) => ({ ...current, [evidenceId]: result.url }));
+    } catch (caught) {
+      if (!isCurrent(generation)) return;
+      setEvidenceErrors((current) => ({ ...current, [evidenceId]: onError(caught) ?? '证据暂时无法读取' }));
+    } finally {
+      if (isCurrent(generation)) setEvidenceLoading('');
+    }
+  };
+
   return <section className="pilot-owner-workspace">
     <div className="pilot-owner-heading">
       <div><p className="pilot-kicker">宠主</p><h1>宠主工作区</h1></div>
@@ -467,10 +487,21 @@ export function OwnerPilotWorkspace({ api, onError }: OwnerPilotWorkspaceProps) 
                 <li key={item}>{value === true ? '已完成' : value === false ? '未完成' : String(value)} · {item}</li>
               ))}</ul>
               <span>提交于 {localDateTime(order.report.submittedAt)}</span>
+              <div className="pilot-evidence-list" aria-label="履约证据">
+                {(order.evidence ?? []).map((item, index) => <div key={item.id}>
+                  <button type="button" disabled={evidenceLoading === item.id} onClick={() => void viewEvidence(item.id)}>
+                    {evidenceLoading === item.id ? '正在读取证据…' : `查看履约证据 ${index + 1}`}
+                  </button>
+                  {evidenceErrors[item.id] && <p className="pilot-error" role="alert">{evidenceErrors[item.id]}</p>}
+                  {evidenceUrls[item.id] && <img src={evidenceUrls[item.id]} alt={`订单履约证据 ${index + 1}`}/>}
+                </div>)}
+                {(order.evidence ?? []).length === 0 && <p className="pilot-error">履约证据尚未就绪，暂不能确认。</p>}
+                <p className="pilot-privacy-hint">证据链接短时有效，仅用于当前订单确认。</p>
+              </div>
             </section>}
             {order.status === 'PENDING_CONFIRMATION' && <button
               type="button" className="pilot-confirm-button"
-              disabled={confirmingId === order.id}
+              disabled={confirmingId === order.id || !(order.evidence?.length) || order.evidence.some((item) => !evidenceUrls[item.id])}
               onClick={() => void confirmOrder(order.id)}
             >{confirmingId === order.id ? '正在确认…' : '确认服务完成'}</button>}
           </article>)}

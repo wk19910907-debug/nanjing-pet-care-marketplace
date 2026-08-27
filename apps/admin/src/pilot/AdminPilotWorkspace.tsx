@@ -14,6 +14,9 @@ const SERVICE_LABELS: Record<ServiceType, string> = {
 const REVIEW_LABELS: Record<Exclude<ReviewStatus, 'PENDING'>, string> = {
   APPROVED: '批准', REJECTED: '拒绝', SUSPENDED: '暂停',
 };
+const REVIEW_STATUS_LABELS: Record<ReviewStatus, string> = {
+  PENDING: '待审核', APPROVED: '已批准', REJECTED: '已拒绝', SUSPENDED: '已暂停',
+};
 const TIMELINE = ['费用核对', '平台派单', '等待服务', '服务中', '报告确认', '已完成'] as const;
 
 function stage(order: AdminOrder): number {
@@ -153,16 +156,19 @@ export function AdminPilotWorkspace({ api, onError }: Props) {
       <section className="pilot-ops-section" aria-labelledby="admin-review-title">
         <h2 id="admin-review-title">服务人员审核</h2>
         {reviews.length === 0 ? <Empty>当前没有待审核申请。</Empty> : reviews.map((item) => <article className="pilot-ops-card" key={item.id}>
-          <div className="pilot-ops-card-head"><div><span className="pilot-status">待审核</span><h3>{item.displayName}</h3></div></div>
+          <div className="pilot-ops-card-head"><div><span className="pilot-status">{REVIEW_STATUS_LABELS[item.reviewStatus]}</span><h3>{item.displayName}</h3></div></div>
           <p>{item.serviceZone} · {item.radiusKm} 公里 · {item.serviceTypes.map((type) => SERVICE_LABELS[type]).join('、')}</p>
           <p>喂猫经验 {item.catExperienceMonths} 月 · 遛狗经验 {item.dogExperienceMonths} 月</p>
-          <button type="button" onClick={() => setConfirmation({ kind: 'review', id: item.id, label: item.displayName })}>审核{item.displayName}</button>
+          {item.reviewStatus === 'PENDING' && <button type="button" onClick={() => setConfirmation({ kind: 'review', id: item.id, label: item.displayName })}>审核{item.displayName}</button>}
+          {item.reviewStatus === 'APPROVED' && <button type="button" onClick={() => setConfirmation({ kind: 'review', id: item.id, label: item.displayName })}>暂停{item.displayName}</button>}
           {confirmation?.kind === 'review' && confirmation.id === item.id && <div className="pilot-inline-confirm" role="group" aria-label={`确认审核${item.displayName}`}>
             <strong>本次只审核：{item.displayName}</strong>
             <p>线下核验材料不会在本系统展示。</p>
-            <div>{(Object.keys(REVIEW_LABELS) as Array<Exclude<ReviewStatus, 'PENDING'>>).map((status) => <button
+            <div>{(item.reviewStatus === 'APPROVED'
+              ? ['SUSPENDED'] as const
+              : ['APPROVED', 'REJECTED'] as const).map((status) => <button
               key={status} type="button" disabled={pending === `review:${item.id}`} onClick={() => review(status)}
-            >确认{REVIEW_LABELS[status]}</button>)}</div>
+            >确认{REVIEW_LABELS[status]}{item.reviewStatus === 'APPROVED' ? item.displayName : ''}</button>)}</div>
             <button type="button" className="pilot-secondary" disabled={Boolean(pending)} onClick={() => setConfirmation(null)}>取消</button>
           </div>}
         </article>)}

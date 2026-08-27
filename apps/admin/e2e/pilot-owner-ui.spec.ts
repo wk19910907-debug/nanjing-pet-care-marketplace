@@ -43,7 +43,12 @@ test('owner creates safe resources, uses a fixed quote, and reads the shared tim
           notes: '团子进食正常，已更换饮水。', submittedAt: '2026-09-10T03:00:00.000Z',
           checklist: { fed: true },
         },
+        evidence: [{ id: 'evidence-owner-1' }],
       }] });
+    } else if (path === '/api/v1/evidence/evidence-owner-1/read-url' && method === 'GET') {
+      await route.fulfill({ status: 200, json: { url: '/api/v1/pilot/local-evidence?token=signed', expiresInSeconds: 300 } });
+    } else if (path === '/api/v1/pilot/local-evidence' && method === 'GET') {
+      await route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from([137, 80, 78, 71]) });
     } else if (path === '/api/v1/quotes' && method === 'POST') {
       await route.fulfill({ status: 200, json: {
         baseFen: 3200, extraPetFen: 0, durationFen: 700, distanceFen: 0,
@@ -58,7 +63,7 @@ test('owner creates safe resources, uses a fixed quote, and reads the shared tim
       } });
     } else if (path.endsWith('/confirm') && method === 'POST') {
       confirmedOrder = path.split('/').at(-2) ?? '';
-      await route.fulfill({ status: 200, json: { id: 'settlement-1' } });
+      await route.fulfill({ status: 200, json: { orderId: confirmedOrder, status: 'COMPLETED', confirmedAt: '2026-09-10T03:05:00.000Z' } });
     } else {
       await route.fulfill({ status: 404, json: { code: 'NOT_FOUND' } });
     }
@@ -87,6 +92,8 @@ test('owner creates safe resources, uses a fixed quote, and reads the shared tim
   });
   expect(orderRequest).not.toHaveProperty('totalFen');
   await expect(page.getByText('团子进食正常，已更换饮水。')).toBeVisible();
+  await page.getByRole('button', { name: '查看履约证据 1' }).click();
+  await expect(page.getByRole('img', { name: '订单履约证据 1' })).toBeVisible();
   await page.getByRole('button', { name: '确认服务完成' }).click();
   expect(confirmedOrder).toBe('55555555-5555-4555-8555-555555555555');
 

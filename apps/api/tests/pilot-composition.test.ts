@@ -262,6 +262,20 @@ describe('pilot application composition', () => {
         latitude: 32.067, longitude: 118.769, detail: '测试地址', accessInstructions: '',
       },
     });
+    const arbitraryCoordinates = await application.app.inject({
+      method: 'POST', url: '/api/v1/addresses', headers: { cookie: ownerCookie },
+      payload: {
+        city: '南京市', district: '建邺区', serviceZone: '建邺区',
+        latitude: 32.0031, longitude: 118.732, detail: '测试地址', accessInstructions: '',
+      },
+    });
+    const doorSecret = await application.app.inject({
+      method: 'POST', url: '/api/v1/addresses', headers: { cookie: ownerCookie },
+      payload: {
+        city: '南京市', district: '建邺区', serviceZone: '建邺区',
+        latitude: 32.003, longitude: 118.732, detail: '测试地址', accessInstructions: '门锁密码123456',
+      },
+    });
     const startsAt = '2026-09-15T08:00:00.000+08:00';
     const catQuote = await application.app.inject({
       method: 'POST', url: '/api/v1/quotes', headers: { cookie: ownerCookie },
@@ -304,6 +318,8 @@ describe('pilot application composition', () => {
     expect(unsupportedDistrict.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
     expect(mismatchedAllowedDistrict.statusCode).toBe(400);
     expect(mismatchedAllowedDistrict.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(arbitraryCoordinates.statusCode).toBe(400);
+    expect(doorSecret.statusCode).toBe(400);
     expect(await application.prisma.serviceAddress.count()).toBe(addressCountBeforeInvalidRequests);
     expect(catQuote.statusCode).toBe(200);
     expect(catQuote.json()).toMatchObject({ totalFen: 3200 });

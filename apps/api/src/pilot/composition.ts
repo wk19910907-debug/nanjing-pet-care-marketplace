@@ -29,6 +29,7 @@ import { PetService } from '../pets/pet-service.js';
 import { registerLocalUploadRoutes } from './local-upload-routes.js';
 import { ManualFeeService } from './manual-fee-service.js';
 import { PilotReadModel } from './pilot-read-model.js';
+import { assertPilotLocation } from './pilot-locations.js';
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const READ_URL_TTL_SECONDS = 300;
@@ -132,7 +133,7 @@ export async function createPilotApplication(
     );
     const orders = new OrderService(prisma, quotes, gateway, audit);
     const payments = new PaymentService(prisma, gateway, audit);
-    const providers = new ProviderService(prisma, audit);
+    const providers = new ProviderService(prisma, audit, { assertSupported: assertPilotLocation });
     const dispatch = new DispatchService(
       prisma,
       audit,
@@ -158,10 +159,14 @@ export async function createPilotApplication(
       auth: onboardedAuth,
       pets: new PetService(prisma, fieldCrypto),
       addresses: new AddressService(prisma, fieldCrypto, audit, {
-        assertSupported: ({ district, serviceZone }) => {
-          if (!PILOT_DISTRICTS.has(district) || serviceZone !== district) {
+        assertSupported: (input) => {
+          if (input.city !== '南京市'
+            || !PILOT_DISTRICTS.has(input.district)
+            || input.serviceZone !== input.district
+            || input.accessInstructions !== '') {
             throw new Error('VALIDATION_ERROR');
           }
+          assertPilotLocation(input);
         },
       }),
       quotes,

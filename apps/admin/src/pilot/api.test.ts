@@ -12,6 +12,27 @@ describe('pilot API transport', () => {
     vi.unstubAllGlobals();
   });
 
+  it('validates safe owner confirmation and evidence-read responses', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ orderId: 'order-1', status: 'COMPLETED', confirmedAt: '2026-08-28T00:00:00.000Z' }))
+      .mockResolvedValueOnce(jsonResponse({ url: '/api/v1/pilot/local-evidence?token=signed', expiresInSeconds: 300 }));
+    const api = createPilotApi(fetcher);
+    await expect(api.confirmOrder('order-1')).resolves.toEqual({
+      orderId: 'order-1', status: 'COMPLETED', confirmedAt: '2026-08-28T00:00:00.000Z',
+    });
+    await expect(api.getEvidenceReadUrl('evidence-1')).resolves.toEqual({
+      url: '/api/v1/pilot/local-evidence?token=signed', expiresInSeconds: 300,
+    });
+  });
+
+  it('rejects owner confirmation responses containing settlement internals', async () => {
+    const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      orderId: 'order-1', status: 'COMPLETED', confirmedAt: '2026-08-28T00:00:00.000Z',
+      providerId: 'must-not-cross', commissionFen: 100,
+    })));
+    await expect(api.confirmOrder('order-1')).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+  });
+
   it('uses same-origin cookies without a body content type or browser storage', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
       userId: 'admin-1',

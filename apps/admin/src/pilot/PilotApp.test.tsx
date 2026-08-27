@@ -33,6 +33,7 @@ function fakeApi(overrides: Partial<PilotApi> = {}): PilotApi {
     createOrder: vi.fn(),
     listOrders: vi.fn().mockResolvedValue([]),
     confirmOrder: vi.fn(),
+    getEvidenceReadUrl: vi.fn(),
     listProviderReviewQueue: vi.fn().mockResolvedValue([]),
     listAdminOrders: vi.fn().mockResolvedValue([]), listProviderOrders: vi.fn().mockResolvedValue([]),
     reviewProvider: vi.fn(), confirmManualFee: vi.fn(), startDispatch: vi.fn(),

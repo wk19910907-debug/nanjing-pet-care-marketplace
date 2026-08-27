@@ -94,6 +94,8 @@ export type OwnerOrderCreated = {
   totalFen: number;
   currency: 'CNY';
 };
+export type OwnerConfirmation = { orderId: string; status: 'COMPLETED'; confirmedAt: string };
+export type EvidenceRead = { url: string; expiresInSeconds: number };
 
 export type PilotChecklist = Record<string, string | number | boolean | null>;
 export type ReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
@@ -117,6 +119,7 @@ export type OwnerOrder = {
     submittedAt: string;
     checklist: PilotChecklist;
   };
+  evidence?: Array<{ id: string }>;
 };
 
 export type AdminOrder = OwnerOrder & { ownerDisplayName?: string };

@@ -33,6 +33,22 @@ function fakeApi(overrides: Partial<PilotApi> = {}): PilotApi {
 describe('AdminPilotWorkspace', () => {
   afterEach(cleanup);
 
+  it('shows approved and suspended roster rows and can suspend an approved provider', async () => {
+    const reviewProvider = vi.fn().mockResolvedValue(undefined);
+    const api = fakeApi({
+      reviewProvider,
+      listProviderReviewQueue: vi.fn().mockResolvedValue([
+        { id: 'approved-1', displayName: '已批准小周', reviewStatus: 'APPROVED', serviceTypes: ['CAT_FEEDING'], catExperienceMonths: 12, dogExperienceMonths: 0, serviceZone: '秦淮区', radiusKm: 5, createdAt: '2026-08-28T00:00:00.000Z' },
+        { id: 'suspended-1', displayName: '已暂停小吴', reviewStatus: 'SUSPENDED', serviceTypes: ['DOG_WALKING'], catExperienceMonths: 0, dogExperienceMonths: 12, serviceZone: '玄武区', radiusKm: 5, createdAt: '2026-08-28T00:00:00.000Z' },
+      ]),
+    });
+    render(<AdminPilotWorkspace api={api} onError={() => '失败'}/>);
+    await userEvent.click(await screen.findByRole('button', { name: '暂停已批准小周' }));
+    await userEvent.click(screen.getByRole('button', { name: '确认暂停已批准小周' }));
+    expect(reviewProvider).toHaveBeenCalledWith('approved-1', 'SUSPENDED');
+    expect(screen.getByText('已暂停小吴')).toBeTruthy();
+  });
+
   it('renders separate safe queues without exact addresses or payment claims', async () => {
     render(<AdminPilotWorkspace api={fakeApi()} onError={() => 'error'}/>);
     expect(await screen.findByRole('heading', { name: '平台工作区' })).toBeTruthy();

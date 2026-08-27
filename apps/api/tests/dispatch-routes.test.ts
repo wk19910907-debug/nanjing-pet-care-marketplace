@@ -39,14 +39,30 @@ describe('dispatch routes', () => {
       method: 'POST', url: '/v1/providers/applications',
       headers: { authorization: `Bearer ${user.id}` },
       payload: {
-        serviceTypes: ['DOG_WALKING'], serviceZone: '百家湖',
-        latitude: 31.94, longitude: 118.82, radiusKm: 4,
+        serviceTypes: ['DOG_WALKING'], serviceZone: '秦淮区',
+        latitude: 32.039, longitude: 118.795, radiusKm: 5,
         catExperienceMonths: 0, dogExperienceMonths: 24,
       },
     });
     expect(application.statusCode).toBe(201);
     expect(application.json()).toEqual({ id: expect.any(String), reviewStatus: 'PENDING' });
     const profileId = application.json<{ id: string }>().id;
+
+    for (const payload of [
+      { serviceTypes: ['DOG_WALKING'], serviceZone: '百家湖', latitude: 31.94, longitude: 118.82, radiusKm: 5 },
+      { serviceTypes: ['DOG_WALKING'], serviceZone: '秦淮区', latitude: 32.04, longitude: 118.795, radiusKm: 5 },
+      { serviceTypes: ['DOG_WALKING'], serviceZone: '秦淮区', latitude: 32.039, longitude: 118.795, radiusKm: 4 },
+      { serviceTypes: ['DOG_WALKING', 'DOG_WALKING'], serviceZone: '秦淮区', latitude: 32.039, longitude: 118.795, radiusKm: 5 },
+    ]) {
+      const attacker = await prisma.user.create({ data: { role: 'PROVIDER', phoneHash: randomUUID() } });
+      const rejected = await app.inject({
+        method: 'POST', url: '/v1/providers/applications',
+        headers: { authorization: `Bearer ${attacker.id}` },
+        payload: { ...payload, catExperienceMonths: 0, dogExperienceMonths: 1 },
+      });
+      expect(rejected.statusCode).toBe(400);
+      expect(await prisma.providerProfile.findUnique({ where: { userId: attacker.id } })).toBeNull();
+    }
 
     const startsAt = new Date(Date.now() + 86_400_000);
     const availability = await app.inject({
@@ -70,8 +86,8 @@ describe('dispatch routes', () => {
 
     const owner = await prisma.user.create({ data: { role: 'OWNER', phoneHash: randomUUID() } });
     const address = await prisma.serviceAddress.create({ data: {
-      ownerId: owner.id, city: '南京市', district: '江宁区', serviceZone: '百家湖',
-      latitude: 31.94, longitude: 118.82, detailCiphertext: new Uint8Array([1]),
+      ownerId: owner.id, city: '南京市', district: '秦淮区', serviceZone: '秦淮区',
+      latitude: 32.039, longitude: 118.795, detailCiphertext: new Uint8Array([1]),
       detailNonce: new Uint8Array([1]), detailAuthTag: new Uint8Array([1]), encryptionKeyVersion: 1,
     }});
     const order = await prisma.order.create({ data: {

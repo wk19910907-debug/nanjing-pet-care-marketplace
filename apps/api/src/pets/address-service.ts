@@ -15,7 +15,7 @@ export type CreateAddressInput = {
 };
 
 export interface AddressLocationPolicy {
-  assertSupported(location: Pick<CreateAddressInput, 'district' | 'serviceZone'>): void;
+  assertSupported(location: CreateAddressInput): void;
 }
 
 function distanceKm(aLat: number, aLon: number, bLat: number, bLon: number): number {

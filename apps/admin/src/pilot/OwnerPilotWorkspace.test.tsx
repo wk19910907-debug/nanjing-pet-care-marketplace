@@ -46,7 +46,8 @@ function fakeApi(overrides: Partial<PilotApi> = {}): PilotApi {
       id: pendingOrder.id, status: 'PENDING_PAYMENT', totalFen: 3900, currency: 'CNY',
     }),
     listOrders: vi.fn().mockResolvedValue([pendingOrder]),
-    confirmOrder: vi.fn().mockResolvedValue({ id: pendingOrder.id, status: 'COMPLETED' }),
+    confirmOrder: vi.fn().mockResolvedValue({ orderId: pendingOrder.id, status: 'COMPLETED', confirmedAt: '2026-09-10T03:05:00.000Z' }),
+    getEvidenceReadUrl: vi.fn().mockResolvedValue({ url: '/api/v1/pilot/local-evidence?token=test', expiresInSeconds: 300 }),
     listProviderReviewQueue: vi.fn().mockResolvedValue([]),
     listAdminOrders: vi.fn().mockResolvedValue([]), listProviderOrders: vi.fn().mockResolvedValue([]),
     reviewProvider: vi.fn(), confirmManualFee: vi.fn(), startDispatch: vi.fn(),
@@ -256,10 +257,11 @@ describe('OwnerPilotWorkspace', () => {
     const confirm = deferred<Awaited<ReturnType<PilotApi['confirmOrder']>>>();
     const confirmOnError = vi.fn().mockReturnValue(null);
     const confirmView = render(<OwnerPilotWorkspace api={fakeApi({
-      listOrders: vi.fn().mockResolvedValue([{ ...pendingOrder, status: 'PENDING_CONFIRMATION' }]),
+      listOrders: vi.fn().mockResolvedValue([{ ...pendingOrder, status: 'PENDING_CONFIRMATION', evidence: [{ id: 'stale-evidence' }], report: { notes: '', submittedAt: '2026-09-10T03:00:00.000Z', checklist: {} } }]),
       confirmOrder: vi.fn().mockImplementation(() => confirm.promise),
     })} onError={confirmOnError}/>);
-    await user.click(await screen.findByRole('button', { name: '确认服务完成' }));
+    await user.click(await screen.findByRole('button', { name: '查看履约证据 1' }));
+    await user.click(screen.getByRole('button', { name: '确认服务完成' }));
     confirmView.unmount();
     await act(async () => confirm.reject(new PilotApiError(401, 'UNAUTHENTICATED')));
     expect(confirmOnError).not.toHaveBeenCalled();
@@ -276,6 +278,7 @@ describe('OwnerPilotWorkspace', () => {
         submittedAt: '2026-09-10T03:00:00.000Z',
         checklist: { fed: true, freshWater: true },
       },
+      evidence: [{ id: 'report-evidence' }],
     };
     const listOrders = vi.fn().mockResolvedValue([pendingOrder, reportOrder]);
     const api = fakeApi({ listOrders });
@@ -289,6 +292,7 @@ describe('OwnerPilotWorkspace', () => {
     expect(screen.getByText('已完成 · freshWater')).toBeTruthy();
     expect(screen.getAllByRole('button', { name: '确认服务完成' })).toHaveLength(1);
 
+    await user.click(screen.getByRole('button', { name: '查看履约证据 1' }));
     await user.click(screen.getByRole('button', { name: '确认服务完成' }));
 
     expect(api.confirmOrder).toHaveBeenCalledWith(reportOrder.id);
@@ -338,5 +342,25 @@ describe('OwnerPilotWorkspace', () => {
     const cancelled = screen.getByText('订单已取消').closest('article')!;
     expect(within(cancelled).queryByRole('list', { name: '订单进度' })).toBeNull();
     expect(within(cancelled).getByText('订单已取消，后续进度不再继续。')).toBeTruthy();
+  });
+
+  it('requires the owner to open mandatory evidence before confirming', async () => {
+    const order = {
+      ...pendingOrder,
+      status: 'PENDING_CONFIRMATION' as const,
+      report: { notes: '正常', submittedAt: '2026-09-10T03:00:00.000Z', checklist: { petCountConfirmed: true } },
+      evidence: [{ id: 'evidence-owner-1' }],
+    };
+    const api = fakeApi({
+      listOrders: vi.fn().mockResolvedValue([order]),
+      getEvidenceReadUrl: vi.fn().mockResolvedValue({ url: '/api/v1/pilot/local-evidence?token=signed', expiresInSeconds: 300 }),
+    });
+    render(<OwnerPilotWorkspace api={api} onError={() => '读取失败'}/>);
+    const confirm = await screen.findByRole('button', { name: '确认服务完成' });
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.click(screen.getByRole('button', { name: '查看履约证据 1' }));
+    expect(api.getEvidenceReadUrl).toHaveBeenCalledWith('evidence-owner-1');
+    expect((await screen.findByRole('img', { name: '订单履约证据 1' }) as HTMLImageElement).src).toContain('/api/v1/pilot/local-evidence?token=signed');
+    expect((confirm as HTMLButtonElement).disabled).toBe(false);
   });
 });

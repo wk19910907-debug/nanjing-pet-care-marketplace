@@ -201,7 +201,7 @@ export class PilotReadModel {
   public async reviewQueue(actor: ActorContext) {
     authorizeRole(actor, ['ADMIN']);
     const profiles = await this.prisma.providerProfile.findMany({
-      where: { reviewStatus: 'PENDING' },
+      where: { reviewStatus: { in: ['PENDING', 'APPROVED', 'SUSPENDED'] } },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: 100,
       select: {
@@ -316,7 +316,7 @@ export class PilotReadModel {
           expiresAt: invitation.expiresAt.toISOString(),
         },
       } : {}),
-      ...(isAssignedProvider ? {
+      ...(isAssignedProvider || isOwner ? {
         evidence: record.report?.media.map((item) => ({ id: item.id })) ?? [],
       } : {}),
       ...(report ? { report } : {}),

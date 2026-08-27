@@ -293,7 +293,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await adminPage.getByRole('button', { name: '刷新运营数据' }).click();
     await adminPage.getByRole('button', { name: '审核建邺小周' }).click();
     await adminPage.getByRole('button', { name: '确认批准' }).click();
-    await expect(adminPage.getByText('当前没有待审核申请。')).toBeVisible();
+    await expect(adminPage.getByRole('button', { name: '暂停建邺小周' })).toBeVisible();
     await assertMobilePrivacy(adminPage);
 
     await ownerPage.getByLabel('宠物昵称').fill('团子');
@@ -423,14 +423,15 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await assertMobilePrivacy(providerPage);
     await assertDesktopPrivacy(providerPage, '服务人员工作区');
 
-    const providerOrdersAfter = await browserFetch(providerPage, '/api/v1/pilot/orders');
-    const providerOrder = (providerOrdersAfter.body as Array<{ id: string; evidence?: Array<{ id: string }> }>)
-      .find((candidate) => candidate.id === orderId);
-    const evidenceId = providerOrder?.evidence?.[0]?.id;
-    expect(evidenceId).toBeTruthy();
-
     await ownerPage.getByRole('button', { name: '刷新全部' }).click();
     await expect(ownerPage.getByText('团子进食和饮水正常，猫砂已清理。')).toBeVisible();
+    const ownerOrdersWithEvidence = await browserFetch(ownerPage, '/api/v1/pilot/orders');
+    const ownerOrderWithEvidence = (ownerOrdersWithEvidence.body as Array<{ id: string; evidence?: Array<{ id: string }> }>)
+      .find((candidate) => candidate.id === orderId);
+    const evidenceId = ownerOrderWithEvidence?.evidence?.[0]?.id;
+    expect(evidenceId).toBeTruthy();
+    await ownerPage.getByRole('button', { name: '查看履约证据 1' }).click();
+    await expect(ownerPage.getByRole('img', { name: '订单履约证据 1' })).toBeVisible();
     const ownerEvidence = await browserFetch(ownerPage, `/api/v1/evidence/${evidenceId}/read-url`);
     const providerEvidence = await browserFetch(providerPage, `/api/v1/evidence/${evidenceId}/read-url`);
     const adminEvidence = await browserFetch(adminPage, `/api/v1/evidence/${evidenceId}/read-url`);
@@ -446,7 +447,15 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     expect(Buffer.from(evidenceBytes.bytes)).toEqual(validPng);
     expect((await fetch(`${baseUrl}/api/v1/evidence/${evidenceId}/read-url`)).status).toBe(401);
 
+    const confirmationResponsePromise = ownerPage.waitForResponse((response) => (
+      new URL(response.url()).pathname === `/api/v1/orders/${orderId}/confirm`
+      && response.request().method() === 'POST'
+    ));
     await ownerPage.getByRole('button', { name: '确认服务完成' }).click();
+    const confirmationResponse = await confirmationResponsePromise;
+    const confirmationBody = await confirmationResponse.json();
+    expect(confirmationBody).toEqual({ orderId, status: 'COMPLETED', confirmedAt: expect.any(String) });
+    expect(JSON.stringify(confirmationBody)).not.toMatch(/providerId|providerFen|commission/);
     await expect(ownerPage.getByText('服务已完成')).toBeVisible();
     expect(await contextStatus(providerContext, `/api/v1/orders/${orderId}/address/assigned`)).toBe(403);
     await assertDesktopPrivacy(ownerPage, '宠主工作区');
@@ -480,6 +489,10 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
         invitation: expect.objectContaining({ id: holdingInvitation.id, status: 'PENDING' }),
       }),
     ]));
+    await adminPage.getByRole('button', { name: '刷新运营数据' }).click();
+    await adminPage.getByRole('button', { name: '暂停建邺小周' }).click();
+    await adminPage.getByRole('button', { name: '确认暂停建邺小周' }).click();
+    await expect(adminPage.getByText('已暂停', { exact: true })).toBeVisible();
 
     await withinNegativeWindow(ownerPage, '/api/v1/pilot/session', [401], () => (
       logoutAndAssertRevoked(ownerContext, ownerPage)
@@ -531,7 +544,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await adminPage.getByRole('button', { name: '刷新运营数据' }).click();
     await adminPage.getByRole('button', { name: '审核建邺小吴' }).click();
     await adminPage.getByRole('button', { name: '确认批准' }).click();
-    await expect(adminPage.getByText('当前没有待审核申请。')).toBeVisible();
+    await expect(adminPage.getByRole('button', { name: '暂停建邺小吴' })).toBeVisible();
     await assertMobilePrivacy(adminPage);
 
     await ownerPage.getByLabel('宠物昵称').fill('布丁');
@@ -565,7 +578,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
       method: 'POST',
     });
     expect(secondDispatch.status).toBe(200);
-    expect(secondDispatch.body).toEqual(expect.arrayContaining([expect.objectContaining({ status: 'PENDING' })]));
+    expect(secondDispatch.body).toEqual([expect.objectContaining({ status: 'PENDING' })]);
     await assertMobilePrivacy(adminPage);
 
     await providerPage.getByRole('button', { name: '刷新我的任务' }).click();

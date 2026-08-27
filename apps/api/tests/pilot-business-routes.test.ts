@@ -264,8 +264,10 @@ describe('pilot manual fee and role-filtered business routes', () => {
 
     const ownerView = await read.order(ownerA.actor, ownerA.order.id);
     const adminView = await read.order(admin, ownerA.order.id);
+    const evidenceOwnerView = await read.order(ownerB.actor, ownerB.order.id);
     const assignedProviderView = await read.order(providerB.actor, ownerB.order.id);
     expect(assignedProviderView).toMatchObject({ evidence: [{ id: attachedEvidence.id }] });
+    expect(evidenceOwnerView).toMatchObject({ evidence: [{ id: attachedEvidence.id }] });
     expect(JSON.stringify(assignedProviderView)).not.toContain('must-not-cross');
     expect(JSON.stringify(assignedProviderView)).not.toContain('objectKey');
     expect(ownerView).toMatchObject({ notes: '只喂指定猫粮' });
@@ -282,6 +284,22 @@ describe('pilot manual fee and role-filtered business routes', () => {
     ]) {
       expect(allViews).not.toContain(forbidden);
     }
+  });
+
+  it('lists pending, approved, and suspended providers as safe admin operations rows', async () => {
+    const pending = await createProvider('待审核服务者', '建邺区');
+    const approved = await createProvider('已批准服务者', '鼓楼区');
+    const suspended = await createProvider('已暂停服务者', '玄武区');
+    await prisma.providerProfile.update({ where: { id: approved.profile.id }, data: { reviewStatus: 'APPROVED' } });
+    await prisma.providerProfile.update({ where: { id: suspended.profile.id }, data: { reviewStatus: 'SUSPENDED' } });
+    const { actor: admin } = await createUser('ADMIN', '运营名册');
+    const rows = await new PilotReadModel(prisma).reviewQueue(admin);
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: pending.profile.id, reviewStatus: 'PENDING' }),
+      expect.objectContaining({ id: approved.profile.id, reviewStatus: 'APPROVED' }),
+      expect.objectContaining({ id: suspended.profile.id, reviewStatus: 'SUSPENDED' }),
+    ]));
+    expect(JSON.stringify(rows)).not.toMatch(/userId|latitude|longitude|phone|wechat|bank/);
   });
 
   it('serializes concurrent manual confirmations across independent database clients', async () => {

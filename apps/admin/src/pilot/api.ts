@@ -11,6 +11,7 @@ import type {
   OwnerAddress,
   OwnerOrder,
   OwnerOrderCreated,
+  OwnerConfirmation,
   OwnerPet,
   OrderStatus,
   PilotChecklist,
@@ -22,6 +23,7 @@ import type {
   AttachEvidenceInput,
   EvidenceMedia,
   EvidenceUpload,
+  EvidenceRead,
   ProviderApplicationInput,
   ProviderAvailabilityInput,
   ProviderOrder,
@@ -88,7 +90,8 @@ export interface PilotApi {
   getQuote(input: QuoteRequest): Promise<QuoteBreakdown>;
   createOrder(input: CreateOwnerOrder, idempotencyKey: string): Promise<OwnerOrderCreated>;
   listOrders(): Promise<OwnerOrder[]>;
-  confirmOrder(orderId: string): Promise<void>;
+  confirmOrder(orderId: string): Promise<OwnerConfirmation>;
+  getEvidenceReadUrl(evidenceId: string): Promise<EvidenceRead>;
   listAdminOrders(): Promise<AdminOrder[]>;
   listProviderOrders(): Promise<ProviderOrder[]>;
   listProviderReviewQueue(): Promise<ProviderReviewQueueItem[]>;
@@ -365,6 +368,7 @@ function parseOrder(value: unknown): OwnerOrder {
   const location = parsePilotLocation(record);
   const reportValue = record.report;
   let report: OwnerOrder['report'];
+  let evidence: Array<{ id: string }> | undefined;
   if (reportValue !== undefined) {
     const reportRecord = asRecord(reportValue);
     const notes = reportRecord.notes;
@@ -374,6 +378,10 @@ function parseOrder(value: unknown): OwnerOrder {
       submittedAt: asDate(reportRecord, 'submittedAt'),
       checklist: parseChecklist(reportRecord.checklist),
     };
+  }
+  if (record.evidence !== undefined) {
+    if (!Array.isArray(record.evidence) || record.evidence.length > 12) invalidResponse();
+    evidence = record.evidence.map((item) => ({ id: asString(asRecord(item), 'id', 128) }));
   }
   return {
     id: asString(record, 'id', 128),
@@ -393,6 +401,7 @@ function parseOrder(value: unknown): OwnerOrder {
           : invalidResponse() }
       : {}),
     ...(report ? { report } : {}),
+    ...(evidence ? { evidence } : {}),
   };
 }
 
@@ -534,6 +543,26 @@ function parseEvidenceUpload(value: unknown): EvidenceUpload {
   };
 }
 
+function parseEvidenceRead(value: unknown): EvidenceRead {
+  const record = asRecord(value);
+  const url = asString(record, 'url', 2048);
+  assertLocalUploadUrl(url);
+  const expiresInSeconds = asInteger(record, 'expiresInSeconds', 3600);
+  if (expiresInSeconds < 1) invalidResponse();
+  return { url, expiresInSeconds };
+}
+
+function parseOwnerConfirmation(value: unknown, orderId: string): OwnerConfirmation {
+  const record = asRecord(value);
+  const expectedKeys = ['confirmedAt', 'orderId', 'status'];
+  if (Object.keys(record).sort().join(',') !== expectedKeys.join(',')) invalidResponse();
+  if (asString(record, 'orderId', 128) !== orderId) invalidResponse();
+  return {
+    orderId, status: asEnum(record, 'status', ['COMPLETED'] as const),
+    confirmedAt: asDate(record, 'confirmedAt'),
+  };
+}
+
 function parseCheckIn(value: unknown) {
   const record = asRecord(value);
   return {
@@ -660,9 +689,12 @@ export function createPilotApi(fetcher: Fetcher = fetch): PilotApi {
       [200, 201],
     )),
     listOrders: async () => parseOrders(await request('/v1/pilot/orders')),
-    confirmOrder: async (orderId) => {
-      await request(`/v1/orders/${encodeURIComponent(orderId)}/confirm`, { method: 'POST' });
-    },
+    confirmOrder: async (orderId) => parseOwnerConfirmation(await request(
+      `/v1/orders/${encodeURIComponent(orderId)}/confirm`, { method: 'POST' },
+    ), orderId),
+    getEvidenceReadUrl: async (evidenceId) => parseEvidenceRead(await request(
+      `/v1/evidence/${encodeURIComponent(evidenceId)}/read-url`,
+    )),
     listAdminOrders: async () => parseAdminOrders(await request('/v1/pilot/orders')),
     listProviderOrders: async () => parseProviderOrders(await request('/v1/pilot/orders')),
     listProviderReviewQueue: async () => parseProviderReviews(

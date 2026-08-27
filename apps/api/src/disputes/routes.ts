@@ -14,8 +14,18 @@ export type DisputeRoutesDependencies = {
 
 export async function registerDisputeRoutes(app: FastifyInstance, deps: DisputeRoutesDependencies) {
   const actor = (request: FastifyRequest) => deps.auth.authenticate(request.headers.authorization);
-  app.post<{ Params: { orderId: string } }>('/v1/orders/:orderId/confirm', async (request) =>
-    deps.settlements.confirmOrder(await actor(request), request.params.orderId, new Date()));
+  app.post<{ Params: { orderId: string } }>('/v1/orders/:orderId/confirm', async (request) => {
+    const confirmedAt = new Date();
+    const settlement = await deps.settlements.confirmOrder(
+      await actor(request), request.params.orderId, confirmedAt,
+    );
+    if (!settlement) throw new Error('CONFIRMATION_NOT_ALLOWED');
+    return {
+      orderId: settlement.orderId,
+      status: 'COMPLETED' as const,
+      confirmedAt: settlement.availableAt.toISOString(),
+    };
+  });
   app.post<{ Params: { orderId: string } }>('/v1/orders/:orderId/cancel', async (request) => {
     const input = z.object({ reason: z.string().trim().min(1).max(500) }).parse(request.body);
     return deps.refunds.requestCancellation(await actor(request), request.params.orderId, input.reason);
