@@ -261,6 +261,7 @@ describe('OwnerPilotWorkspace', () => {
       confirmOrder: vi.fn().mockImplementation(() => confirm.promise),
     })} onError={confirmOnError}/>);
     await user.click(await screen.findByRole('button', { name: '查看履约证据 1' }));
+    fireEvent.load(await screen.findByRole('img', { name: '订单履约证据 1' }));
     await user.click(screen.getByRole('button', { name: '确认服务完成' }));
     confirmView.unmount();
     await act(async () => confirm.reject(new PilotApiError(401, 'UNAUTHENTICATED')));
@@ -293,6 +294,7 @@ describe('OwnerPilotWorkspace', () => {
     expect(screen.getAllByRole('button', { name: '确认服务完成' })).toHaveLength(1);
 
     await user.click(screen.getByRole('button', { name: '查看履约证据 1' }));
+    fireEvent.load(await screen.findByRole('img', { name: '订单履约证据 1' }));
     await user.click(screen.getByRole('button', { name: '确认服务完成' }));
 
     expect(api.confirmOrder).toHaveBeenCalledWith(reportOrder.id);
@@ -360,7 +362,31 @@ describe('OwnerPilotWorkspace', () => {
     expect((confirm as HTMLButtonElement).disabled).toBe(true);
     await userEvent.click(screen.getByRole('button', { name: '查看履约证据 1' }));
     expect(api.getEvidenceReadUrl).toHaveBeenCalledWith('evidence-owner-1');
-    expect((await screen.findByRole('img', { name: '订单履约证据 1' }) as HTMLImageElement).src).toContain('/api/v1/pilot/local-evidence?token=signed');
+    const image = await screen.findByRole('img', { name: '订单履约证据 1' }) as HTMLImageElement;
+    expect(image.src).toContain('/api/v1/pilot/local-evidence?token=signed');
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.load(image);
     expect((confirm as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('keeps confirmation blocked when an evidence image fails to load', async () => {
+    const order = {
+      ...pendingOrder,
+      status: 'PENDING_CONFIRMATION' as const,
+      report: { notes: '正常', submittedAt: '2026-09-10T03:00:00.000Z', checklist: { petCountConfirmed: true } },
+      evidence: [{ id: 'evidence-owner-failed' }],
+    };
+    const api = fakeApi({
+      listOrders: vi.fn().mockResolvedValue([order]),
+      getEvidenceReadUrl: vi.fn().mockResolvedValue({ url: '/api/v1/pilot/local-evidence?token=broken', expiresInSeconds: 300 }),
+    });
+    render(<OwnerPilotWorkspace api={api} onError={() => '读取失败'}/>);
+
+    const confirm = await screen.findByRole('button', { name: '确认服务完成' });
+    await userEvent.click(screen.getByRole('button', { name: '查看履约证据 1' }));
+    fireEvent.error(await screen.findByRole('img', { name: '订单履约证据 1' }));
+
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('alert').textContent).toContain('证据图片加载失败');
   });
 });

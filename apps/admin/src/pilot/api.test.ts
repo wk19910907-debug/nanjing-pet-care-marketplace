@@ -305,7 +305,9 @@ describe('pilot API transport', () => {
         exactAddress: 'must-not-cross', accessInstructions: 'must-not-cross', ownerId: 'other-owner',
         report: {
           notes: '状态正常', submittedAt: '2026-09-10T03:00:00.000Z',
-          checklist: { fed: true }, evidence: ['must-not-cross'],
+          checklist: {
+            petCountConfirmed: true, foodRefilled: true, waterRefilled: true, litterCleaned: true,
+          }, evidence: ['must-not-cross'],
         },
       }]));
     const api = createPilotApi(fetcher);
@@ -334,7 +336,12 @@ describe('pilot API transport', () => {
       status: 'PENDING_CONFIRMATION', startsAt: '2026-09-10T02:00:00.000Z',
       durationMinutes: 30, totalFen: 3900, currency: 'CNY', city: '南京市',
       district: '建邺区', serviceZone: '建邺区', notes: '轻声进门',
-      report: { notes: '状态正常', submittedAt: '2026-09-10T03:00:00.000Z', checklist: { fed: true } },
+      report: {
+        notes: '状态正常', submittedAt: '2026-09-10T03:00:00.000Z',
+        checklist: {
+          petCountConfirmed: true, foodRefilled: true, waterRefilled: true, litterCleaned: true,
+        },
+      },
     });
     expect(JSON.stringify({ addressRecords, orderRecords })).not.toMatch(/exact-secret|door-secret|must-not-cross/);
   });
@@ -356,6 +363,22 @@ describe('pilot API transport', () => {
       startsAt: '2026-09-10T02:00:00.000Z', durationMinutes: 30, notes: '',
     }, 'owner-order-retry-key')).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
     await expect(malformedApi.listOrders()).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+  });
+
+  it.each([
+    ['CAT_FEEDING', { fed: true }],
+    ['CAT_FEEDING', { petCountConfirmed: true, foodRefilled: true, waterRefilled: true }],
+    ['DOG_WALKING', { leashSecured: true, walkDurationMinutes: 0 }],
+  ] as const)('rejects a %s report whose checklist does not match the service schema', async (serviceType, checklist) => {
+    const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse([{
+      id: '44444444-4444-4444-8444-444444444444', serviceType,
+      status: 'PENDING_CONFIRMATION', startsAt: '2026-09-10T02:00:00.000Z',
+      durationMinutes: 30, totalFen: 3900, currency: 'CNY', city: '南京市',
+      district: '建邺区', serviceZone: '建邺区',
+      report: { notes: '状态正常', submittedAt: '2026-09-10T03:00:00.000Z', checklist },
+    }])));
+
+    await expect(api.listOrders()).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
   });
 
   it.each([

@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test';
 
+const validPng = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64',
+);
+
 test('owner creates safe resources, uses a fixed quote, and reads the shared timeline on mobile', async ({ page }) => {
   const pet = {
     id: '11111111-1111-4111-8111-111111111111', name: '团子', species: 'CAT', sensitiveNotes: '',
@@ -41,14 +46,16 @@ test('owner creates safe resources, uses a fixed quote, and reads the shared tim
         providerDisplayName: '秦淮小周',
         report: {
           notes: '团子进食正常，已更换饮水。', submittedAt: '2026-09-10T03:00:00.000Z',
-          checklist: { fed: true },
+          checklist: {
+            petCountConfirmed: true, foodRefilled: true, waterRefilled: true, litterCleaned: true,
+          },
         },
         evidence: [{ id: 'evidence-owner-1' }],
       }] });
     } else if (path === '/api/v1/evidence/evidence-owner-1/read-url' && method === 'GET') {
       await route.fulfill({ status: 200, json: { url: '/api/v1/pilot/local-evidence?token=signed', expiresInSeconds: 300 } });
     } else if (path === '/api/v1/pilot/local-evidence' && method === 'GET') {
-      await route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from([137, 80, 78, 71]) });
+      await route.fulfill({ status: 200, contentType: 'image/png', body: validPng });
     } else if (path === '/api/v1/quotes' && method === 'POST') {
       await route.fulfill({ status: 200, json: {
         baseFen: 3200, extraPetFen: 0, durationFen: 700, distanceFen: 0,
@@ -93,7 +100,12 @@ test('owner creates safe resources, uses a fixed quote, and reads the shared tim
   expect(orderRequest).not.toHaveProperty('totalFen');
   await expect(page.getByText('团子进食正常，已更换饮水。')).toBeVisible();
   await page.getByRole('button', { name: '查看履约证据 1' }).click();
-  await expect(page.getByRole('img', { name: '订单履约证据 1' })).toBeVisible();
+  const evidenceImage = page.getByRole('img', { name: '订单履约证据 1' });
+  await expect(evidenceImage).toBeVisible();
+  await expect.poll(() => evidenceImage.evaluate((image) => (
+    (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0
+  ))).toBe(true);
+  await expect(page.getByRole('button', { name: '确认服务完成' })).toBeEnabled();
   await page.getByRole('button', { name: '确认服务完成' }).click();
   expect(confirmedOrder).toBe('55555555-5555-4555-8555-555555555555');
 
