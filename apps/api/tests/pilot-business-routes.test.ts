@@ -514,6 +514,7 @@ describe('pilot manual fee and role-filtered business routes', () => {
       },
       revoke: async () => { throw new Error('UNAUTHENTICATED'); },
       createInvite,
+      createLocalSession: async () => { throw new Error('LOCAL_SESSION_UNAVAILABLE'); },
     };
     const app = createApp({
       auth,

@@ -16,8 +16,8 @@ const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 type PilotRouteSessions = Pick<
   PilotSessionService,
-  'redeem' | 'authenticate' | 'setDisplayName' | 'revoke' | 'createInvite'
-> & Partial<Pick<PilotSessionService, 'createLocalSession'>>;
+  'redeem' | 'authenticate' | 'setDisplayName' | 'revoke' | 'createInvite' | 'createLocalSession'
+>;
 
 export type PilotAuthRoutesDependencies = {
   config: AppConfig;
@@ -66,14 +66,12 @@ export async function registerPilotAuthRoutes(
   });
 
   if (dependencies.config.nodeEnv === 'development' || dependencies.config.nodeEnv === 'test') {
-    const createLocalSession = dependencies.sessions.createLocalSession;
     app.post('/api/v1/pilot/local-sessions', async (request, reply) => {
       if (!LOOPBACK_ADDRESSES.has(request.ip)) {
         return reply.code(403).send({ code: 'FORBIDDEN' });
       }
       const { role } = LocalSessionSchema.parse(request.body);
-      if (!createLocalSession) throw new Error('LOCAL_SESSION_UNAVAILABLE');
-      const session = await createLocalSession(role);
+      const session = await dependencies.sessions.createLocalSession(role);
       writeSessionCookie(reply, secureCookies, session);
       return reply.code(201).send({ expiresAt: session.expiresAt.toISOString() });
     });

@@ -89,8 +89,12 @@ function createPilotTestApp(
     async createInvite() {
       throw new Error('FORBIDDEN');
     },
-    async createLocalSession(role: 'OWNER' | 'PROVIDER' | 'ADMIN') {
-      localSessionRoles.push(role);
+    localSessionRoles,
+    async createLocalSession(
+      this: { localSessionRoles: Array<'OWNER' | 'PROVIDER' | 'ADMIN'> },
+      role: 'OWNER' | 'PROVIDER' | 'ADMIN',
+    ) {
+      this.localSessionRoles.push(role);
       return { token: `local-${role.toLowerCase()}-session`, expiresAt };
     },
   };
@@ -148,6 +152,55 @@ describe('pilot authentication routes', () => {
       url: '/api/v1/pilot/local-sessions',
       remoteAddress: '203.0.113.20',
       payload: { role: 'ADMIN' },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(localSessionRoles).toEqual([]);
+    await app.close();
+  });
+
+  it.each(['::1', '::ffff:127.0.0.1'])(
+    'accepts the loopback address %s for local sessions',
+    async (remoteAddress) => {
+      const { app, localSessionRoles } = createPilotTestApp('development');
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/pilot/local-sessions',
+        remoteAddress,
+        payload: { role: 'OWNER' },
+      });
+
+      expect(response.statusCode).toBe(201);
+      expect(localSessionRoles).toEqual(['OWNER']);
+      await app.close();
+    },
+  );
+
+  it('rejects a forwarded external address from a trusted loopback proxy', async () => {
+    const { app, localSessionRoles } = createPilotTestApp('development', ['127.0.0.1/32']);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/pilot/local-sessions',
+      headers: { 'x-forwarded-for': '203.0.113.20' },
+      payload: { role: 'OWNER' },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(localSessionRoles).toEqual([]);
+    await app.close();
+  });
+
+  it('does not let an untrusted peer spoof a loopback address through forwarding headers', async () => {
+    const { app, localSessionRoles } = createPilotTestApp('development', ['10.0.0.0/8']);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/pilot/local-sessions',
+      remoteAddress: '203.0.113.20',
+      headers: { 'x-forwarded-for': '127.0.0.1' },
+      payload: { role: 'OWNER' },
     });
 
     expect(response.statusCode).toBe(403);
