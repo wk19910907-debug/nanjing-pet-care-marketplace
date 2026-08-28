@@ -345,26 +345,31 @@ function parseQuote(value: unknown): QuoteBreakdown {
   };
 }
 
-function parseChecklist(value: unknown): PilotChecklist {
+function parseChecklist(value: unknown, serviceType: ServiceType): PilotChecklist {
   const record = asRecord(value);
-  const entries = Object.entries(record);
-  if (entries.length > 30) invalidResponse();
-  const checklist: PilotChecklist = {};
-  for (const [key, item] of entries) {
-    if (key.length < 1 || key.length > 80) invalidResponse();
-    if (
-      item !== null
-      && typeof item !== 'boolean'
-      && typeof item !== 'number'
-      && (typeof item !== 'string' || item.length > 500)
-    ) invalidResponse();
-    checklist[key] = item as PilotChecklist[string];
+  const expected: readonly string[] = serviceType === 'CAT_FEEDING'
+    ? ['petCountConfirmed', 'foodRefilled', 'waterRefilled', 'litterCleaned']
+    : ['leashSecured', 'walkDurationMinutes'];
+  const keys = Object.keys(record);
+  if (keys.length !== expected.length || keys.some((key) => !expected.includes(key))) {
+    invalidResponse();
   }
-  return checklist;
+  if (serviceType === 'CAT_FEEDING') {
+    if (expected.some((key) => record[key] !== true)) invalidResponse();
+  } else if (
+    record.leashSecured !== true
+    || typeof record.walkDurationMinutes !== 'number'
+    || !Number.isFinite(record.walkDurationMinutes)
+    || record.walkDurationMinutes <= 0
+  ) {
+    invalidResponse();
+  }
+  return record as PilotChecklist;
 }
 
 function parseOrder(value: unknown): OwnerOrder {
   const record = asRecord(value);
+  const serviceType = asEnum<ServiceType>(record, 'serviceType', SERVICE_TYPES);
   const location = parsePilotLocation(record);
   const reportValue = record.report;
   let report: OwnerOrder['report'];
@@ -376,7 +381,7 @@ function parseOrder(value: unknown): OwnerOrder {
     report = {
       notes,
       submittedAt: asDate(reportRecord, 'submittedAt'),
-      checklist: parseChecklist(reportRecord.checklist),
+      checklist: parseChecklist(reportRecord.checklist, serviceType),
     };
   }
   if (record.evidence !== undefined) {
@@ -385,7 +390,7 @@ function parseOrder(value: unknown): OwnerOrder {
   }
   return {
     id: asString(record, 'id', 128),
-    serviceType: asEnum<ServiceType>(record, 'serviceType', SERVICE_TYPES),
+    serviceType,
     status: asEnum<OrderStatus>(record, 'status', ORDER_STATUSES),
     startsAt: asDate(record, 'startsAt'),
     durationMinutes: asInteger(record, 'durationMinutes', 180),

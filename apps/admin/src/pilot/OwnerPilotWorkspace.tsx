@@ -133,6 +133,7 @@ export function OwnerPilotWorkspace({ api, onError }: OwnerPilotWorkspaceProps) 
   const [confirmingId, setConfirmingId] = useState('');
   const confirmLocks = useRef(new Set<string>());
   const [evidenceUrls, setEvidenceUrls] = useState<Record<string, string>>({});
+  const [evidenceLoaded, setEvidenceLoaded] = useState<Record<string, boolean>>({});
   const [evidenceLoading, setEvidenceLoading] = useState('');
   const [evidenceErrors, setEvidenceErrors] = useState<Record<string, string>>({});
 
@@ -366,6 +367,12 @@ export function OwnerPilotWorkspace({ api, onError }: OwnerPilotWorkspaceProps) 
     if (evidenceLoading) return;
     const generation = lifecycle.current.generation;
     setEvidenceLoading(evidenceId);
+    setEvidenceLoaded((current) => ({ ...current, [evidenceId]: false }));
+    setEvidenceUrls((current) => {
+      const next = { ...current };
+      delete next[evidenceId];
+      return next;
+    });
     setEvidenceErrors((current) => ({ ...current, [evidenceId]: '' }));
     try {
       const result = await api.getEvidenceReadUrl(evidenceId);
@@ -493,7 +500,18 @@ export function OwnerPilotWorkspace({ api, onError }: OwnerPilotWorkspaceProps) 
                     {evidenceLoading === item.id ? '正在读取证据…' : `查看履约证据 ${index + 1}`}
                   </button>
                   {evidenceErrors[item.id] && <p className="pilot-error" role="alert">{evidenceErrors[item.id]}</p>}
-                  {evidenceUrls[item.id] && <img src={evidenceUrls[item.id]} alt={`订单履约证据 ${index + 1}`}/>}
+                  {evidenceUrls[item.id] && <img
+                    src={evidenceUrls[item.id]}
+                    alt={`订单履约证据 ${index + 1}`}
+                    onLoad={() => {
+                      setEvidenceLoaded((current) => ({ ...current, [item.id]: true }));
+                      setEvidenceErrors((current) => ({ ...current, [item.id]: '' }));
+                    }}
+                    onError={() => {
+                      setEvidenceLoaded((current) => ({ ...current, [item.id]: false }));
+                      setEvidenceErrors((current) => ({ ...current, [item.id]: '证据图片加载失败，请重试。' }));
+                    }}
+                  />}
                 </div>)}
                 {(order.evidence ?? []).length === 0 && <p className="pilot-error">履约证据尚未就绪，暂不能确认。</p>}
                 <p className="pilot-privacy-hint">证据链接短时有效，仅用于当前订单确认。</p>
@@ -501,7 +519,7 @@ export function OwnerPilotWorkspace({ api, onError }: OwnerPilotWorkspaceProps) 
             </section>}
             {order.status === 'PENDING_CONFIRMATION' && <button
               type="button" className="pilot-confirm-button"
-              disabled={confirmingId === order.id || !(order.evidence?.length) || order.evidence.some((item) => !evidenceUrls[item.id])}
+              disabled={confirmingId === order.id || !(order.evidence?.length) || order.evidence.some((item) => !evidenceLoaded[item.id])}
               onClick={() => void confirmOrder(order.id)}
             >{confirmingId === order.id ? '正在确认…' : '确认服务完成'}</button>}
           </article>)}

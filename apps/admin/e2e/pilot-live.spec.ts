@@ -431,7 +431,12 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     const evidenceId = ownerOrderWithEvidence?.evidence?.[0]?.id;
     expect(evidenceId).toBeTruthy();
     await ownerPage.getByRole('button', { name: '查看履约证据 1' }).click();
-    await expect(ownerPage.getByRole('img', { name: '订单履约证据 1' })).toBeVisible();
+    const evidenceImage = ownerPage.getByRole('img', { name: '订单履约证据 1' });
+    await expect(evidenceImage).toBeVisible();
+    await expect.poll(() => evidenceImage.evaluate((image) => (
+      (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0
+    ))).toBe(true);
+    await expect(ownerPage.getByRole('button', { name: '确认服务完成' })).toBeEnabled();
     const ownerEvidence = await browserFetch(ownerPage, `/api/v1/evidence/${evidenceId}/read-url`);
     const providerEvidence = await browserFetch(providerPage, `/api/v1/evidence/${evidenceId}/read-url`);
     const adminEvidence = await browserFetch(adminPage, `/api/v1/evidence/${evidenceId}/read-url`);
