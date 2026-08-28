@@ -3,16 +3,21 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { AppConfig } from '../config.js';
 import { FailedLoginLimiter } from './failed-login-limiter.js';
-import type { PilotSessionService } from './pilot-session-service.js';
+import {
+  LOCAL_PILOT_ROLES,
+  type PilotSessionService,
+} from './pilot-session-service.js';
 
 const SESSION_COOKIE = 'petcare_pilot_session';
 const LoginSchema = z.object({ inviteCode: z.string().min(1).max(512) });
 const DisplayNameSchema = z.object({ displayName: z.string() });
+const LocalSessionSchema = z.object({ role: z.enum(LOCAL_PILOT_ROLES) }).strict();
+const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 type PilotRouteSessions = Pick<
   PilotSessionService,
   'redeem' | 'authenticate' | 'setDisplayName' | 'revoke' | 'createInvite'
->;
+> & Partial<Pick<PilotSessionService, 'createLocalSession'>>;
 
 export type PilotAuthRoutesDependencies = {
   config: AppConfig;
@@ -59,6 +64,20 @@ export async function registerPilotAuthRoutes(
     writeSessionCookie(reply, secureCookies, session);
     return reply.code(201).send({ expiresAt: session.expiresAt.toISOString() });
   });
+
+  if (dependencies.config.nodeEnv === 'development' || dependencies.config.nodeEnv === 'test') {
+    const createLocalSession = dependencies.sessions.createLocalSession;
+    app.post('/api/v1/pilot/local-sessions', async (request, reply) => {
+      if (!LOOPBACK_ADDRESSES.has(request.ip)) {
+        return reply.code(403).send({ code: 'FORBIDDEN' });
+      }
+      const { role } = LocalSessionSchema.parse(request.body);
+      if (!createLocalSession) throw new Error('LOCAL_SESSION_UNAVAILABLE');
+      const session = await createLocalSession(role);
+      writeSessionCookie(reply, secureCookies, session);
+      return reply.code(201).send({ expiresAt: session.expiresAt.toISOString() });
+    });
+  }
 
   app.get('/api/v1/pilot/session', async (request) => (
     dependencies.sessions.authenticate(authorization(request))

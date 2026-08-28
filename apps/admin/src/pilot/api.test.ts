@@ -12,6 +12,33 @@ describe('pilot API transport', () => {
     vi.unstubAllGlobals();
   });
 
+  it.each(['OWNER', 'PROVIDER', 'ADMIN'] as const)(
+    'creates a local %s session through the direct-entry contract',
+    async (role) => {
+      const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+        expiresAt: '2026-09-03T10:00:00.000Z',
+      }, 201));
+      const api = createPilotApi(fetcher);
+
+      await expect(api.createLocalSession(role)).resolves.toEqual({
+        expiresAt: '2026-09-03T10:00:00.000Z',
+      });
+      expect(fetcher).toHaveBeenCalledWith('/api/v1/pilot/local-sessions', expect.objectContaining({
+        method: 'POST', body: JSON.stringify({ role }), credentials: 'same-origin',
+      }));
+    },
+  );
+
+  it('rejects malformed local-session responses', async () => {
+    const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      expiresAt: 123,
+    }, 201)));
+
+    await expect(api.createLocalSession('ADMIN')).rejects.toMatchObject({
+      status: 503, code: 'SERVICE_UNAVAILABLE', message: '服务暂时不可用，请稍后重试',
+    });
+  });
+
   it('validates safe owner confirmation and evidence-read responses', async () => {
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse({ orderId: 'order-1', status: 'COMPLETED', confirmedAt: '2026-08-28T00:00:00.000Z' }))

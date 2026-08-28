@@ -51,6 +51,7 @@ function createPilotTestApp(
   trustedProxies?: string[],
 ) {
   const sessions = new Map<string, SessionRecord>();
+  const localSessionRoles: Array<'OWNER' | 'PROVIDER' | 'ADMIN'> = [];
   let nextSession = 0;
   const pilotSessions = {
     async redeem(inviteCode: string) {
@@ -88,6 +89,10 @@ function createPilotTestApp(
     async createInvite() {
       throw new Error('FORBIDDEN');
     },
+    async createLocalSession(role: 'OWNER' | 'PROVIDER' | 'ADMIN') {
+      localSessionRoles.push(role);
+      return { token: `local-${role.toLowerCase()}-session`, expiresAt };
+    },
   };
 
   const app = createApp({
@@ -96,10 +101,75 @@ function createPilotTestApp(
     addresses: {} as never,
     pilot: { config: pilotConfig(nodeEnv, trustedProxies), sessions: pilotSessions },
   });
-  return { app, sessions, pilotSessions };
+  return { app, sessions, pilotSessions, localSessionRoles };
 }
 
 describe('pilot authentication routes', () => {
+  it.each(['OWNER', 'PROVIDER', 'ADMIN'] as const)(
+    'creates a local %s session with the existing cookie contract',
+    async (role) => {
+      const { app, localSessionRoles } = createPilotTestApp('development');
+
+      const response = await app.inject({
+        method: 'POST', url: '/api/v1/pilot/local-sessions', payload: { role },
+      });
+
+      expect(response.statusCode).toBe(201);
+      expect(response.json()).toEqual({ expiresAt: expiresAt.toISOString() });
+      expect(response.headers['set-cookie']).toContain(`petcare_pilot_session=local-${role.toLowerCase()}-session`);
+      expect(response.headers['set-cookie']).toContain('HttpOnly');
+      expect(response.headers['set-cookie']).toContain('SameSite=Lax');
+      expect(response.headers['set-cookie']).toContain('Path=/');
+      expect(response.headers['set-cookie']).not.toContain('Secure');
+      expect(localSessionRoles).toEqual([role]);
+      await app.close();
+    },
+  );
+
+  it('rejects malformed local session role bodies before invoking the service', async () => {
+    const { app, localSessionRoles } = createPilotTestApp('development');
+
+    for (const payload of [{}, { role: 'ROOT' }, { role: 'OWNER', extra: true }]) {
+      const response = await app.inject({
+        method: 'POST', url: '/api/v1/pilot/local-sessions', payload,
+      });
+      expect(response.statusCode).toBe(400);
+    }
+
+    expect(localSessionRoles).toEqual([]);
+    await app.close();
+  });
+
+  it('rejects non-loopback local session requests without invoking the service', async () => {
+    const { app, localSessionRoles } = createPilotTestApp('development');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/pilot/local-sessions',
+      remoteAddress: '203.0.113.20',
+      payload: { role: 'ADMIN' },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(localSessionRoles).toEqual([]);
+    await app.close();
+  });
+
+  it('does not register local session access in production', async () => {
+    const { app, localSessionRoles } = createPilotTestApp('production');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/pilot/local-sessions',
+      headers: { origin: productionOrigin },
+      payload: { role: 'OWNER' },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(localSessionRoles).toEqual([]);
+    await app.close();
+  });
+
   it('logs in with an invite and exposes the current cookie-backed session', async () => {
     const { app } = createPilotTestApp();
     const login = await app.inject({

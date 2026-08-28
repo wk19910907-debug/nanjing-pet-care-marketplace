@@ -2,6 +2,7 @@ import type {
   PilotInvite,
   PilotInviteCreated,
   PilotInviteRole,
+  LocalPilotRole,
   PilotProfile,
   PilotSession,
   PilotSessionCreated,
@@ -79,6 +80,7 @@ export function pilotErrorMessage(error: unknown): string {
 export interface PilotApi {
   getSession(): Promise<PilotSession>;
   createSession(inviteCode: string): Promise<PilotSessionCreated>;
+  createLocalSession(role: LocalPilotRole): Promise<PilotSessionCreated>;
   updateProfile(displayName: string): Promise<PilotProfile>;
   deleteSession(): Promise<void>;
   createInvite(role: PilotInviteRole): Promise<PilotInviteCreated>;
@@ -660,6 +662,11 @@ export function createPilotApi(fetcher: Fetcher = fetch): PilotApi {
     createSession: async (inviteCode) => parseSessionCreated(await request(
       '/v1/pilot/sessions',
       { method: 'POST', body: JSON.stringify({ inviteCode }) },
+      201,
+    )),
+    createLocalSession: async (role) => parseSessionCreated(await request(
+      '/v1/pilot/local-sessions',
+      { method: 'POST', body: JSON.stringify({ role }) },
       201,
     )),
     updateProfile: async (displayName) => parseProfile(await request('/v1/pilot/me', {
