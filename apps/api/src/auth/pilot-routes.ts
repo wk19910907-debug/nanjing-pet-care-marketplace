@@ -19,8 +19,9 @@ function isAllowedLocalSessionRequest(request: FastifyRequest, config: AppConfig
   if (!pilot || !LOOPBACK_ADDRESSES.has(pilot.host)) return false;
 
   const authorityHost = pilot.host.includes(':') ? `[${pilot.host}]` : pilot.host;
-  const authority = `${authorityHost}:${pilot.port}`;
-  const origin = `http://${authority}`;
+  const localUrl = new URL(`http://${authorityHost}:${pilot.port}`);
+  const authority = localUrl.host;
+  const origin = localUrl.origin;
   const transportPeer = request.raw.socket.remoteAddress;
 
   return transportPeer !== undefined

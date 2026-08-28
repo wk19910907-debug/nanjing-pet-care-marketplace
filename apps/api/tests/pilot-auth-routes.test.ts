@@ -21,6 +21,7 @@ function pilotConfig(
   nodeEnv: 'development' | 'test' | 'production',
   trustedProxies?: string[],
   host = '127.0.0.1',
+  port = 3000,
 ): AppConfig {
   return {
     nodeEnv,
@@ -39,7 +40,7 @@ function pilotConfig(
     pilot: {
       enabled: true,
       host,
-      port: 3000,
+      port,
       ...(nodeEnv === 'production' ? { publicOrigin: productionOrigin } : {}),
       authPepper: Buffer.alloc(32, 7),
       sessionDays: 7,
@@ -54,6 +55,7 @@ function createPilotTestApp(
   nodeEnv: 'development' | 'test' | 'production' = 'production',
   trustedProxies?: string[],
   host = '127.0.0.1',
+  port = 3000,
 ) {
   const sessions = new Map<string, SessionRecord>();
   const localSessionRoles: Array<'OWNER' | 'PROVIDER' | 'ADMIN'> = [];
@@ -108,7 +110,7 @@ function createPilotTestApp(
     auth: pilotSessions,
     pets: {} as never,
     addresses: {} as never,
-    pilot: { config: pilotConfig(nodeEnv, trustedProxies, host), sessions: pilotSessions },
+    pilot: { config: pilotConfig(nodeEnv, trustedProxies, host, port), sessions: pilotSessions },
   });
   return { app, sessions, pilotSessions, localSessionRoles };
 }
@@ -189,18 +191,42 @@ describe('pilot authentication routes', () => {
   );
 
   it.each([
-    { host: '::1', authority: '[::1]:3000' },
-    { host: '::ffff:127.0.0.1', authority: '[::ffff:127.0.0.1]:3000' },
-  ])('accepts configured loopback host $host with its exact bracketed authority', async ({
-    host, authority,
+    {
+      label: 'mapped IPv6', host: '::ffff:127.0.0.1', port: 3000,
+      configuredOrigin: 'http://[::ffff:127.0.0.1]:3000',
+    },
+    {
+      label: 'default HTTP port', host: '127.0.0.1', port: 80,
+      configuredOrigin: 'http://127.0.0.1:80',
+    },
+  ])('accepts the browser-canonical authority and origin for $label', async ({
+    host, port, configuredOrigin,
   }) => {
-    const { app, localSessionRoles } = createPilotTestApp('development', undefined, host);
+    const browserUrl = new URL(configuredOrigin);
+    const { app, localSessionRoles } = createPilotTestApp('development', undefined, host, port);
 
     const response = await app.inject({
       method: 'POST',
       url: '/api/v1/pilot/local-sessions',
       remoteAddress: host,
-      headers: { host: authority, origin: `http://${authority}` },
+      headers: { host: browserUrl.host, origin: browserUrl.origin },
+      payload: { role: 'OWNER' },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(localSessionRoles).toEqual(['OWNER']);
+    await app.close();
+  });
+
+  it('accepts configured IPv6 loopback with its browser-canonical authority', async () => {
+    const browserUrl = new URL('http://[::1]:3000');
+    const { app, localSessionRoles } = createPilotTestApp('development', undefined, '::1');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/pilot/local-sessions',
+      remoteAddress: '::1',
+      headers: { host: browserUrl.host, origin: browserUrl.origin },
       payload: { role: 'OWNER' },
     });
 

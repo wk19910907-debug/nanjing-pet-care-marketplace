@@ -99,3 +99,37 @@ A direct `pnpm --filter @pet/api exec vitest ...` composition run also exposed t
 ## Concerns
 
 No unresolved code concern. Operators must continue to use a literal loopback `PILOT_HOST`; aliases such as `localhost` now intentionally receive 403 on the direct-session endpoint even if DNS resolves them to loopback.
+
+## Browser-canonical authority follow-up
+
+Final review identified two valid browser-canonical spellings that the original exact comparison rejected: WHATWG URL parsing canonicalizes configured `::ffff:127.0.0.1` to `[::ffff:7f00:1]`, and omits default HTTP port 80 from both Host and Origin.
+
+### RED
+
+The focused tests construct request headers from `new URL(configuredOrigin).host` and `.origin` for both cases, while keeping the configured pilot host as the original allowed literal.
+
+Command under Node.js `v22.22.2`:
+
+`pnpm --filter @pet/api exec vitest run tests/pilot-auth-routes.test.ts`
+
+Observed before production code changed: 2 expected failures and 40 passes. Both browser-canonical valid requests received 403 instead of 201, proving the manual authority/origin concatenation was the cause.
+
+### GREEN
+
+The guard now creates a WHATWG `URL` from the already-allowlisted literal loopback host and configured port, then compares raw Host with `URL.host` and optional Origin with `URL.origin`. The literal configured-host allowlist, raw/effective loopback IP checks, route-level pre-parser hook, exact comparisons, and denial behavior are unchanged.
+
+Focused result: 1 file passed, 42/42 tests passed.
+
+### Proportional verification after production change
+
+All commands ran under Node.js `v22.22.2`:
+
+| Verification | Result |
+| --- | --- |
+| `pnpm --filter @pet/api typecheck` | exit 0 |
+| Six-file API pilot/config/security suite | 6 files, 124/124 tests passed |
+| `pnpm --filter @pet/admin test:e2e:pilot` | 4/4 tests passed |
+| `pnpm test:e2e:live` | 1/1 real PostgreSQL 16 acceptance passed in 14.4 seconds; server restart and cleanup succeeded |
+| `git diff --check` and `git diff --cached --check` | exit 0 |
+
+Self-review found no weakening of production route absence, invitation compatibility, secure cookie handling, three-context live isolation, or the fail-closed request boundary. No secrets or unrelated files were added.
