@@ -14,6 +14,22 @@ const DisplayNameSchema = z.object({ displayName: z.string() });
 const LocalSessionSchema = z.object({ role: z.enum(LOCAL_PILOT_ROLES) }).strict();
 const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
+function isAllowedLocalSessionRequest(request: FastifyRequest, config: AppConfig): boolean {
+  const pilot = config.pilot;
+  if (!pilot || !LOOPBACK_ADDRESSES.has(pilot.host)) return false;
+
+  const authorityHost = pilot.host.includes(':') ? `[${pilot.host}]` : pilot.host;
+  const authority = `${authorityHost}:${pilot.port}`;
+  const origin = `http://${authority}`;
+  const transportPeer = request.raw.socket.remoteAddress;
+
+  return transportPeer !== undefined
+    && LOOPBACK_ADDRESSES.has(transportPeer)
+    && LOOPBACK_ADDRESSES.has(request.ip)
+    && request.raw.headers.host === authority
+    && (request.headers.origin === undefined || request.headers.origin === origin);
+}
+
 type PilotRouteSessions = Pick<
   PilotSessionService,
   'redeem' | 'authenticate' | 'setDisplayName' | 'revoke' | 'createInvite' | 'createLocalSession'
@@ -66,10 +82,13 @@ export async function registerPilotAuthRoutes(
   });
 
   if (dependencies.config.nodeEnv === 'development' || dependencies.config.nodeEnv === 'test') {
-    app.post('/api/v1/pilot/local-sessions', async (request, reply) => {
-      if (!LOOPBACK_ADDRESSES.has(request.ip)) {
-        return reply.code(403).send({ code: 'FORBIDDEN' });
-      }
+    app.post('/api/v1/pilot/local-sessions', {
+      onRequest: async (request, reply) => {
+        if (!isAllowedLocalSessionRequest(request, dependencies.config)) {
+          return reply.code(403).send({ code: 'FORBIDDEN' });
+        }
+      },
+    }, async (request, reply) => {
       const { role } = LocalSessionSchema.parse(request.body);
       const session = await dependencies.sessions.createLocalSession(role);
       writeSessionCookie(reply, secureCookies, session);

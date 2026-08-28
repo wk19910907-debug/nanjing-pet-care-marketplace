@@ -56,7 +56,7 @@ export function LoginPanel({ api, onAuthenticated }: LoginPanelProps) {
       {error && <p className="pilot-error" role="alert">{error}</p>}
       <div className="pilot-boundary">
         <strong>隐私与试运营边界</strong>
-        <p>此页面不要求联系方式或真实姓名。</p>
+        <p>仅限本机试运营；仅记录线下费用，不收集联系方式</p>
         <p>进入后可设置展示昵称。</p>
       </div>
     </section>

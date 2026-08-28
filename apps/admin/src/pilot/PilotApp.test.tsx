@@ -57,6 +57,7 @@ describe('PilotApp', () => {
     expect(await screen.findByRole('button', { name: '以宠主身份进入' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '以服务人员身份进入' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '以平台管理员身份进入' })).toBeTruthy();
+    expect(screen.getByText('仅限本机试运营；仅记录线下费用，不收集联系方式')).toBeTruthy();
     expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual([
       '以宠主身份进入', '以服务人员身份进入', '以平台管理员身份进入',
     ]);

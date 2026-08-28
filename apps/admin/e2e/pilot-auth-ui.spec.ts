@@ -50,6 +50,10 @@ test('direct role entry keeps nickname onboarding private on mobile', async ({ p
   await expect(page.getByRole('button', { name: '以宠主身份进入' })).toBeVisible();
   await expect(page.getByRole('button', { name: '以服务人员身份进入' })).toBeVisible();
   await expect(page.getByRole('button', { name: '以平台管理员身份进入' })).toBeVisible();
+  await expect(page.getByText(
+    '仅限本机试运营；仅记录线下费用，不收集联系方式',
+    { exact: true },
+  )).toBeVisible();
   await expect(page.getByRole('textbox', { name: '邀请码', exact: true })).toHaveCount(0);
   await expect(page.getByText('邀请码管理')).toHaveCount(0);
 
