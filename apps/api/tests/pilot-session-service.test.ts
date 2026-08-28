@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { PrismaClient } from '@prisma/client';
@@ -34,6 +34,10 @@ function sequenceTokens(...tokens: string[]) {
     index += 1;
     return token;
   };
+}
+
+function localUserMarker(role: 'OWNER' | 'PROVIDER' | 'ADMIN'): string {
+  return createHash('sha256').update(`pilot-local-direct-v1\0${role}`, 'utf8').digest('hex');
 }
 
 async function resetTables() {
@@ -105,6 +109,114 @@ describe('PilotSessionService', () => {
       'token',
       'admin-session',
     );
+  });
+
+  it('reuses the stable owner user across repeated local sessions', async () => {
+    await resetTables();
+    const service = new PilotSessionService(prisma, {
+      pepper: Buffer.alloc(32, 7),
+      inviteHours: 24,
+      sessionDays: 7,
+      now: () => new Date('2026-08-25T08:00:00Z'),
+      token: sequenceTokens('owner-session-one', 'owner-session-two'),
+    });
+
+    const first = await service.createLocalSession('OWNER');
+    const firstActor = await service.authenticate(`Bearer ${first.token}`);
+    const second = await service.createLocalSession('OWNER');
+    const secondActor = await service.authenticate(`Bearer ${second.token}`);
+
+    expect(firstActor).toMatchObject({ role: 'OWNER' });
+    expect(secondActor).toMatchObject({ userId: firstActor.userId, role: 'OWNER' });
+    expect(await prisma.user.findMany({
+      where: { phoneHash: localUserMarker('OWNER') },
+      select: { id: true, role: true, phoneHash: true },
+    })).toEqual([{
+      id: firstActor.userId,
+      role: 'OWNER',
+      phoneHash: localUserMarker('OWNER'),
+    }]);
+  });
+
+  it('creates distinct stable users for every allowed local role', async () => {
+    await resetTables();
+    const roles = ['OWNER', 'PROVIDER', 'ADMIN'] as const;
+    const service = new PilotSessionService(prisma, {
+      pepper: Buffer.alloc(32, 7),
+      inviteHours: 24,
+      sessionDays: 7,
+      now: () => new Date('2026-08-25T08:00:00Z'),
+      token: sequenceTokens('owner-session', 'provider-session', 'admin-session'),
+    });
+
+    const actors = await Promise.all(roles.map(async (role) => {
+      const session = await service.createLocalSession(role as 'OWNER' | 'PROVIDER' | 'ADMIN');
+      return service.authenticate(`Bearer ${session.token}`);
+    }));
+
+    expect(actors.map((actor) => actor.role).sort()).toEqual(['ADMIN', 'OWNER', 'PROVIDER']);
+    expect(new Set(actors.map((actor) => actor.userId))).toHaveLength(3);
+    expect(await prisma.user.findMany({
+      where: { phoneHash: { in: roles.map(localUserMarker) } },
+      orderBy: { role: 'asc' },
+      select: { role: true, phoneHash: true },
+    })).toEqual([
+      { role: 'OWNER', phoneHash: localUserMarker('OWNER') },
+      { role: 'PROVIDER', phoneHash: localUserMarker('PROVIDER') },
+      { role: 'ADMIN', phoneHash: localUserMarker('ADMIN') },
+    ]);
+  });
+
+  it('converges concurrent service instances on one local owner user', async () => {
+    await resetTables();
+    await prisma.$executeRawUnsafe(`
+      CREATE FUNCTION test_delay_local_user_insert() RETURNS trigger AS $$
+      BEGIN
+        IF NEW."phoneHash" = '${localUserMarker('OWNER')}' THEN
+          PERFORM pg_sleep(0.25);
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER test_delay_local_user_insert
+      BEFORE INSERT ON "User"
+      FOR EACH ROW EXECUTE FUNCTION test_delay_local_user_insert()
+    `);
+    const clients = [
+      new PrismaClient({ datasourceUrl: testUrl.toString() }),
+      new PrismaClient({ datasourceUrl: testUrl.toString() }),
+    ];
+
+    try {
+      await Promise.all(clients.map((client) => client.$connect()));
+      const sessions = await Promise.all(clients.map(async (client) => {
+        const service = new PilotSessionService(client, {
+          pepper: Buffer.alloc(32, 7),
+          inviteHours: 24,
+          sessionDays: 7,
+          now: () => new Date('2026-08-25T08:00:00Z'),
+          token: () => randomUUID(),
+        });
+        return service.createLocalSession('OWNER');
+      }));
+
+      const actors = await Promise.all(sessions.map((session) =>
+        new PilotSessionService(prisma, {
+          pepper: Buffer.alloc(32, 7),
+          inviteHours: 24,
+          sessionDays: 7,
+          now: () => new Date('2026-08-25T08:00:00Z'),
+        }).authenticate(`Bearer ${session.token}`),
+      ));
+      expect(new Set(actors.map((actor) => actor.userId))).toHaveLength(1);
+      expect(await prisma.user.count({ where: { phoneHash: localUserMarker('OWNER') } })).toBe(1);
+    } finally {
+      await Promise.all(clients.map((client) => client.$disconnect()));
+      await prisma.$executeRawUnsafe('DROP TRIGGER test_delay_local_user_insert ON "User"');
+      await prisma.$executeRawUnsafe('DROP FUNCTION test_delay_local_user_insert()');
+    }
   });
 
   it('preserves a sole admin across concurrent bootstrap processes', async () => {

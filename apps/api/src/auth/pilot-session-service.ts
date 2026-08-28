@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type { ActorRole } from '@pet/contracts';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { z } from 'zod';
@@ -13,6 +13,11 @@ const DisplayNameSchema = z.string().trim().min(1).max(30).refine(
 
 const ADMIN_CREATABLE_ROLES = ['OWNER', 'PROVIDER'] as const satisfies readonly ActorRole[];
 export type PilotInviteRole = (typeof ADMIN_CREATABLE_ROLES)[number];
+
+export const LOCAL_PILOT_ROLES = ['OWNER', 'PROVIDER', 'ADMIN'] as const;
+export type LocalPilotRole = (typeof LOCAL_PILOT_ROLES)[number];
+
+const LOCAL_SESSION_TRANSACTION_ATTEMPTS = 3;
 
 export type PilotSessionOptions = {
   pepper: Buffer;
@@ -38,6 +43,10 @@ function addHours(value: Date, hours: number): Date {
 
 function addDays(value: Date, days: number): Date {
   return addHours(value, days * 24);
+}
+
+function localUserMarker(role: LocalPilotRole): string {
+  return createHash('sha256').update(`pilot-local-direct-v1\0${role}`, 'utf8').digest('hex');
 }
 
 function bearerToken(authorizationHeader: string | undefined): string {
@@ -145,6 +154,47 @@ export class PilotSessionService implements AuthService {
       }
       throw error;
     }
+  }
+
+  async createLocalSession(role: LocalPilotRole): Promise<{ token: string; expiresAt: Date }> {
+    if (!(LOCAL_PILOT_ROLES as readonly string[]).includes(role)) {
+      throw new Error('LOCAL_SESSION_ROLE_INVALID');
+    }
+
+    const marker = localUserMarker(role);
+    const now = this.now();
+    const expiresAt = addDays(now, this.sessionDays);
+    const token = this.token();
+    const tokenHash = digestPilotCredential(this.pepper, 'session', token);
+
+    for (let attempt = 0; attempt < LOCAL_SESSION_TRANSACTION_ATTEMPTS; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          const user = await tx.user.upsert({
+            where: { phoneHash: marker },
+            create: { phoneHash: marker, role },
+            update: {},
+            select: { id: true, role: true },
+          });
+          if (user.role !== role) throw new Error('LOCAL_SESSION_UNAVAILABLE');
+
+          await tx.pilotSession.create({
+            data: { tokenHash, userId: user.id, expiresAt, createdAt: now, lastSeenAt: now },
+          });
+          return { token, expiresAt };
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      } catch (error) {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError
+          && error.code === 'P2034'
+        ) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw new Error('LOCAL_SESSION_UNAVAILABLE');
   }
 
   async authenticate(authorizationHeader: string | undefined): Promise<PilotSessionContext> {
