@@ -270,7 +270,8 @@ describe('pilot manual fee and role-filtered business routes', () => {
     expect(evidenceOwnerView).toMatchObject({ evidence: [{ id: attachedEvidence.id }] });
     expect(JSON.stringify(assignedProviderView)).not.toContain('must-not-cross');
     expect(JSON.stringify(assignedProviderView)).not.toContain('objectKey');
-    expect(ownerView).toMatchObject({ notes: '只喂指定猫粮' });
+    expect(ownerView).toMatchObject({ notes: '只喂指定猫粮', petNames: ['汤圆'] });
+    expect(assignedProviderView).not.toHaveProperty('petNames');
     expect(adminView).toMatchObject({
       notes: '只喂指定猫粮', ownerDisplayName: '宠主甲',
     });

@@ -369,6 +369,16 @@ function parseChecklist(value: unknown, serviceType: ServiceType): PilotChecklis
   return record as PilotChecklist;
 }
 
+function parsePetNames(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 5) invalidResponse();
+  return value.map((name) => {
+    if (typeof name !== 'string' || name.trim().length < 1 || name.length > 50) {
+      return invalidResponse();
+    }
+    return name;
+  });
+}
+
 function parseOrder(value: unknown): OwnerOrder {
   const record = asRecord(value);
   const serviceType = asEnum<ServiceType>(record, 'serviceType', SERVICE_TYPES);
@@ -399,6 +409,7 @@ function parseOrder(value: unknown): OwnerOrder {
     totalFen: asInteger(record, 'totalFen'),
     currency: asEnum(record, 'currency', ['CNY'] as const),
     ...location,
+    ...(record.petNames !== undefined ? { petNames: parsePetNames(record.petNames) } : {}),
     ...(asOptionalString(record, 'providerDisplayName', 30) !== undefined
       ? { providerDisplayName: asOptionalString(record, 'providerDisplayName', 30)! }
       : {}),

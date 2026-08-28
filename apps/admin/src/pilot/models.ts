@@ -113,6 +113,7 @@ export type OwnerOrder = {
   city: string;
   district: string;
   serviceZone: string;
+  petNames?: string[];
   providerDisplayName?: string;
   notes?: string;
   report?: {

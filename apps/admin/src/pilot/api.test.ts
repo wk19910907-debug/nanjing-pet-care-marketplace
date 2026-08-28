@@ -329,6 +329,7 @@ describe('pilot API transport', () => {
         status: 'PENDING_CONFIRMATION', startsAt: '2026-09-10T02:00:00.000Z',
         durationMinutes: 30, totalFen: 3900, currency: 'CNY', city: '南京市',
         district: '建邺区', serviceZone: '建邺区', notes: '轻声进门',
+        petNames: ['团子'],
         exactAddress: 'must-not-cross', accessInstructions: 'must-not-cross', ownerId: 'other-owner',
         report: {
           notes: '状态正常', submittedAt: '2026-09-10T03:00:00.000Z',
@@ -363,6 +364,7 @@ describe('pilot API transport', () => {
       status: 'PENDING_CONFIRMATION', startsAt: '2026-09-10T02:00:00.000Z',
       durationMinutes: 30, totalFen: 3900, currency: 'CNY', city: '南京市',
       district: '建邺区', serviceZone: '建邺区', notes: '轻声进门',
+      petNames: ['团子'],
       report: {
         notes: '状态正常', submittedAt: '2026-09-10T03:00:00.000Z',
         checklist: {
@@ -390,6 +392,22 @@ describe('pilot API transport', () => {
       startsAt: '2026-09-10T02:00:00.000Z', durationMinutes: 30, notes: '',
     }, 'owner-order-retry-key')).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
     await expect(malformedApi.listOrders()).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+  });
+
+  it.each([
+    [[]],
+    [['']],
+    [[42]],
+    [[...Array.from({ length: 6 }, (_, index) => `宠物${index}`)]],
+  ])('rejects malformed owner order pet names: %j', async (petNames) => {
+    const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse([{
+      id: '44444444-4444-4444-8444-444444444444', serviceType: 'CAT_FEEDING',
+      status: 'PENDING_PAYMENT', startsAt: '2026-09-10T02:00:00.000Z', durationMinutes: 30,
+      totalFen: 3900, currency: 'CNY', city: '南京市', district: '建邺区', serviceZone: '建邺区',
+      petNames,
+    }])));
+
+    await expect(api.listOrders()).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
   });
 
   it.each([

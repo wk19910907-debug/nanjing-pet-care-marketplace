@@ -10,6 +10,10 @@ import { authorizeRole } from '../auth/authorize.js';
 
 const ORDER_INCLUDE = {
   address: { select: { city: true, district: true, serviceZone: true } },
+  pets: {
+    select: { pet: { select: { name: true } } },
+    orderBy: { petId: 'asc' as const },
+  },
   owner: { select: { displayName: true } },
   assignedProvider: {
     select: { id: true, user: { select: { displayName: true } } },
@@ -47,6 +51,7 @@ export type PilotOrderSummary = {
   city: string;
   district: string;
   serviceZone: string;
+  petNames?: string[];
   ownerDisplayName?: string;
   providerDisplayName?: string;
   notes?: string;
@@ -309,6 +314,7 @@ export class PilotReadModel {
         ? { providerDisplayName: record.assignedProvider.user.displayName }
         : {}),
       ...(isAdmin || isOwner ? { notes: record.notes } : {}),
+      ...(isOwner ? { petNames: record.pets.map(({ pet }) => pet.name) } : {}),
       ...(invitation ? {
         invitation: {
           id: invitation.id,
