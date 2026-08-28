@@ -1,5 +1,6 @@
 export type PilotRole = 'OWNER' | 'PROVIDER' | 'ADMIN';
 export type PilotInviteRole = Extract<PilotRole, 'OWNER' | 'PROVIDER'>;
+export type LocalPilotRole = Extract<PilotRole, 'OWNER' | 'PROVIDER' | 'ADMIN'>;
 
 export type PilotSession = {
   userId: string;

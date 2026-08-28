@@ -361,12 +361,6 @@ try {
     path.join(repositoryRoot, 'apps/admin/node_modules/vite/bin/vite.js'), 'build', '--mode', 'pilot',
   ], { cwd: path.join(repositoryRoot, 'apps/admin') });
 
-  let adminInvite = await capture(process.execPath, [
-    tsxCli, path.join(repositoryRoot, 'apps/api/src/pilot/bootstrap.ts'),
-  ], { env: serverEnvironment });
-  if (!adminInvite) throw new Error('Pilot bootstrap did not return an invitation');
-  process.stdout.write('[live] One-time administrator invitation created in memory.\n');
-
   await releaseReservation('pilot');
   await startPilot();
   process.stdout.write('[live] Actual pilot server and built UI are ready.\n');
@@ -374,18 +368,6 @@ try {
   const controlSecret = randomBytes(24).toString('base64url');
   const controlPath = `/control/${controlSecret}`;
   controlServer = http.createServer((request, response) => {
-    if (request.method === 'GET' && request.url === `${controlPath}/admin-invite`) {
-      if (!adminInvite) {
-        response.writeHead(410, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-        response.end(JSON.stringify({ code: 'INVITATION_CONSUMED' }));
-        return;
-      }
-      const inviteCode = adminInvite;
-      adminInvite = '';
-      response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-      response.end(JSON.stringify({ inviteCode }));
-      return;
-    }
     if (request.method !== 'POST' || request.url !== `${controlPath}/restart`) {
       response.writeHead(404).end();
       return;

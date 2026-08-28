@@ -4,6 +4,9 @@ import { createApp } from '../src/app.js';
 import type { AppConfig } from '../src/config.js';
 
 const productionOrigin = 'https://pilot.example.com';
+const localAuthority = '127.0.0.1:3000';
+const localOrigin = `http://${localAuthority}`;
+const localBrowserHeaders = { host: localAuthority, origin: localOrigin };
 const expiresAt = new Date('2026-09-01T08:00:00.000Z');
 
 type SessionRecord = {
@@ -15,8 +18,10 @@ type SessionRecord = {
 };
 
 function pilotConfig(
-  nodeEnv: 'development' | 'production',
+  nodeEnv: 'development' | 'test' | 'production',
   trustedProxies?: string[],
+  host = '127.0.0.1',
+  port = 3000,
 ): AppConfig {
   return {
     nodeEnv,
@@ -34,8 +39,8 @@ function pilotConfig(
     } : {}),
     pilot: {
       enabled: true,
-      host: '127.0.0.1',
-      port: 3000,
+      host,
+      port,
       ...(nodeEnv === 'production' ? { publicOrigin: productionOrigin } : {}),
       authPepper: Buffer.alloc(32, 7),
       sessionDays: 7,
@@ -47,10 +52,13 @@ function pilotConfig(
 }
 
 function createPilotTestApp(
-  nodeEnv: 'development' | 'production' = 'production',
+  nodeEnv: 'development' | 'test' | 'production' = 'production',
   trustedProxies?: string[],
+  host = '127.0.0.1',
+  port = 3000,
 ) {
   const sessions = new Map<string, SessionRecord>();
+  const localSessionRoles: Array<'OWNER' | 'PROVIDER' | 'ADMIN'> = [];
   let nextSession = 0;
   const pilotSessions = {
     async redeem(inviteCode: string) {
@@ -88,18 +96,310 @@ function createPilotTestApp(
     async createInvite() {
       throw new Error('FORBIDDEN');
     },
+    localSessionRoles,
+    async createLocalSession(
+      this: { localSessionRoles: Array<'OWNER' | 'PROVIDER' | 'ADMIN'> },
+      role: 'OWNER' | 'PROVIDER' | 'ADMIN',
+    ) {
+      this.localSessionRoles.push(role);
+      return { token: `local-${role.toLowerCase()}-session`, expiresAt };
+    },
   };
 
   const app = createApp({
     auth: pilotSessions,
     pets: {} as never,
     addresses: {} as never,
-    pilot: { config: pilotConfig(nodeEnv, trustedProxies), sessions: pilotSessions },
+    pilot: { config: pilotConfig(nodeEnv, trustedProxies, host, port), sessions: pilotSessions },
   });
-  return { app, sessions, pilotSessions };
+  return { app, sessions, pilotSessions, localSessionRoles };
 }
 
 describe('pilot authentication routes', () => {
+  it.each(['OWNER', 'PROVIDER', 'ADMIN'] as const)(
+    'creates a local %s session with the existing cookie contract',
+    async (role) => {
+      const { app, localSessionRoles } = createPilotTestApp('development');
+
+      const response = await app.inject({
+        method: 'POST', url: '/api/v1/pilot/local-sessions',
+        headers: localBrowserHeaders,
+        payload: { role },
+      });
+
+      expect(response.statusCode).toBe(201);
+      expect(response.json()).toEqual({ expiresAt: expiresAt.toISOString() });
+      expect(response.headers['set-cookie']).toContain(`petcare_pilot_session=local-${role.toLowerCase()}-session`);
+      expect(response.headers['set-cookie']).toContain('HttpOnly');
+      expect(response.headers['set-cookie']).toContain('SameSite=Lax');
+      expect(response.headers['set-cookie']).toContain('Path=/');
+      expect(response.headers['set-cookie']).not.toContain('Secure');
+      expect(localSessionRoles).toEqual([role]);
+      await app.close();
+    },
+  );
+
+  it('rejects malformed local session role bodies before invoking the service', async () => {
+    const { app, localSessionRoles } = createPilotTestApp('development');
+
+    for (const payload of [{}, { role: 'ROOT' }, { role: 'OWNER', extra: true }]) {
+      const response = await app.inject({
+        method: 'POST', url: '/api/v1/pilot/local-sessions',
+        headers: localBrowserHeaders,
+        payload,
+      });
+      expect(response.statusCode).toBe(400);
+    }
+
+    expect(localSessionRoles).toEqual([]);
+    await app.close();
+  });
+
+  it('rejects non-loopback local session requests without invoking the service', async () => {
+    const { app, localSessionRoles } = createPilotTestApp('development');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/pilot/local-sessions',
+      remoteAddress: '203.0.113.20',
+      headers: localBrowserHeaders,
+      payload: { role: 'ADMIN' },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(localSessionRoles).toEqual([]);
+    await app.close();
+  });
+
+  it.each(['::1', '::ffff:127.0.0.1'])(
+    'accepts the loopback address %s for local sessions',
+    async (remoteAddress) => {
+      const { app, localSessionRoles } = createPilotTestApp('development');
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/pilot/local-sessions',
+        remoteAddress,
+        headers: localBrowserHeaders,
+        payload: { role: 'OWNER' },
+      });
+
+      expect(response.statusCode).toBe(201);
+      expect(localSessionRoles).toEqual(['OWNER']);
+      await app.close();
+    },
+  );
+
+  it.each([
+    {
+      label: 'mapped IPv6', host: '::ffff:127.0.0.1', port: 3000,
+      configuredOrigin: 'http://[::ffff:127.0.0.1]:3000',
+    },
+    {
+      label: 'default HTTP port', host: '127.0.0.1', port: 80,
+      configuredOrigin: 'http://127.0.0.1:80',
+    },
+  ])('accepts the browser-canonical authority and origin for $label', async ({
+    host, port, configuredOrigin,
+  }) => {
+    const browserUrl = new URL(configuredOrigin);
+    const { app, localSessionRoles } = createPilotTestApp('development', undefined, host, port);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/pilot/local-sessions',
+      remoteAddress: host,
+      headers: { host: browserUrl.host, origin: browserUrl.origin },
+      payload: { role: 'OWNER' },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(localSessionRoles).toEqual(['OWNER']);
+    await app.close();
+  });
+
+  it('accepts configured IPv6 loopback with its browser-canonical authority', async () => {
+    const browserUrl = new URL('http://[::1]:3000');
+    const { app, localSessionRoles } = createPilotTestApp('development', undefined, '::1');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/pilot/local-sessions',
+      remoteAddress: '::1',
+      headers: { host: browserUrl.host, origin: browserUrl.origin },
+      payload: { role: 'OWNER' },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(localSessionRoles).toEqual(['OWNER']);
+    await app.close();
+  });
+
+  it('accepts an exact configured Host when a non-browser client sends no Origin', async () => {
+    const { app, localSessionRoles } = createPilotTestApp('development');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/pilot/local-sessions',
+      headers: { host: localAuthority },
+      payload: { role: 'PROVIDER' },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(localSessionRoles).toEqual(['PROVIDER']);
+    await app.close();
+  });
+
+  it('enforces the same exact local authority policy in the test environment', async () => {
+    const { app, localSessionRoles } = createPilotTestApp('test');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/pilot/local-sessions',
+      headers: localBrowserHeaders,
+      payload: { role: 'ADMIN' },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(localSessionRoles).toEqual(['ADMIN']);
+    await app.close();
+  });
+
+  it('rejects a forwarded external address from a trusted loopback proxy', async () => {
+    const { app, localSessionRoles } = createPilotTestApp('development', ['127.0.0.1/32']);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/pilot/local-sessions',
+      headers: { ...localBrowserHeaders, 'x-forwarded-for': '203.0.113.20' },
+      payload: { role: 'OWNER' },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(localSessionRoles).toEqual([]);
+    await app.close();
+  });
+
+  it('does not let an untrusted peer spoof a loopback address through forwarding headers', async () => {
+    const { app, localSessionRoles } = createPilotTestApp('development', ['10.0.0.0/8']);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/pilot/local-sessions',
+      remoteAddress: '203.0.113.20',
+      headers: { ...localBrowserHeaders, 'x-forwarded-for': '127.0.0.1' },
+      payload: { role: 'OWNER' },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(localSessionRoles).toEqual([]);
+    await app.close();
+  });
+
+  it('rejects a trusted external transport peer forwarding a loopback client', async () => {
+    const { app, localSessionRoles } = createPilotTestApp(
+      'development',
+      ['203.0.113.20/32'],
+    );
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/pilot/local-sessions',
+      remoteAddress: '203.0.113.20',
+      headers: { ...localBrowserHeaders, 'x-forwarded-for': '127.0.0.1' },
+      payload: { role: 'OWNER' },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(localSessionRoles).toEqual([]);
+    await app.close();
+  });
+
+  it.each([
+    {
+      label: 'attacker Host',
+      headers: { host: 'attacker.example:3000', origin: localOrigin },
+    },
+    {
+      label: 'attacker Origin',
+      headers: { host: localAuthority, origin: 'http://attacker.example:3000' },
+    },
+    {
+      label: 'wrong local Host port',
+      headers: { host: '127.0.0.1:3001', origin: localOrigin },
+    },
+    {
+      label: 'wrong local Origin port',
+      headers: { host: localAuthority, origin: 'http://127.0.0.1:3001' },
+    },
+  ])('rejects $label before invoking the local session service', async ({ headers }) => {
+    const { app, localSessionRoles } = createPilotTestApp('development');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/pilot/local-sessions',
+      headers,
+      payload: { role: 'ADMIN' },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(localSessionRoles).toEqual([]);
+    await app.close();
+  });
+
+  it.each([
+    { label: 'malformed JSON', contentType: 'application/json', payload: '{"role":' },
+    { label: 'unsupported media', contentType: 'application/xml', payload: '<role>ADMIN</role>' },
+  ])('rejects an attacker Host before parsing $label', async ({ contentType, payload }) => {
+    const { app, localSessionRoles } = createPilotTestApp('development');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/pilot/local-sessions',
+      headers: {
+        host: 'attacker.example:3000',
+        origin: 'http://attacker.example:3000',
+        'content-type': contentType,
+      },
+      payload,
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({ code: 'FORBIDDEN' });
+    expect(localSessionRoles).toEqual([]);
+    await app.close();
+  });
+
+  it('fails closed when the configured pilot host is not a literal allowed loopback address', async () => {
+    const { app, localSessionRoles } = createPilotTestApp('development', undefined, 'localhost');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/pilot/local-sessions',
+      headers: { host: 'localhost:3000', origin: 'http://localhost:3000' },
+      payload: { role: 'OWNER' },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(localSessionRoles).toEqual([]);
+    await app.close();
+  });
+
+  it('does not register local session access in production', async () => {
+    const { app, localSessionRoles } = createPilotTestApp('production');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/pilot/local-sessions',
+      headers: { origin: productionOrigin },
+      payload: { role: 'OWNER' },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(localSessionRoles).toEqual([]);
+    await app.close();
+  });
+
   it('logs in with an invite and exposes the current cookie-backed session', async () => {
     const { app } = createPilotTestApp();
     const login = await app.inject({

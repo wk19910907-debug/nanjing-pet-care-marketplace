@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AdminInvitePanel } from './AdminInvitePanel.js';
 import { type PilotApi, PilotApiError, pilotApi, pilotErrorMessage } from './api.js';
 import { LoginPanel } from './LoginPanel.js';
 import type { PilotSession } from './models.js';
@@ -105,7 +104,7 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
     <header className="pilot-header">
       <div>
         <strong>南京安心宠</strong>
-        <span>邀请制试运营</span>
+        <span>本地试运营</span>
       </div>
       <div className="pilot-session-summary">
         <span>{session.displayName} · {ROLE_LABELS[session.role]}</span>
@@ -117,7 +116,6 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
     <main className="pilot-main">
       {session.role === 'ADMIN' && <div className="pilot-admin-stack">
         <AdminPilotWorkspace key={session.userId} api={api} onError={handleProtectedError}/>
-        <AdminInvitePanel api={api} onError={handleProtectedError}/>
       </div>}
       {session.role === 'OWNER' && <OwnerPilotWorkspace key={session.userId} api={api} onError={handleProtectedError}/>}
       {session.role === 'PROVIDER' && <ProviderPilotWorkspace

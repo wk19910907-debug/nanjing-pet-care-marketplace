@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PilotApi } from './api.js';
@@ -16,24 +16,16 @@ function fakeApi(overrides: Partial<PilotApi> = {}): PilotApi {
   return {
     getSession: vi.fn().mockResolvedValue(adminSession),
     createSession: vi.fn().mockResolvedValue({ expiresAt: adminSession.expiresAt }),
+    createLocalSession: vi.fn().mockResolvedValue({ expiresAt: adminSession.expiresAt }),
     updateProfile: vi.fn().mockResolvedValue({
       id: 'admin-1', role: 'ADMIN', displayName: '试点运营',
     }),
     deleteSession: vi.fn().mockResolvedValue(undefined),
-    createInvite: vi.fn().mockResolvedValue({
-      id: 'invite-new', role: 'OWNER', code: 'owner-code-once',
-      expiresAt: '2026-08-28T10:00:00.000Z', createdAt: '2026-08-27T10:00:00.000Z',
-    }),
-    listInvites: vi.fn().mockResolvedValue([]),
-    listPets: vi.fn().mockResolvedValue([]),
-    createPet: vi.fn(),
-    listAddresses: vi.fn().mockResolvedValue([]),
-    createAddress: vi.fn(),
-    getQuote: vi.fn(),
-    createOrder: vi.fn(),
-    listOrders: vi.fn().mockResolvedValue([]),
-    confirmOrder: vi.fn(),
-    getEvidenceReadUrl: vi.fn(),
+    createInvite: vi.fn(), listInvites: vi.fn().mockResolvedValue([]),
+    listPets: vi.fn().mockResolvedValue([]), createPet: vi.fn(),
+    listAddresses: vi.fn().mockResolvedValue([]), createAddress: vi.fn(),
+    getQuote: vi.fn(), createOrder: vi.fn(), listOrders: vi.fn().mockResolvedValue([]),
+    confirmOrder: vi.fn(), getEvidenceReadUrl: vi.fn(),
     listProviderReviewQueue: vi.fn().mockResolvedValue([]),
     listAdminOrders: vi.fn().mockResolvedValue([]), listProviderOrders: vi.fn().mockResolvedValue([]),
     reviewProvider: vi.fn(), confirmManualFee: vi.fn(), startDispatch: vi.fn(),
@@ -46,12 +38,8 @@ function fakeApi(overrides: Partial<PilotApi> = {}): PilotApi {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  let reject!: (reason: unknown) => void;
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
-  });
-  return { promise, resolve, reject };
+  const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise; });
+  return { promise, resolve };
 }
 
 describe('PilotApp', () => {
@@ -60,10 +48,107 @@ describe('PilotApp', () => {
     vi.useRealTimers();
   });
 
-  it('mounts the real admin workspace beside invitation controls', async () => {
-    render(<PilotApp api={fakeApi()}/>);
-    expect(await screen.findByRole('heading', { name: '平台工作区' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: '邀请码管理' })).toBeTruthy();
+  it('renders exactly the three direct role-entry actions without invitation or contact fields', async () => {
+    const api = fakeApi({
+      getSession: vi.fn().mockRejectedValue(new PilotApiError(401, 'UNAUTHENTICATED')),
+    });
+    render(<PilotApp api={api}/>);
+
+    expect(await screen.findByRole('button', { name: '以宠主身份进入' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '以服务人员身份进入' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '以平台管理员身份进入' })).toBeTruthy();
+    expect(screen.getByText('仅限本机试运营；仅记录线下费用，不收集联系方式')).toBeTruthy();
+    expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual([
+      '以宠主身份进入', '以服务人员身份进入', '以平台管理员身份进入',
+    ]);
+    expect(screen.queryByLabelText('邀请码')).toBeNull();
+    expect(screen.queryByText('邀请码管理')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/邀请码|注册|找回密码|手机号|微信号|邮箱|支付/);
+  });
+
+  it('groups the direct role-entry actions under a clear accessible label', async () => {
+    const api = fakeApi({
+      getSession: vi.fn().mockRejectedValue(new PilotApiError(401, 'UNAUTHENTICATED')),
+    });
+    render(<PilotApp api={api}/>);
+
+    const group = await screen.findByRole('group', { name: '试运营身份入口' });
+    expect(within(group).getAllByRole('button').map((button) => button.textContent)).toEqual([
+      '以宠主身份进入', '以服务人员身份进入', '以平台管理员身份进入',
+    ]);
+  });
+
+  it.each([
+    ['以宠主身份进入', 'OWNER', '宠主工作区'],
+    ['以服务人员身份进入', 'PROVIDER', '服务人员工作区'],
+    ['以平台管理员身份进入', 'ADMIN', '平台工作区'],
+  ] as const)('maps %s to %s and opens %s', async (action, role, workspace) => {
+    const sessions = {
+      OWNER: { ...adminSession, userId: 'owner-1', role: 'OWNER' as const, displayName: '秦淮宠主' },
+      PROVIDER: { ...adminSession, userId: 'provider-1', role: 'PROVIDER' as const, displayName: '秦淮小周' },
+      ADMIN: adminSession,
+    };
+    const getSession = vi.fn()
+      .mockRejectedValueOnce(new PilotApiError(401, 'UNAUTHENTICATED'))
+      .mockResolvedValue(sessions[role]);
+    const api = fakeApi({ getSession });
+    const user = userEvent.setup();
+    render(<PilotApp api={api}/>);
+
+    await user.click(await screen.findByRole('button', { name: action }));
+    expect(api.createLocalSession).toHaveBeenCalledWith(role);
+    await screen.findByRole('heading', { name: workspace });
+  });
+
+  it('disables every entry action and makes one local-session call under repeated clicks', async () => {
+    const localSession = deferred<{ expiresAt: string }>();
+    const api = fakeApi({
+      getSession: vi.fn().mockRejectedValue(new PilotApiError(401, 'UNAUTHENTICATED')),
+      createLocalSession: vi.fn().mockImplementation(() => localSession.promise),
+    });
+    render(<PilotApp api={api}/>);
+    const owner = await screen.findByRole('button', { name: '以宠主身份进入' });
+    const provider = screen.getByRole('button', { name: '以服务人员身份进入' });
+    const admin = screen.getByRole('button', { name: '以平台管理员身份进入' });
+
+    act(() => {
+      fireEvent.click(owner);
+      fireEvent.click(owner);
+    });
+
+    expect(api.createLocalSession).toHaveBeenCalledOnce();
+    expect(api.createLocalSession).toHaveBeenCalledWith('OWNER');
+    expect((owner as HTMLButtonElement).disabled).toBe(true);
+    expect((provider as HTMLButtonElement).disabled).toBe(true);
+    expect((admin as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => localSession.resolve({ expiresAt: adminSession.expiresAt }));
+  });
+
+  it('keeps nickname onboarding after direct entry', async () => {
+    const ownerWithoutName = {
+      ...adminSession, userId: 'owner-1', role: 'OWNER' as const, displayName: null,
+    };
+    const getSession = vi.fn()
+      .mockRejectedValueOnce(new PilotApiError(401, 'UNAUTHENTICATED'))
+      .mockResolvedValueOnce(ownerWithoutName)
+      .mockResolvedValueOnce({ ...ownerWithoutName, displayName: '秦淮宠主' });
+    const api = fakeApi({
+      getSession,
+      updateProfile: vi.fn().mockResolvedValue({
+        id: 'owner-1', role: 'OWNER', displayName: '秦淮宠主',
+      }),
+    });
+    const user = userEvent.setup();
+    render(<PilotApp api={api}/>);
+
+    await user.click(await screen.findByRole('button', { name: '以宠主身份进入' }));
+    expect(api.createLocalSession).toHaveBeenCalledWith('OWNER');
+    expect(await screen.findByRole('heading', { name: '设置展示昵称' })).toBeTruthy();
+    expect(screen.getByText('昵称不是实名，也不用于登录或线下身份核验。')).toBeTruthy();
+    await user.type(screen.getByLabelText('展示昵称'), '秦淮宠主');
+    await user.click(screen.getByRole('button', { name: '保存昵称' }));
+    expect(api.updateProfile).toHaveBeenCalledWith('秦淮宠主');
+    expect(await screen.findByRole('heading', { name: '宠主工作区' })).toBeTruthy();
   });
 
   it('mounts a provider workspace keyed to the authenticated server identity', async () => {
@@ -74,140 +159,10 @@ describe('PilotApp', () => {
       }),
     });
     render(<PilotApp api={api}/>);
+
     expect(await screen.findByRole('heading', { name: '服务人员工作区' })).toBeTruthy();
     expect(screen.getByText('当前身份：秦淮小周')).toBeTruthy();
     expect(screen.queryByText('接单与履约功能将在下一阶段接入共享试运营数据。')).toBeNull();
-  });
-
-  it('shows invitation-only login after a 401 with no registration or contact fields', async () => {
-    const api = fakeApi({
-      getSession: vi.fn().mockRejectedValue(new PilotApiError(401, 'UNAUTHENTICATED')),
-    });
-
-    render(<PilotApp api={api}/>);
-
-    expect(await screen.findByRole('heading', { name: '邀请码登录' })).toBeTruthy();
-    expect(screen.getByLabelText('邀请码')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '进入试运营' })).toBeTruthy();
-    expect(document.body.textContent).not.toMatch(/注册|找回密码|手机号|微信号|邮箱/);
-  });
-
-  it('redeems the controlled input and then requires a nickname before any workspace', async () => {
-    const getSession = vi.fn()
-      .mockRejectedValueOnce(new PilotApiError(401, 'UNAUTHENTICATED'))
-      .mockResolvedValueOnce({ ...adminSession, displayName: null });
-    const api = fakeApi({ getSession });
-    const user = userEvent.setup();
-    render(<PilotApp api={api}/>);
-
-    await user.type(await screen.findByLabelText('邀请码'), 'single-use-code');
-    await user.click(screen.getByRole('button', { name: '进入试运营' }));
-
-    expect(api.createSession).toHaveBeenCalledWith('single-use-code');
-    expect(await screen.findByRole('heading', { name: '设置展示昵称' })).toBeTruthy();
-    expect(screen.queryByText('邀请码管理')).toBeNull();
-    expect(screen.getByText('昵称不是实名，也不用于登录或线下身份核验。')).toBeTruthy();
-  });
-
-  it('updates a nickname and opens only the server-selected owner workspace', async () => {
-    const ownerWithoutName = { ...adminSession, userId: 'owner-1', role: 'OWNER' as const, displayName: null };
-    const api = fakeApi({
-      getSession: vi.fn()
-        .mockResolvedValueOnce(ownerWithoutName)
-        .mockResolvedValueOnce({ ...ownerWithoutName, displayName: '秦淮宠主' }),
-      updateProfile: vi.fn().mockResolvedValue({
-        id: 'owner-1', role: 'OWNER', displayName: '秦淮宠主',
-      }),
-    });
-    const user = userEvent.setup();
-    render(<PilotApp api={api}/>);
-
-    await user.type(await screen.findByLabelText('展示昵称'), '秦淮宠主');
-    await user.click(screen.getByRole('button', { name: '保存昵称' }));
-
-    expect(api.updateProfile).toHaveBeenCalledWith('秦淮宠主');
-    expect(await screen.findByRole('heading', { name: '宠主工作区' })).toBeTruthy();
-    expect(await screen.findByRole('heading', { name: '宠物档案' })).toBeTruthy();
-    expect(screen.queryByText('邀请码管理')).toBeNull();
-    expect(screen.queryByRole('combobox', { name: /角色/ })).toBeNull();
-  });
-
-  it('allows only admins to create/list invites and clears the one-time code on refresh', async () => {
-    const existing = {
-      id: 'invite-old', role: 'PROVIDER' as const,
-      expiresAt: '2026-08-28T09:00:00.000Z', consumedAt: null,
-      createdAt: '2026-08-27T09:00:00.000Z',
-    };
-    const listInvites = vi.fn().mockResolvedValue([existing]);
-    const api = fakeApi({ listInvites });
-    const user = userEvent.setup();
-    render(<PilotApp api={api}/>);
-
-    expect(await screen.findByRole('heading', { name: '邀请码管理' })).toBeTruthy();
-    expect(screen.getByRole('option', { name: '宠主' })).toBeTruthy();
-    expect(screen.getByRole('option', { name: '服务人员' })).toBeTruthy();
-    expect(screen.queryByRole('option', { name: '管理员' })).toBeNull();
-    await user.selectOptions(screen.getByLabelText('邀请角色'), 'PROVIDER');
-    await user.click(screen.getByRole('button', { name: '创建一次性邀请码' }));
-
-    expect(api.createInvite).toHaveBeenCalledWith('PROVIDER');
-    expect(await screen.findByText('owner-code-once')).toBeTruthy();
-    expect(screen.getByText('邀请码仅显示一次，请通过受控线下渠道交付。')).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: '刷新邀请记录' }));
-
-    await waitFor(() => expect(listInvites).toHaveBeenCalledTimes(2));
-    expect(screen.queryByText('owner-code-once')).toBeNull();
-    expect(screen.getByText('服务人员 · 未使用')).toBeTruthy();
-  });
-
-  it('never renders a stale one-time code when an overlapping refresh fails', async () => {
-    const create = deferred<Awaited<ReturnType<PilotApi['createInvite']>>>();
-    const refresh = deferred<Awaited<ReturnType<PilotApi['listInvites']>>>();
-    const listInvites = vi.fn()
-      .mockResolvedValueOnce([])
-      .mockImplementationOnce(() => refresh.promise);
-    const api = fakeApi({
-      createInvite: vi.fn().mockImplementation(() => create.promise),
-      listInvites,
-    });
-    const user = userEvent.setup();
-    render(<PilotApp api={api}/>);
-
-    expect(await screen.findByRole('heading', { name: '邀请码管理' })).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: '创建一次性邀请码' }));
-    await user.click(screen.getByRole('button', { name: '刷新邀请记录' }));
-    await act(async () => {
-      create.resolve({
-        id: 'invite-race', role: 'OWNER', code: 'must-never-render',
-        expiresAt: '2026-09-01T00:00:00.000Z', createdAt: '2026-08-28T00:00:00.000Z',
-      });
-      await Promise.resolve();
-    });
-    await act(async () => {
-      refresh.reject(new PilotApiError(503, 'SERVICE_UNAVAILABLE'));
-      await Promise.resolve();
-    });
-
-    expect(screen.queryByText('must-never-render')).toBeNull();
-    expect(screen.getByRole('alert').textContent).toContain('服务暂时不可用，请稍后重试');
-    expect(api.createInvite).toHaveBeenCalledTimes(1);
-  });
-
-  it('synchronously rejects duplicate invitation form submissions', async () => {
-    const create = deferred<Awaited<ReturnType<PilotApi['createInvite']>>>();
-    const api = fakeApi({
-      createInvite: vi.fn().mockImplementation(() => create.promise),
-    });
-    render(<PilotApp api={api}/>);
-    expect(await screen.findByRole('heading', { name: '邀请码管理' })).toBeTruthy();
-    const form = document.querySelector<HTMLFormElement>('.pilot-invite-form')!;
-
-    act(() => {
-      fireEvent.submit(form);
-      fireEvent.submit(form);
-    });
-
-    expect(api.createInvite).toHaveBeenCalledTimes(1);
   });
 
   it('fails closed on 503, retries, and logs out the current cookie session', async () => {
@@ -220,11 +175,11 @@ describe('PilotApp', () => {
 
     expect((await screen.findByRole('alert')).textContent).toContain('服务暂时不可用，请稍后重试');
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
-    expect(await screen.findByRole('heading', { name: '邀请码管理' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: '平台工作区' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '退出登录' }));
 
     await waitFor(() => expect(api.deleteSession).toHaveBeenCalledOnce());
-    expect(await screen.findByRole('heading', { name: '邀请码登录' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: '以宠主身份进入' })).toBeTruthy();
   });
 
   it('shows fixed Chinese copy for unexpected client errors', async () => {
@@ -247,55 +202,20 @@ describe('PilotApp', () => {
     });
     render(<PilotApp api={api}/>);
 
-    expect(await screen.findByRole('heading', { name: '邀请码登录' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: '以宠主身份进入' })).toBeTruthy();
     expect(screen.queryByText('邀请码管理')).toBeNull();
     expect(api.listInvites).not.toHaveBeenCalled();
   });
 
-  it('clears protected invitation data when a child request returns 401', async () => {
-    const existing = {
-      id: 'invite-old', role: 'OWNER' as const,
-      expiresAt: '2026-09-01T10:00:00.000Z', consumedAt: null,
-      createdAt: '2026-08-27T09:00:00.000Z',
-    };
-    const listInvites = vi.fn()
-      .mockResolvedValueOnce([existing])
-      .mockRejectedValueOnce(new PilotApiError(401, 'UNAUTHENTICATED'));
-    const api = fakeApi({ listInvites });
-    const user = userEvent.setup();
-    render(<PilotApp api={api}/>);
-
-    expect(await screen.findByText('宠主 · 未使用')).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: '刷新邀请记录' }));
-
-    expect(await screen.findByRole('heading', { name: '邀请码登录' })).toBeTruthy();
-    expect(screen.queryByText('宠主 · 未使用')).toBeNull();
-    expect(screen.queryByText('邀请码管理')).toBeNull();
-  });
-
-  it('unloads the admin UI when a stale create returns 401 after refresh begins', async () => {
-    const create = deferred<Awaited<ReturnType<PilotApi['createInvite']>>>();
-    const refresh = deferred<Awaited<ReturnType<PilotApi['listInvites']>>>();
+  it('clears the protected workspace when an admin request returns 401', async () => {
     const api = fakeApi({
-      createInvite: vi.fn().mockImplementation(() => create.promise),
-      listInvites: vi.fn()
-        .mockResolvedValueOnce([])
-        .mockImplementationOnce(() => refresh.promise),
+      listAdminOrders: vi.fn().mockRejectedValue(new PilotApiError(401, 'UNAUTHENTICATED')),
     });
-    const user = userEvent.setup();
     render(<PilotApp api={api}/>);
 
-    expect(await screen.findByRole('heading', { name: '邀请码管理' })).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: '创建一次性邀请码' }));
-    await user.click(screen.getByRole('button', { name: '刷新邀请记录' }));
-    await act(async () => {
-      create.reject(new PilotApiError(401, 'UNAUTHENTICATED'));
-      await Promise.resolve();
-    });
-
-    expect(await screen.findByRole('heading', { name: '邀请码登录' })).toBeTruthy();
-    expect(screen.queryByText('邀请码管理')).toBeNull();
-    expect(screen.queryByText('must-never-render')).toBeNull();
+    expect(await screen.findByRole('button', { name: '以宠主身份进入' })).toBeTruthy();
+    expect(api.listAdminOrders).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('heading', { name: '平台工作区' })).toBeNull();
   });
 
   it('never opens a protected workspace for an invalid runtime display name', async () => {
@@ -303,12 +223,10 @@ describe('PilotApp', () => {
       userId: 'admin-1', role: 'ADMIN', displayName: ' 未修剪昵称',
       expiresAt: '2026-09-03T10:00:00.000Z',
     }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
-
     render(<PilotApp api={api}/>);
 
     expect((await screen.findByRole('alert')).textContent).toContain('服务暂时不可用，请稍后重试');
-    expect(screen.queryByText('邀请码管理')).toBeNull();
-    expect(screen.queryByText('平台管理员工作区')).toBeNull();
+    expect(screen.queryByRole('heading', { name: '平台工作区' })).toBeNull();
   });
 
   it('does not clear a long session when the capped timer fires before the real expiry', async () => {
@@ -319,15 +237,21 @@ describe('PilotApp', () => {
         ...adminSession, expiresAt: '2026-08-31T00:00:00.000Z',
       }),
     });
-
     render(<PilotApp api={api}/>);
+
     await act(async () => { await Promise.resolve(); });
-    expect(screen.getByRole('heading', { name: '邀请码管理' })).toBeTruthy();
-
+    expect(screen.getByRole('heading', { name: '平台工作区' })).toBeTruthy();
     act(() => { vi.advanceTimersByTime(2_147_483_647); });
-    expect(screen.getByRole('heading', { name: '邀请码管理' })).toBeTruthy();
-
+    expect(screen.getByRole('heading', { name: '平台工作区' })).toBeTruthy();
     act(() => { vi.advanceTimersByTime(30 * 24 * 60 * 60 * 1_000 - 2_147_483_647); });
-    expect(screen.getByRole('heading', { name: '邀请码登录' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '以宠主身份进入' })).toBeTruthy();
+  });
+
+  it('renders the admin workspace without invitation management and labels the shell local pilot', async () => {
+    render(<PilotApp api={fakeApi()}/>);
+    expect(await screen.findByRole('heading', { name: '平台工作区' })).toBeTruthy();
+    expect(screen.getByText('本地试运营')).toBeTruthy();
+    expect(screen.queryByText('邀请码管理')).toBeNull();
+    expect(screen.queryByText('邀请制试运营')).toBeNull();
   });
 });

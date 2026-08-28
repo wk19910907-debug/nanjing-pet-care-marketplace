@@ -3,15 +3,37 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { AppConfig } from '../config.js';
 import { FailedLoginLimiter } from './failed-login-limiter.js';
-import type { PilotSessionService } from './pilot-session-service.js';
+import {
+  LOCAL_PILOT_ROLES,
+  type PilotSessionService,
+} from './pilot-session-service.js';
 
 const SESSION_COOKIE = 'petcare_pilot_session';
 const LoginSchema = z.object({ inviteCode: z.string().min(1).max(512) });
 const DisplayNameSchema = z.object({ displayName: z.string() });
+const LocalSessionSchema = z.object({ role: z.enum(LOCAL_PILOT_ROLES) }).strict();
+const LOOPBACK_ADDRESSES = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+
+function isAllowedLocalSessionRequest(request: FastifyRequest, config: AppConfig): boolean {
+  const pilot = config.pilot;
+  if (!pilot || !LOOPBACK_ADDRESSES.has(pilot.host)) return false;
+
+  const authorityHost = pilot.host.includes(':') ? `[${pilot.host}]` : pilot.host;
+  const localUrl = new URL(`http://${authorityHost}:${pilot.port}`);
+  const authority = localUrl.host;
+  const origin = localUrl.origin;
+  const transportPeer = request.raw.socket.remoteAddress;
+
+  return transportPeer !== undefined
+    && LOOPBACK_ADDRESSES.has(transportPeer)
+    && LOOPBACK_ADDRESSES.has(request.ip)
+    && request.raw.headers.host === authority
+    && (request.headers.origin === undefined || request.headers.origin === origin);
+}
 
 type PilotRouteSessions = Pick<
   PilotSessionService,
-  'redeem' | 'authenticate' | 'setDisplayName' | 'revoke' | 'createInvite'
+  'redeem' | 'authenticate' | 'setDisplayName' | 'revoke' | 'createInvite' | 'createLocalSession'
 >;
 
 export type PilotAuthRoutesDependencies = {
@@ -59,6 +81,21 @@ export async function registerPilotAuthRoutes(
     writeSessionCookie(reply, secureCookies, session);
     return reply.code(201).send({ expiresAt: session.expiresAt.toISOString() });
   });
+
+  if (dependencies.config.nodeEnv === 'development' || dependencies.config.nodeEnv === 'test') {
+    app.post('/api/v1/pilot/local-sessions', {
+      onRequest: async (request, reply) => {
+        if (!isAllowedLocalSessionRequest(request, dependencies.config)) {
+          return reply.code(403).send({ code: 'FORBIDDEN' });
+        }
+      },
+    }, async (request, reply) => {
+      const { role } = LocalSessionSchema.parse(request.body);
+      const session = await dependencies.sessions.createLocalSession(role);
+      writeSessionCookie(reply, secureCookies, session);
+      return reply.code(201).send({ expiresAt: session.expiresAt.toISOString() });
+    });
+  }
 
   app.get('/api/v1/pilot/session', async (request) => (
     dependencies.sessions.authenticate(authorization(request))
