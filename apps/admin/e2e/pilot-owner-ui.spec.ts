@@ -5,7 +5,7 @@ const validPng = Buffer.from(
   'base64',
 );
 
-test('owner creates safe resources, uses a fixed quote, and reads the shared timeline on mobile', async ({ page }) => {
+test('owner books progressively, uses a fixed quote, and reads the shared timeline on mobile', async ({ page }) => {
   const pet = {
     id: '11111111-1111-4111-8111-111111111111', name: '团子', species: 'CAT', sensitiveNotes: '',
   };
@@ -18,7 +18,6 @@ test('owner creates safe resources, uses a fixed quote, and reads the shared tim
     status: 'PENDING_PAYMENT', startsAt: '2026-09-10T02:00:00.000Z', durationMinutes: 30,
     totalFen: 3900, currency: 'CNY', city: '南京市', district: '建邺区', serviceZone: '建邺区',
   };
-  let addressDetail = '';
   let orderRequest: Record<string, unknown> | undefined;
   let orderKey = '';
   let confirmedOrder = '';
@@ -36,9 +35,6 @@ test('owner creates safe resources, uses a fixed quote, and reads the shared tim
       await route.fulfill({ status: 200, json: [pet] });
     } else if (path === '/api/v1/addresses' && method === 'GET') {
       await route.fulfill({ status: 200, json: [address] });
-    } else if (path === '/api/v1/addresses' && method === 'POST') {
-      addressDetail = (request.postDataJSON() as { detail: string }).detail;
-      await route.fulfill({ status: 201, json: address });
     } else if (path === '/api/v1/pilot/orders' && method === 'GET') {
       await route.fulfill({ status: 200, json: [pendingOrder, {
         ...pendingOrder,
@@ -77,20 +73,23 @@ test('owner creates safe resources, uses a fixed quote, and reads the shared tim
   });
 
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: '宠主工作区' })).toBeVisible();
-  await page.getByRole('combobox', { name: '服务区' }).selectOption('秦淮区');
-  await page.getByLabel('详细服务地址').fill('中华路 88 号 2 幢 301');
-  await page.getByRole('button', { name: '保存地址' }).click();
-  await expect.poll(() => addressDetail).toBe('中华路 88 号 2 幢 301');
-  await expect(page.getByText('中华路 88 号 2 幢 301')).toHaveCount(0);
-
-  await page.getByRole('combobox', { name: '服务宠物' }).selectOption(pet.id);
-  await page.getByRole('combobox', { name: '服务地址' }).selectOption(address.id);
+  await expect(page.getByRole('heading', { name: '放心把它交给我们' })).toBeVisible();
+  await expect(page.locator('input:visible, select:visible, textarea:visible')).toHaveCount(0);
+  await page.getByRole('button', { name: '预约上门喂猫' }).click();
+  await expect(page.getByRole('heading', { name: '选择服务' })).toBeVisible();
+  await expect(page.getByLabel('服务时间')).toHaveCount(0);
+  await page.getByRole('button', { name: '下一步：选择时间' }).click();
   await page.getByLabel('服务时间').fill('2026-09-10T10:00');
+  await page.getByRole('button', { name: '下一步：宠物信息' }).click();
+  await page.getByLabel('选择已有宠物').selectOption(pet.id);
+  await page.getByRole('button', { name: '下一步：上门信息' }).click();
+  await page.getByLabel('选择已有地址').selectOption(address.id);
   await page.getByRole('button', { name: '获取服务报价' }).click();
   await expect(page.getByText('服务器固定报价')).toBeVisible();
+  await expect(page.getByLabel('订单备注（可选）')).toHaveCount(0);
+  await page.getByRole('button', { name: '补充上门要求（选填）' }).click();
   await page.getByLabel('订单备注（可选）').fill('请轻声进门');
-  await page.getByRole('button', { name: '按固定报价提交订单' }).click();
+  await page.getByRole('button', { name: '确认提交订单' }).click();
 
   expect(orderKey).toMatch(/^.{8,100}$/);
   expect(orderRequest).toMatchObject({

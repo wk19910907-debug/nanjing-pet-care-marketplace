@@ -290,7 +290,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
 
     await Promise.all([
       withinNegativeWindow(ownerPage, '/api/v1/pilot/session', [401], () => (
-        loginDirect(ownerPage, 'OWNER', '建邺团子家', '宠主工作区')
+        loginDirect(ownerPage, 'OWNER', '建邺团子家', '放心把它交给我们')
       )),
       withinNegativeWindow(providerPage, '/api/v1/pilot/session', [401], () => (
         loginDirect(providerPage, 'PROVIDER', '建邺小周', '服务人员工作区')
@@ -331,34 +331,32 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await expect(adminPage.getByRole('button', { name: '暂停建邺小周' })).toBeVisible();
     await assertMobilePrivacy(adminPage);
 
+    await expect(ownerPage.locator('input:visible, select:visible, textarea:visible')).toHaveCount(0);
+    await ownerPage.getByRole('button', { name: '预约上门喂猫' }).click();
+    await ownerPage.getByRole('button', { name: '下一步：选择时间' }).click();
+    await ownerPage.getByLabel('服务时间').fill(localInput(serviceStarts));
+    await ownerPage.getByRole('button', { name: '下一步：宠物信息' }).click();
     await ownerPage.getByLabel('宠物昵称').fill('团子');
-    await ownerPage.getByRole('button', { name: '保存宠物' }).click();
-    await expect(ownerPage.locator('strong', { hasText: '团子 · 猫' })).toBeVisible();
+    await ownerPage.getByRole('button', { name: '下一步：上门信息' }).click();
     await ownerPage.getByRole('combobox', { name: '服务区' }).selectOption('建邺区');
     await ownerPage.getByLabel('详细服务地址').fill(exactAddress);
-    await ownerPage.getByRole('button', { name: '保存地址' }).click();
-    await expect(ownerPage.getByText(exactAddress)).toHaveCount(0);
-    await assertMobilePrivacy(ownerPage);
-
-    await ownerPage.getByRole('combobox', { name: '服务宠物' }).selectOption({ label: '团子 · 猫' });
-    await ownerPage.getByRole('combobox', { name: '服务地址' }).selectOption({ index: 1 });
-    await ownerPage.getByLabel('服务时间').fill(localInput(serviceStarts));
     await ownerPage.getByRole('button', { name: '获取服务报价' }).click();
     await expect(ownerPage.getByText('服务器固定报价')).toBeVisible();
+    await ownerPage.getByRole('button', { name: '补充上门要求（选填）' }).click();
     await ownerPage.getByLabel('订单备注（可选）').fill('进门前请轻声敲门');
     const orderResponsePromise = ownerPage.waitForResponse((response) => (
       new URL(response.url()).pathname === '/api/v1/orders'
       && response.request().method() === 'POST'
       && response.status() === 201
     ));
-    await ownerPage.getByRole('button', { name: '按固定报价提交订单' }).click();
+    await ownerPage.getByRole('button', { name: '确认提交订单' }).click();
     const orderResponse = await orderResponsePromise;
     const ownerOrderInput = orderResponse.request().postDataJSON() as Record<string, unknown>;
     const order = await orderResponse.json() as { id: string; status: string; paymentToken: null };
     expect(order).toMatchObject({ status: 'PENDING_PAYMENT', paymentToken: null });
     const orderId = order.id;
     await assertMobilePrivacy(ownerPage);
-    await assertDesktopPrivacy(ownerPage, '宠主工作区');
+    await assertDesktopPrivacy(ownerPage, '放心把它交给我们');
 
     const [adminOrdersBefore, providerOrdersBefore] = await Promise.all([
       browserFetch(adminPage, '/api/v1/pilot/orders'),
@@ -372,7 +370,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     expect((await restart.json() as { generation: number }).generation).toBe(2);
     await Promise.all([adminPage.reload(), ownerPage.reload(), providerPage.reload()]);
     await expect(adminPage.getByRole('heading', { name: '平台工作区' })).toBeVisible();
-    await expect(ownerPage.getByRole('heading', { name: '宠主工作区' })).toBeVisible();
+    await expect(ownerPage.getByRole('heading', { name: '放心把它交给我们' })).toBeVisible();
     await expect(providerPage.getByRole('heading', { name: '服务人员工作区' })).toBeVisible();
     await Promise.all([
       assertMobilePrivacy(adminPage), assertMobilePrivacy(ownerPage), assertMobilePrivacy(providerPage),
@@ -498,7 +496,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     expect(JSON.stringify(confirmationBody)).not.toMatch(/providerId|providerFen|commission/);
     await expect(ownerPage.getByText('服务已完成')).toBeVisible();
     expect(await contextStatus(providerContext, `/api/v1/orders/${orderId}/address/assigned`)).toBe(403);
-    await assertDesktopPrivacy(ownerPage, '宠主工作区');
+    await assertDesktopPrivacy(ownerPage, '放心把它交给我们');
 
     const holdingOrderResponse = await browserFetch(ownerPage, '/api/v1/orders', {
       method: 'POST',
@@ -545,7 +543,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await withinNegativeWindow(ownerPage, '/api/v1/pilot/session', [401], () => (
       logoutAndAssertRevoked(ownerContext, ownerPage)
     ));
-    await loginSecondaryWithInvite(ownerPage, secondOwnerInvite, '建邺布丁家', '宠主工作区');
+    await loginSecondaryWithInvite(ownerPage, secondOwnerInvite, '建邺布丁家', '放心把它交给我们');
     await assertSessionCookie(ownerContext, ownerPage);
 
     for (const result of [
@@ -596,22 +594,23 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await expect(adminPage.getByRole('button', { name: '暂停建邺小吴' })).toBeVisible();
     await assertMobilePrivacy(adminPage);
 
+    await ownerPage.getByRole('button', { name: '预约上门喂猫' }).click();
+    await ownerPage.getByRole('button', { name: '下一步：选择时间' }).click();
+    await ownerPage.getByLabel('服务时间').fill(localInput(new Date(now.getTime() + 20 * 60_000)));
+    await ownerPage.getByRole('button', { name: '下一步：宠物信息' }).click();
     await ownerPage.getByLabel('宠物昵称').fill('布丁');
-    await ownerPage.getByRole('button', { name: '保存宠物' }).click();
+    await ownerPage.getByRole('button', { name: '下一步：上门信息' }).click();
     await ownerPage.getByRole('combobox', { name: '服务区' }).selectOption('建邺区');
     await ownerPage.getByLabel('详细服务地址').fill(secondExactAddress);
-    await ownerPage.getByRole('button', { name: '保存地址' }).click();
-    await ownerPage.getByRole('combobox', { name: '服务宠物' }).selectOption({ label: '布丁 · 猫' });
-    await ownerPage.getByRole('combobox', { name: '服务地址' }).selectOption({ index: 1 });
-    await ownerPage.getByLabel('服务时间').fill(localInput(new Date(now.getTime() + 20 * 60_000)));
     await ownerPage.getByRole('button', { name: '获取服务报价' }).click();
+    await ownerPage.getByRole('button', { name: '补充上门要求（选填）' }).click();
     await ownerPage.getByLabel('订单备注（可选）').fill('第二账号隔离验收');
     const secondOrderResponsePromise = ownerPage.waitForResponse((response) => (
       new URL(response.url()).pathname === '/api/v1/orders'
       && response.request().method() === 'POST'
       && response.status() === 201
     ));
-    await ownerPage.getByRole('button', { name: '按固定报价提交订单' }).click();
+    await ownerPage.getByRole('button', { name: '确认提交订单' }).click();
     const secondOrder = await (await secondOrderResponsePromise).json() as { id: string; status: string };
     expect(secondOrder.status).toBe('PENDING_PAYMENT');
     expect(secondOrder.id).not.toBe(orderId);
@@ -685,7 +684,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await Promise.all([assertMobilePrivacy(adminPage), assertMobilePrivacy(ownerPage), assertMobilePrivacy(providerPage)]);
     await Promise.all([
       assertDesktopPrivacy(adminPage, '平台工作区'),
-      assertDesktopPrivacy(ownerPage, '宠主工作区'),
+      assertDesktopPrivacy(ownerPage, '放心把它交给我们'),
       assertDesktopPrivacy(providerPage, '服务人员工作区'),
     ]);
     await Promise.all([

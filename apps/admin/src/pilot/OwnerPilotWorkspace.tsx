@@ -383,7 +383,7 @@ export function OwnerPilotWorkspace({ api, displayName = '宠主', onError }: Ow
       />
       <section id="owner-orders" className="pilot-owner-orders" aria-labelledby="owner-orders-title">
         <div className="pilot-panel-heading"><div><p className="pilot-kicker">共享进度</p><h2 id="owner-orders-title">我的订单</h2></div></div>
-        {orders.length === 0 ? <p className="pilot-empty">还没有订单。完成上方步骤即可提交服务需求。</p> : <div className="pilot-owner-order-list">
+        {orders.length === 0 ? <p className="pilot-empty">还没有订单。选择首页服务即可开始预约。</p> : <div className="pilot-owner-order-list">
           {orders.map((order) => <article className="pilot-owner-order" key={order.id}>
             <div className="pilot-order-summary">
               <div><span className="pilot-status">{STATUS_LABELS[order.status]}</span><h3>{SERVICE_LABELS[order.serviceType]}</h3></div>
