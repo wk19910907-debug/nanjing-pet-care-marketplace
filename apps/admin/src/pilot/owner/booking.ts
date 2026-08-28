@@ -7,6 +7,7 @@ export type BookingDraft = {
   serviceType: ServiceType;
   startsAt: string;
   durationMinutes: number;
+  petMode: 'EXISTING' | 'NEW';
   petId: string;
   petName: string;
   petSpecies: OwnerPet['species'];
@@ -15,6 +16,7 @@ export type BookingDraft = {
   districtName: string;
   addressDetail: string;
   orderNotes: string;
+  addressMode: 'EXISTING' | 'NEW';
 };
 
 const STEPS: readonly BookingStep[] = ['SERVICE', 'SCHEDULE', 'PET', 'ADDRESS', 'QUOTE'];
@@ -25,6 +27,7 @@ export function createBookingDraft(serviceType: ServiceType = 'CAT_FEEDING'): Bo
     serviceType,
     startsAt: '',
     durationMinutes: 30,
+    petMode: 'EXISTING',
     petId: '',
     petName: '',
     petSpecies: serviceType === 'CAT_FEEDING' ? 'CAT' : 'DOG',
@@ -33,6 +36,7 @@ export function createBookingDraft(serviceType: ServiceType = 'CAT_FEEDING'): Bo
     districtName: '建邺区',
     addressDetail: '',
     orderNotes: '',
+    addressMode: 'EXISTING',
   };
 }
 
@@ -56,9 +60,13 @@ export function bookingStepIsComplete(draft: BookingDraft): boolean {
   if (draft.step === 'SCHEDULE') {
     return draft.startsAt !== '' && Number.isFinite(new Date(draft.startsAt).getTime());
   }
-  if (draft.step === 'PET') return draft.petId !== '' || draft.petName.trim() !== '';
+  if (draft.step === 'PET') {
+    return draft.petMode === 'EXISTING' ? draft.petId !== '' : draft.petName.trim() !== '';
+  }
   if (draft.step === 'ADDRESS') {
-    return draft.addressId !== '' || draft.addressDetail.trim() !== '';
+    return draft.addressMode === 'EXISTING'
+      ? draft.addressId !== ''
+      : draft.addressDetail.trim() !== '';
   }
   return draft.petId !== ''
     && draft.addressId !== ''

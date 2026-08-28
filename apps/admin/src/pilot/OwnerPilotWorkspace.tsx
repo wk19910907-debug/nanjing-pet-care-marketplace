@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createIdempotencyKey, type PilotApi } from './api.js';
-import { PILOT_DISTRICTS, pilotDistrict } from './districts.js';
+import { pilotDistrict } from './districts.js';
 import type {
   CreateOwnerOrder,
   OrderStatus,
@@ -11,9 +11,13 @@ import type {
   QuoteRequest,
   ServiceType,
 } from './models.js';
+import { BookingFlow } from './owner/BookingFlow.js';
+import { createBookingDraft, type BookingDraft } from './owner/booking.js';
+import { OwnerHome } from './owner/OwnerHome.js';
 
 type OwnerPilotWorkspaceProps = {
   api: PilotApi;
+  displayName?: string;
   onError(caught: unknown): string | null;
 };
 
@@ -38,9 +42,6 @@ const STATUS_LABELS: Readonly<Record<OrderStatus, string>> = {
   DISPATCH_FAILED: '匹配未成功',
   EXPIRED: '订单已过期',
 };
-
-const SPECIES_LABELS = { CAT: '猫', DOG: '狗' } as const;
-const DURATION_OPTIONS = [25, 30, 45, 60, 90, 120] as const;
 
 function fen(value: number): string {
   return new Intl.NumberFormat('zh-CN', {
@@ -94,7 +95,7 @@ function OrderTimeline({ order }: { order: OwnerOrder }) {
   </ol>;
 }
 
-export function OwnerPilotWorkspace({ api, onError }: OwnerPilotWorkspaceProps) {
+export function OwnerPilotWorkspace({ api, displayName = '宠主', onError }: OwnerPilotWorkspaceProps) {
   const [pets, setPets] = useState<OwnerPet[]>([]);
   const [addresses, setAddresses] = useState<OwnerAddress[]>([]);
   const [orders, setOrders] = useState<OwnerOrder[]>([]);
@@ -103,23 +104,8 @@ export function OwnerPilotWorkspace({ api, onError }: OwnerPilotWorkspaceProps) 
   const loadVersion = useRef(0);
   const lifecycle = useRef({ mounted: false, generation: 0 });
 
-  const [petName, setPetName] = useState('');
-  const [petSpecies, setPetSpecies] = useState<OwnerPet['species']>('CAT');
-  const [petNotes, setPetNotes] = useState('');
-  const [savingPet, setSavingPet] = useState(false);
-  const petLock = useRef(false);
-
-  const [districtName, setDistrictName] = useState<string>(PILOT_DISTRICTS[0].district);
-  const [addressDetail, setAddressDetail] = useState('');
-  const [savingAddress, setSavingAddress] = useState(false);
-  const addressLock = useRef(false);
-
-  const [serviceType, setServiceType] = useState<ServiceType>('CAT_FEEDING');
-  const [petId, setPetId] = useState('');
-  const [addressId, setAddressId] = useState('');
-  const [startsAt, setStartsAt] = useState('');
-  const [durationMinutes, setDurationMinutes] = useState(30);
-  const [orderNotes, setOrderNotes] = useState('');
+  const [bookingOpen, setBookingOpen] = useState(false);
+  const [bookingDraft, setBookingDraft] = useState<BookingDraft>(() => createBookingDraft());
   const [quote, setQuote] = useState<QuoteBreakdown | null>(null);
   const [quotedRequest, setQuotedRequest] = useState<QuoteRequest | null>(null);
   const [orderKey, setOrderKey] = useState('');
@@ -184,10 +170,6 @@ export function OwnerPilotWorkspace({ api, onError }: OwnerPilotWorkspaceProps) 
     };
   }, [loadResources]);
 
-  const compatiblePets = useMemo(() => pets.filter((pet) => (
-    serviceType === 'CAT_FEEDING' ? pet.species === 'CAT' : pet.species === 'DOG'
-  )), [pets, serviceType]);
-
   const invalidateQuote = () => {
     quoteVersion.current += 1;
     quoteLock.current = false;
@@ -200,76 +182,27 @@ export function OwnerPilotWorkspace({ api, onError }: OwnerPilotWorkspaceProps) 
     setError('');
   };
 
-  const savePet = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (petLock.current) return;
-    const generation = lifecycle.current.generation;
-    if (!isCurrent(generation)) return;
-    petLock.current = true;
-    setSavingPet(true);
-    setError('');
-    try {
-      await api.createPet({ name: petName, species: petSpecies, sensitiveNotes: petNotes });
-      if (!isCurrent(generation)) return;
-      setPetName('');
-      setPetNotes('');
-      await loadResources(false, generation);
-    } catch (caught) {
-      reportError(caught, generation);
-    } finally {
-      if (isCurrent(generation)) {
-        petLock.current = false;
-        setSavingPet(false);
-      }
-    }
+  const openBooking = (serviceType: ServiceType) => {
+    invalidateQuote();
+    setBookingDraft(createBookingDraft(serviceType));
+    setBookingOpen(true);
   };
 
-  const saveAddress = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (addressLock.current) return;
-    const generation = lifecycle.current.generation;
-    if (!isCurrent(generation)) return;
-    const district = pilotDistrict(districtName);
-    if (!district) return reportError(new Error('invalid district'), generation);
-    addressLock.current = true;
-    setSavingAddress(true);
-    setError('');
-    try {
-      await api.createAddress({
-        city: '南京市', district: district.district, serviceZone: district.zone,
-        latitude: district.latitude, longitude: district.longitude,
-        detail: addressDetail, accessInstructions: '',
-      });
-      if (!isCurrent(generation)) return;
-      setAddressDetail('');
-      await loadResources(false, generation);
-    } catch (caught) {
-      reportError(caught, generation);
-    } finally {
-      if (isCurrent(generation)) {
-        addressLock.current = false;
-        setSavingAddress(false);
-      }
-    }
+  const closeBooking = () => {
+    if (orderAttemptRef.current !== null) return;
+    invalidateQuote();
+    setBookingOpen(false);
   };
 
-  const buildQuoteRequest = (): QuoteRequest | null => {
-    if (!petId || !addressId || !startsAt) return null;
-    const parsed = new Date(startsAt);
-    if (!Number.isFinite(parsed.getTime())) return null;
-    return {
-      serviceType, petIds: [petId], addressId,
-      startsAt: parsed.toISOString(), durationMinutes,
-    };
+  const abandonQuote = () => {
+    invalidateQuote();
+    setBookingDraft((current) => ({ ...current, step: 'ADDRESS' }));
   };
 
-  const fetchQuote = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const prepareQuote = async (inputDraft: BookingDraft) => {
     if (quoteLock.current) return;
     const generation = lifecycle.current.generation;
     if (!isCurrent(generation)) return;
-    const request = buildQuoteRequest();
-    if (!request) return;
     const requestVersion = ++quoteVersion.current;
     quoteLock.current = true;
     setQuoting(true);
@@ -278,6 +211,44 @@ export function OwnerPilotWorkspace({ api, onError }: OwnerPilotWorkspaceProps) 
     setQuotedRequest(null);
     setOrderKey('');
     try {
+      let ready = { ...inputDraft };
+      if (ready.petMode === 'NEW') {
+        const createdPet = await api.createPet({
+          name: ready.petName.trim(),
+          species: ready.petSpecies,
+          sensitiveNotes: ready.petNotes,
+        });
+        if (!isCurrent(generation) || requestVersion !== quoteVersion.current) return;
+        ready = { ...ready, petMode: 'EXISTING', petId: createdPet.id };
+        setPets((current) => current.some((pet) => pet.id === createdPet.id)
+          ? current : [...current, createdPet]);
+        setBookingDraft(ready);
+      }
+      if (ready.addressMode === 'NEW') {
+        const district = pilotDistrict(ready.districtName);
+        if (!district) throw new Error('invalid district');
+        const createdAddress = await api.createAddress({
+          city: '南京市', district: district.district, serviceZone: district.zone,
+          latitude: district.latitude, longitude: district.longitude,
+          detail: ready.addressDetail.trim(), accessInstructions: '',
+        });
+        if (!isCurrent(generation) || requestVersion !== quoteVersion.current) return;
+        ready = { ...ready, addressMode: 'EXISTING', addressId: createdAddress.id };
+        setAddresses((current) => current.some((address) => address.id === createdAddress.id)
+          ? current : [...current, createdAddress]);
+        setBookingDraft(ready);
+      }
+      const parsed = new Date(ready.startsAt);
+      if (!ready.petId || !ready.addressId || !Number.isFinite(parsed.getTime())) {
+        throw new Error('invalid booking draft');
+      }
+      const request: QuoteRequest = {
+        serviceType: ready.serviceType,
+        petIds: [ready.petId],
+        addressId: ready.addressId,
+        startsAt: parsed.toISOString(),
+        durationMinutes: ready.durationMinutes,
+      };
       const nextQuote = await api.getQuote(request);
       if (!isCurrent(generation) || requestVersion !== quoteVersion.current) return;
       setQuote(nextQuote);
@@ -293,8 +264,7 @@ export function OwnerPilotWorkspace({ api, onError }: OwnerPilotWorkspaceProps) 
     }
   };
 
-  const submitOrder = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const submitOrder = async (orderNotes: string) => {
     if (submitLock.current || !quote || !quotedRequest || !orderKey) return;
     const generation = lifecycle.current.generation;
     if (!isCurrent(generation)) return;
@@ -324,8 +294,10 @@ export function OwnerPilotWorkspace({ api, onError }: OwnerPilotWorkspaceProps) 
       setQuote(null);
       setQuotedRequest(null);
       setOrderKey('');
-      setOrderNotes('');
       await loadResources(false, generation);
+      if (!isCurrent(generation)) return;
+      setBookingOpen(false);
+      setBookingDraft(createBookingDraft());
     } catch (caught) {
       if (quoteGeneration === quoteVersion.current && orderAttemptRef.current === attempt) {
         reportError(caught, generation);
@@ -387,92 +359,29 @@ export function OwnerPilotWorkspace({ api, onError }: OwnerPilotWorkspaceProps) 
   };
 
   return <section className="pilot-owner-workspace">
-    <div className="pilot-owner-heading">
-      <div><p className="pilot-kicker">宠主</p><h1>宠主工作区</h1></div>
-      <button className="pilot-secondary" type="button" onClick={() => void loadResources()} disabled={loading}>
-        刷新全部
-      </button>
-    </div>
-    <p className="pilot-owner-intro">按步骤建立宠物与地址档案，获取服务器报价后提交需求。</p>
     {error && <p className="pilot-error" role="alert">{error}</p>}
-    {loading ? <div className="pilot-owner-loading" aria-live="polite">正在读取宠主数据…</div> : <>
-      <div className="pilot-owner-steps">
-        <section className="pilot-owner-card" aria-labelledby="owner-pets-title">
-          <div className="pilot-step-title"><span>1</span><div><h2 id="owner-pets-title">宠物档案</h2><p>仅保存服务所需信息</p></div></div>
-          <form className="pilot-owner-form" onSubmit={(event) => void savePet(event)}>
-            <label>宠物昵称<input value={petName} onChange={(event) => setPetName(event.target.value)} maxLength={50} required/></label>
-            <label>宠物类型<select value={petSpecies} onChange={(event) => setPetSpecies(event.target.value as OwnerPet['species'])}>
-              <option value="CAT">猫</option><option value="DOG">狗</option>
-            </select></label>
-            <label>照护备注（可选）<textarea value={petNotes} onChange={(event) => setPetNotes(event.target.value)} maxLength={1000}/></label>
-            <button type="submit" disabled={savingPet}>{savingPet ? '正在保存…' : '保存宠物'}</button>
-          </form>
-          <div className="pilot-safe-list">
-            {pets.length === 0 ? <p className="pilot-empty">还没有宠物档案。</p> : pets.map((pet) => (
-              <div className="pilot-safe-item" key={pet.id}><strong>{pet.name} · {SPECIES_LABELS[pet.species]}</strong></div>
-            ))}
-          </div>
-        </section>
-
-        <section className="pilot-owner-card" aria-labelledby="owner-address-title">
-          <div className="pilot-step-title"><span>2</span><div><h2 id="owner-address-title">服务地址</h2><p>详细地址加密后发送至服务器</p></div></div>
-          <form className="pilot-owner-form" onSubmit={(event) => void saveAddress(event)}>
-            <label>城市<input value="南京市" readOnly/></label>
-            <label>服务区<select aria-label="服务区" value={districtName} onChange={(event) => setDistrictName(event.target.value)}>
-              {PILOT_DISTRICTS.map(({ district }) => <option key={district}>{district}</option>)}
-            </select></label>
-            <label>详细服务地址<input value={addressDetail} onChange={(event) => setAddressDetail(event.target.value)} maxLength={300} autoComplete="street-address" required/></label>
-            <p className="pilot-privacy-hint">仅填写完成上门服务所需的地址信息。</p>
-            <button type="submit" disabled={savingAddress}>{savingAddress ? '正在保存…' : '保存地址'}</button>
-          </form>
-          <div className="pilot-safe-list">
-            {addresses.length === 0 ? <p className="pilot-empty">还没有服务地址。</p> : addresses.map((address) => (
-              <div className="pilot-safe-item" key={address.id}>
-                <strong>{address.city} · {address.district}</strong><span>{address.serviceZone}服务圈</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="pilot-owner-card pilot-owner-order-card" aria-labelledby="owner-order-title">
-          <div className="pilot-step-title"><span>3</span><div><h2 id="owner-order-title">报价与下单</h2><p>总价只由服务器计算</p></div></div>
-          <form className="pilot-owner-form" onSubmit={(event) => void fetchQuote(event)}>
-            <fieldset className="pilot-service-options"><legend>服务项目</legend>
-              {(Object.keys(SERVICE_LABELS) as ServiceType[]).map((value) => <label key={value}>
-                <input type="radio" name="serviceType" value={value} checked={serviceType === value} disabled={orderAttempt !== null} onChange={() => {
-                  setServiceType(value); setPetId(''); invalidateQuote();
-                }}/><span>{SERVICE_LABELS[value]}</span>
-              </label>)}
-            </fieldset>
-            <div className="pilot-order-grid">
-              <label>服务宠物<select value={petId} disabled={orderAttempt !== null} onChange={(event) => { setPetId(event.target.value); invalidateQuote(); }} required>
-                <option value="">请选择</option>
-                {compatiblePets.map((pet) => <option value={pet.id} key={pet.id}>{pet.name} · {SPECIES_LABELS[pet.species]}</option>)}
-              </select></label>
-              <label>服务地址<select value={addressId} disabled={orderAttempt !== null} onChange={(event) => { setAddressId(event.target.value); invalidateQuote(); }} required>
-                <option value="">请选择</option>
-                {addresses.map((address) => <option value={address.id} key={address.id}>{address.city} · {address.district}</option>)}
-              </select></label>
-              <label>服务时间<input type="datetime-local" value={startsAt} disabled={orderAttempt !== null} onChange={(event) => { setStartsAt(event.target.value); invalidateQuote(); }} required/></label>
-              <label>服务时长<select value={durationMinutes} disabled={orderAttempt !== null} onChange={(event) => { setDurationMinutes(Number(event.target.value)); invalidateQuote(); }}>
-                {DURATION_OPTIONS.map((minutes) => <option value={minutes} key={minutes}>{minutes} 分钟</option>)}
-              </select></label>
-            </div>
-            <button type="submit" disabled={quoting || orderAttempt !== null || compatiblePets.length === 0 || addresses.length === 0}>
-              {quoting ? '正在报价…' : '获取服务报价'}
-            </button>
-          </form>
-          {quote && quotedRequest && <form className="pilot-quote-result" onSubmit={(event) => void submitOrder(event)}>
-            <div><span>服务器固定报价</span><strong>{fen(quote.totalFen)}</strong></div>
-            <p>创建订单后等待平台线下核对费用；本系统未处理在线支付。</p>
-            <label>订单备注（可选）<textarea value={orderNotes} disabled={orderAttempt !== null} onChange={(event) => setOrderNotes(event.target.value)} maxLength={500}/></label>
-            <button type="submit" disabled={submitting}>{submitting ? '正在提交…' : orderAttempt ? '重试提交同一订单' : '按固定报价提交订单'}</button>
-            {orderAttempt && !submitting && <button type="button" className="pilot-secondary" onClick={invalidateQuote}>放弃本次提交并重新报价</button>}
-          </form>}
-        </section>
-      </div>
-
-      <section className="pilot-owner-orders" aria-labelledby="owner-orders-title">
+    {bookingOpen ? <BookingFlow
+      draft={bookingDraft}
+      setDraft={setBookingDraft}
+      pets={pets}
+      addresses={addresses}
+      quote={quote}
+      quoting={quoting}
+      submitting={submitting}
+      submissionLocked={orderAttempt !== null}
+      onPrepareQuote={prepareQuote}
+      onSubmitOrder={submitOrder}
+      onAbandonQuote={abandonQuote}
+      onClose={closeBooking}
+    /> : <>
+      <OwnerHome
+        displayName={displayName}
+        orders={orders}
+        loading={loading}
+        onBook={openBooking}
+        onRefresh={() => void loadResources()}
+      />
+      <section id="owner-orders" className="pilot-owner-orders" aria-labelledby="owner-orders-title">
         <div className="pilot-panel-heading"><div><p className="pilot-kicker">共享进度</p><h2 id="owner-orders-title">我的订单</h2></div></div>
         {orders.length === 0 ? <p className="pilot-empty">还没有订单。完成上方步骤即可提交服务需求。</p> : <div className="pilot-owner-order-list">
           {orders.map((order) => <article className="pilot-owner-order" key={order.id}>
@@ -525,6 +434,11 @@ export function OwnerPilotWorkspace({ api, onError }: OwnerPilotWorkspaceProps) 
           </article>)}
         </div>}
       </section>
+      <nav className="owner-bottom-nav" aria-label="宠主导航">
+        <a href="#owner-home">首页</a>
+        <a href="#owner-orders">订单</a>
+        <a href="#owner-account">我的</a>
+      </nav>
     </>}
   </section>;
 }

@@ -15,6 +15,8 @@ describe('owner booking state', () => {
       petSpecies: 'DOG',
       durationMinutes: 30,
       districtName: '建邺区',
+      petMode: 'EXISTING',
+      addressMode: 'EXISTING',
     });
   });
 
@@ -50,9 +52,9 @@ describe('owner booking state', () => {
   it('requires either an existing resource or valid new-resource input', () => {
     const base = createBookingDraft();
     expect(bookingStepIsComplete({ ...base, step: 'PET' })).toBe(false);
-    expect(bookingStepIsComplete({ ...base, step: 'PET', petName: '团子' })).toBe(true);
+    expect(bookingStepIsComplete({ ...base, step: 'PET', petMode: 'NEW', petName: '团子' })).toBe(true);
     expect(bookingStepIsComplete({ ...base, step: 'ADDRESS' })).toBe(false);
-    expect(bookingStepIsComplete({ ...base, step: 'ADDRESS', addressDetail: '奥体大街 1 号' })).toBe(true);
+    expect(bookingStepIsComplete({ ...base, step: 'ADDRESS', addressMode: 'NEW', addressDetail: '奥体大街 1 号' })).toBe(true);
     expect(bookingStepIsComplete({ ...base, step: 'QUOTE' })).toBe(false);
   });
 });

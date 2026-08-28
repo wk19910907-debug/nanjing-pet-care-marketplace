@@ -79,7 +79,7 @@ describe('PilotApp', () => {
   });
 
   it.each([
-    ['以宠主身份进入', 'OWNER', '宠主工作区'],
+    ['以宠主身份进入', 'OWNER', '放心把它交给我们'],
     ['以服务人员身份进入', 'PROVIDER', '服务人员工作区'],
     ['以平台管理员身份进入', 'ADMIN', '平台工作区'],
   ] as const)('maps %s to %s and opens %s', async (action, role, workspace) => {
@@ -148,7 +148,7 @@ describe('PilotApp', () => {
     await user.type(screen.getByLabelText('展示昵称'), '秦淮宠主');
     await user.click(screen.getByRole('button', { name: '保存昵称' }));
     expect(api.updateProfile).toHaveBeenCalledWith('秦淮宠主');
-    expect(await screen.findByRole('heading', { name: '宠主工作区' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: '放心把它交给我们' })).toBeTruthy();
   });
 
   it('mounts a provider workspace keyed to the authenticated server identity', async () => {

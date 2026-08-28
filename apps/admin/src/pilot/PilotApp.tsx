@@ -117,7 +117,9 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
       {session.role === 'ADMIN' && <div className="pilot-admin-stack">
         <AdminPilotWorkspace key={session.userId} api={api} onError={handleProtectedError}/>
       </div>}
-      {session.role === 'OWNER' && <OwnerPilotWorkspace key={session.userId} api={api} onError={handleProtectedError}/>}
+      {session.role === 'OWNER' && <OwnerPilotWorkspace
+        key={session.userId} api={api} displayName={session.displayName} onError={handleProtectedError}
+      />}
       {session.role === 'PROVIDER' && <ProviderPilotWorkspace
         key={session.userId} api={api} displayName={session.displayName} onError={handleProtectedError}
       />}
