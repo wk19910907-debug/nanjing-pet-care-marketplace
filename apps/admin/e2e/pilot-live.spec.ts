@@ -456,7 +456,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await assertMobilePrivacy(providerPage);
     await assertDesktopPrivacy(providerPage, '服务人员工作区');
 
-    await ownerPage.getByRole('button', { name: '刷新全部' }).click();
+    await ownerPage.getByRole('button', { name: '刷新', exact: true }).click();
     await expect(ownerPage.getByText('团子进食和饮水正常，猫砂已清理。')).toBeVisible();
     const ownerOrdersWithEvidence = await browserFetch(ownerPage, '/api/v1/pilot/orders');
     const ownerOrderWithEvidence = (ownerOrdersWithEvidence.body as Array<{ id: string; evidence?: Array<{ id: string }> }>)
