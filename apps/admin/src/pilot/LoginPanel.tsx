@@ -43,7 +43,7 @@ export function LoginPanel({ api, onAuthenticated }: LoginPanelProps) {
       <p className="pilot-kicker">南京安心宠 · 本地试运营</p>
       <h1 id="pilot-login-title">选择进入身份</h1>
       <p className="pilot-lead">请选择体验身份进入南京本地试运营。</p>
-      <div className="pilot-form" aria-label="试运营身份入口">
+      <div className="pilot-form" role="group" aria-label="试运营身份入口">
         {ENTRY_OPTIONS.map(({ role, label, pendingLabel }) => <button
           key={role}
           type="button"

@@ -8,6 +8,8 @@ test('direct role entry keeps nickname onboarding private on mobile', async ({ p
     expiresAt: string;
   } = null;
   let localSessionCalls = 0;
+  let releaseLocalSession!: () => void;
+  const localSessionPending = new Promise<void>((resolve) => { releaseLocalSession = resolve; });
   await page.route('**/api/v1/pilot/**', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -20,6 +22,7 @@ test('direct role entry keeps nickname onboarding private on mobile', async ({ p
     if (path.endsWith('/local-sessions') && request.method() === 'POST') {
       localSessionCalls += 1;
       expect(request.postDataJSON()).toEqual({ role: 'ADMIN' });
+      await localSessionPending;
       session = {
         userId: 'admin-1', role: 'ADMIN', displayName: null,
         expiresAt: '2026-09-03T10:00:00.000Z',
@@ -51,6 +54,11 @@ test('direct role entry keeps nickname onboarding private on mobile', async ({ p
   await expect(page.getByText('邀请码管理')).toHaveCount(0);
 
   await page.getByRole('button', { name: '以平台管理员身份进入' }).dblclick();
+  await expect.poll(() => localSessionCalls).toBe(1);
+  await expect(page.getByRole('button', { name: '正在以平台管理员身份进入…' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '以宠主身份进入' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '以服务人员身份进入' })).toBeDisabled();
+  releaseLocalSession();
   await page.getByRole('textbox', { name: '展示昵称', exact: true }).fill('试点运营');
   await page.getByRole('button', { name: '保存昵称' }).click();
   await expect(page.getByRole('heading', { name: '平台工作区' })).toBeVisible();
