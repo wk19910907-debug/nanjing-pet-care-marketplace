@@ -16,6 +16,7 @@ const validPng = Buffer.from(
 );
 
 type HttpResult = { status: number; body: unknown; headers: Record<string, string> };
+type LocalPilotRole = 'OWNER' | 'PROVIDER' | 'ADMIN';
 
 function localInput(date: Date): string {
   const offset = date.getTimezoneOffset() * 60_000;
@@ -56,16 +57,66 @@ async function browserFetchBytes(page: Page, path: string) {
   }, path);
 }
 
-async function login(page: Page, invite: string, displayName: string, workspace: string) {
-  await page.goto(baseUrl!);
-  await assertMobilePrivacy(page);
-  await page.getByRole('textbox', { name: '邀请码', exact: true }).fill(invite);
-  await page.getByRole('button', { name: '进入试运营' }).click();
-  await assertMobilePrivacy(page);
+async function assertInvitationUiAbsent(page: Page) {
+  await expect(page.getByRole('textbox', { name: '邀请码', exact: true })).toHaveCount(0);
+  await expect(page.getByText('邀请码管理')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '创建一次性邀请码' })).toHaveCount(0);
+}
+
+async function finishProfile(page: Page, displayName: string, workspace: string) {
   await page.getByRole('textbox', { name: '展示昵称', exact: true }).fill(displayName);
   await page.getByRole('button', { name: '保存昵称' }).click();
   await expect(page.getByRole('heading', { name: workspace })).toBeVisible();
+  await assertInvitationUiAbsent(page);
   await assertMobilePrivacy(page);
+}
+
+async function loginDirect(
+  page: Page,
+  role: LocalPilotRole,
+  displayName: string,
+  workspace: string,
+) {
+  const labels: Record<LocalPilotRole, string> = {
+    OWNER: '以宠主身份进入',
+    PROVIDER: '以服务人员身份进入',
+    ADMIN: '以平台管理员身份进入',
+  };
+  await page.goto(baseUrl!);
+  await assertMobilePrivacy(page);
+  await assertInvitationUiAbsent(page);
+  await page.getByRole('button', { name: labels[role] }).click();
+  await assertMobilePrivacy(page);
+  await finishProfile(page, displayName, workspace);
+}
+
+async function loginSecondaryWithInvite(
+  page: Page,
+  inviteCode: string,
+  displayName: string,
+  workspace: string,
+) {
+  const response = await browserFetch(page, '/api/v1/pilot/sessions', {
+    method: 'POST',
+    body: { inviteCode },
+  });
+  expect(response.status).toBe(201);
+  await page.reload();
+  await assertInvitationUiAbsent(page);
+  await assertMobilePrivacy(page);
+  await finishProfile(page, displayName, workspace);
+}
+
+async function createSecondaryInvite(page: Page, role: Exclude<LocalPilotRole, 'ADMIN'>) {
+  const response = await browserFetch(page, '/api/v1/pilot/invites', {
+    method: 'POST',
+    body: { role },
+  });
+  expect(response.status).toBe(201);
+  const inviteCode = (response.body as { code?: unknown }).code;
+  expect(typeof inviteCode).toBe('string');
+  expect(inviteCode).not.toBe('');
+  return inviteCode as string;
 }
 
 async function assertSessionCookie(context: BrowserContext, page: Page) {
@@ -77,6 +128,7 @@ async function assertSessionCookie(context: BrowserContext, page: Page) {
   const response = await browserFetch(page, '/api/v1/pilot/session');
   expect(response.status).toBe(200);
   expect(JSON.stringify(response.body)).not.toMatch(/token|cookie|codeHash/i);
+  await assertInvitationUiAbsent(page);
 }
 
 async function contextStatus(context: BrowserContext, path: string): Promise<number> {
@@ -138,7 +190,8 @@ async function logoutAndAssertRevoked(context: BrowserContext, page: Page) {
     .find((cookie) => cookie.name === 'petcare_pilot_session');
   expect(session?.value).toBeTruthy();
   await page.getByRole('button', { name: '退出登录' }).click();
-  await expect(page.getByRole('button', { name: '进入试运营' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '以宠主身份进入' })).toBeVisible();
+  await assertInvitationUiAbsent(page);
   expect((await browserFetch(page, '/api/v1/pilot/session')).status).toBe(401);
   const revoked = await context.request.get(`${baseUrl}/api/v1/pilot/session`, {
     headers: { Cookie: `petcare_pilot_session=${session!.value}` },
@@ -230,48 +283,30 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
   };
 
   try {
-    const bootstrapResponse = await fetch(`${controlUrl}/admin-invite`);
-    expect(bootstrapResponse.status).toBe(200);
-    const adminInvite = (await bootstrapResponse.json() as { inviteCode: string }).inviteCode;
-    expect(adminInvite).toBeTruthy();
-    expect((await fetch(`${controlUrl}/admin-invite`)).status).toBe(410);
     await withinNegativeWindow(adminPage, '/api/v1/pilot/session', [401], () => (
-      login(adminPage, adminInvite, '试点运营员', '平台工作区')
+      loginDirect(adminPage, 'ADMIN', '试点运营员', '平台工作区')
     ));
     await assertSessionCookie(adminContext, adminPage);
 
-    await adminPage.getByRole('combobox', { name: '邀请角色', exact: true }).selectOption('OWNER');
-    await adminPage.getByRole('button', { name: '创建一次性邀请码' }).click();
-    const ownerInvite = (await adminPage.locator('.pilot-one-time-code code').textContent())?.trim();
-    expect(ownerInvite).toBeTruthy();
-    await assertMobilePrivacy(adminPage);
-
-    await adminPage.getByRole('button', { name: '创建一次性邀请码' }).click();
-    const secondOwnerInvite = (await adminPage.locator('.pilot-one-time-code code').textContent())?.trim();
-    expect(secondOwnerInvite).toBeTruthy();
-
-    await adminPage.getByRole('combobox', { name: '邀请角色', exact: true }).selectOption('PROVIDER');
-    await adminPage.getByRole('button', { name: '创建一次性邀请码' }).click();
-    const providerInvite = (await adminPage.locator('.pilot-one-time-code code').textContent())?.trim();
-    expect(providerInvite).toBeTruthy();
-
-    await adminPage.getByRole('button', { name: '创建一次性邀请码' }).click();
-    const secondProviderInvite = (await adminPage.locator('.pilot-one-time-code code').textContent())?.trim();
-    expect(secondProviderInvite).toBeTruthy();
-    await assertMobilePrivacy(adminPage);
-
     await Promise.all([
       withinNegativeWindow(ownerPage, '/api/v1/pilot/session', [401], () => (
-        login(ownerPage, ownerInvite!, '建邺团子家', '宠主工作区')
+        loginDirect(ownerPage, 'OWNER', '建邺团子家', '宠主工作区')
       )),
       withinNegativeWindow(providerPage, '/api/v1/pilot/session', [401], () => (
-        login(providerPage, providerInvite!, '建邺小周', '服务人员工作区')
+        loginDirect(providerPage, 'PROVIDER', '建邺小周', '服务人员工作区')
       )),
     ]);
     await Promise.all([
       assertSessionCookie(ownerContext, ownerPage),
       assertSessionCookie(providerContext, providerPage),
     ]);
+
+    const [secondOwnerInvite, secondProviderInvite] = await Promise.all([
+      createSecondaryInvite(adminPage, 'OWNER'),
+      createSecondaryInvite(adminPage, 'PROVIDER'),
+    ]);
+    await assertInvitationUiAbsent(adminPage);
+    await assertMobilePrivacy(adminPage);
 
     await providerPage.getByRole('checkbox', { name: '上门喂猫' }).check();
     await providerPage.getByRole('combobox', { name: '申请服务区' }).selectOption('建邺区');
@@ -510,9 +545,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await withinNegativeWindow(ownerPage, '/api/v1/pilot/session', [401], () => (
       logoutAndAssertRevoked(ownerContext, ownerPage)
     ));
-    await withinNegativeWindow(ownerPage, '/api/v1/pilot/session', [401], () => (
-      login(ownerPage, secondOwnerInvite!, '建邺布丁家', '宠主工作区')
-    ));
+    await loginSecondaryWithInvite(ownerPage, secondOwnerInvite, '建邺布丁家', '宠主工作区');
     await assertSessionCookie(ownerContext, ownerPage);
 
     for (const result of [
@@ -540,9 +573,12 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await withinNegativeWindow(providerPage, '/api/v1/pilot/session', [401], () => (
       logoutAndAssertRevoked(providerContext, providerPage)
     ));
-    await withinNegativeWindow(providerPage, '/api/v1/pilot/session', [401], () => (
-      login(providerPage, secondProviderInvite!, '建邺小吴', '服务人员工作区')
-    ));
+    await loginSecondaryWithInvite(
+      providerPage,
+      secondProviderInvite,
+      '建邺小吴',
+      '服务人员工作区',
+    );
     await assertSessionCookie(providerContext, providerPage);
     await providerPage.getByRole('checkbox', { name: '上门喂猫' }).check();
     await providerPage.getByRole('combobox', { name: '申请服务区' }).selectOption('建邺区');

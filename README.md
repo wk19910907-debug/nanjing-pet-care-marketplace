@@ -55,11 +55,11 @@ pnpm dev
 
 正式对外运营前仍需完成：手机号验证、微信支付商户接入、文件存储、地图定位、生产数据库、域名与备案、微信小程序审核、隐私政策和服务人员真实审核流程。
 
-## 邀请制试运营
+## 本地试运营
 
-仓库同时包含独立的邀请制试运营入口。它使用同源 Fastify、PostgreSQL 和仅存于 HttpOnly Cookie 的服务器会话，让受控邀请的宠主、平台运营和服务人员在不同浏览器共同完成真实共享数据闭环。该入口不提供公开注册、手机号、微信二维码、在线支付或联系方式。
+仓库同时包含独立的本地试运营入口。它使用同源 Fastify、PostgreSQL 和仅存于 HttpOnly Cookie 的服务器会话，让宠主、平台运营和服务人员在不同浏览器共同完成真实共享数据闭环。启动后直接打开本地页面并选择角色；页面不提供邀请码登录或邀请管理，也不提供公开注册、手机号、微信二维码、在线支付或联系方式。
 
-单机试点启动、一次性管理员邀请码和安全清理步骤见 [`docs/operations/pilot-quickstart.md`](docs/operations/pilot-quickstart.md)。它需要 Node.js 22、pnpm 10 和 PostgreSQL 16；不要把公开 GitHub Pages 体验版与试运营入口混用。
+单机试点启动、页面角色选择和安全清理步骤见 [`docs/operations/pilot-quickstart.md`](docs/operations/pilot-quickstart.md)。它需要 Node.js 22、pnpm 10 和 PostgreSQL 16。直接角色入口只在 `development` 和 `test` 中注册、只接受 loopback 请求，生产环境不存在该路由；不要把公开 GitHub Pages 体验版与试运营入口混用。
 
 ## 开发验证
 
