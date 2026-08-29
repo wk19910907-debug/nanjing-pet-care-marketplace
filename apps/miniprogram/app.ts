@@ -20,10 +20,11 @@ const api = createApiClient({
     success: resolve, fail: reject,
   })),
 });
-const login = createWechatLoginAdapter({
+const wechatLogin = createWechatLoginAdapter({
   wxLogin: () => new Promise((resolve, reject) => wx.login({ success: resolve, fail: reject })),
   exchange: api.createWechatSession,
   saveToken: session.save,
 });
+const login = environment === 'develop' ? api.createLocalOwnerSession : wechatLogin;
 
 App({ globalData: { api, session, login } });

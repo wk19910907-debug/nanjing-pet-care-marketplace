@@ -40,23 +40,26 @@ export function createApiClient(config: {
       }
       return { token, expiresAt };
     },
-    quote: (input: unknown) => request('POST', '/v1/quotes', input),
-    listPets: () => request<Array<{ id: string; name: string; species: 'CAT' | 'DOG' }>>('GET', '/v1/pets'),
-    listAddresses: () => request<Array<{ id: string; city: string; district: string; serviceZone: string }>>('GET', '/v1/addresses'),
+    createLocalOwnerSession: () => request<{ expiresAt: string }>(
+      'POST', '/api/v1/pilot/local-sessions', { role: 'OWNER' }, {}, false,
+    ),
+    quote: (input: unknown) => request('POST', '/api/v1/quotes', input),
+    listPets: () => request<Array<{ id: string; name: string; species: 'CAT' | 'DOG' }>>('GET', '/api/v1/pets'),
+    listAddresses: () => request<Array<{ id: string; city: string; district: string; serviceZone: string }>>('GET', '/api/v1/addresses'),
     createOrder: (input: unknown, idempotencyKey: string) =>
-      request('POST', '/v1/orders', input, { 'Idempotency-Key': idempotencyKey }),
-    getOrder: (orderId: string) => request('GET', `/v1/orders/${orderId}`),
-    confirmOrder: (orderId: string) => request('POST', `/v1/orders/${orderId}/confirm`),
-    cancelOrder: (orderId: string, reason: string) => request('POST', `/v1/orders/${orderId}/cancel`, { reason }),
-    openDispute: (orderId: string, reason: string) => request('POST', `/v1/orders/${orderId}/disputes`, { reason }),
-    applyProvider: (input: unknown) => request('POST', '/v1/providers/applications', input),
-    setAvailability: (input: unknown) => request('POST', '/v1/providers/availability', input),
-    acceptInvitation: (invitationId: string) => request('POST', `/v1/invitations/${invitationId}/accept`),
-    checkIn: (orderId: string, input: unknown) => request('POST', `/v1/orders/${orderId}/check-in`, input),
-    issueUpload: (orderId: string, input: unknown) => request('POST', `/v1/orders/${orderId}/evidence/uploads`, input),
-    attachEvidence: (orderId: string, input: unknown) => request('POST', `/v1/orders/${orderId}/evidence`, input),
-    submitReport: (orderId: string, input: unknown) => request('POST', `/v1/orders/${orderId}/report`, input),
-    getEarnings: () => request('GET', '/v1/providers/me/settlements'),
+      request('POST', '/api/v1/orders', input, { 'Idempotency-Key': idempotencyKey }),
+    getOrder: (orderId: string) => request('GET', `/api/v1/orders/${orderId}`),
+    confirmOrder: (orderId: string) => request('POST', `/api/v1/orders/${orderId}/confirm`),
+    cancelOrder: (orderId: string, reason: string) => request('POST', `/api/v1/orders/${orderId}/cancel`, { reason }),
+    openDispute: (orderId: string, reason: string) => request('POST', `/api/v1/orders/${orderId}/disputes`, { reason }),
+    applyProvider: (input: unknown) => request('POST', '/api/v1/providers/applications', input),
+    setAvailability: (input: unknown) => request('POST', '/api/v1/providers/availability', input),
+    acceptInvitation: (invitationId: string) => request('POST', `/api/v1/invitations/${invitationId}/accept`),
+    checkIn: (orderId: string, input: unknown) => request('POST', `/api/v1/orders/${orderId}/check-in`, input),
+    issueUpload: (orderId: string, input: unknown) => request('POST', `/api/v1/orders/${orderId}/evidence/uploads`, input),
+    attachEvidence: (orderId: string, input: unknown) => request('POST', `/api/v1/orders/${orderId}/evidence`, input),
+    submitReport: (orderId: string, input: unknown) => request('POST', `/api/v1/orders/${orderId}/report`, input),
+    getEarnings: () => request('GET', '/api/v1/providers/me/settlements'),
   };
 }
 

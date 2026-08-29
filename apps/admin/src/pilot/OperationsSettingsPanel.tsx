@@ -33,11 +33,12 @@ function toDraft(catalog: AdminOperationsCatalog): Draft {
 }
 
 function priceFen(value: string): number | null {
+  const normalized = value.trim();
+  if (!/^\d+(?:\.\d{1,2})?$/.test(normalized)) return null;
   const yuan = Number(value);
-  const fen = Math.round(yuan * 100);
-  return Number.isFinite(yuan) && yuan > 0 && yuan <= 1_000 && fen === yuan * 100
-    ? fen
-    : null;
+  if (!Number.isFinite(yuan) || yuan <= 0 || yuan > 1_000) return null;
+  const [whole = '0', fraction = ''] = normalized.split('.');
+  return Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
 }
 
 export function OperationsSettingsPanel({ api, onError }: Props) {

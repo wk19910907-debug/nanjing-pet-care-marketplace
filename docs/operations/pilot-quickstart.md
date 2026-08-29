@@ -65,7 +65,7 @@ pnpm pilot:start
 
 ## 微信小程序接入边界
 
-小程序开发版可通过扩展配置的 `developmentApiBaseUrl` 访问本机 HTTP API；该地址只允许 localhost/127.0.0.1。体验版和正式版只接受公开 HTTPS `apiBaseUrl`。发布前还需在微信公众平台配置真实 AppID、合法 request 域名，并在服务端安全配置 AppSecret 以实现 `/api/v1/auth/wechat/session`；客户端只发送 `wx.login` 临时 code，仓库和 Vault 中不得保存 AppSecret。
+小程序开发版可通过扩展配置的 `developmentApiBaseUrl` 访问本机 HTTP API；该地址只允许 localhost/127.0.0.1，并使用服务端现有的本机 OWNER Cookie 会话。体验版和正式版只接受公开 HTTPS `apiBaseUrl`，使用 Bearer 会话而不绕过网站 Cookie 的 Origin 防护。发布前还需在微信公众平台配置真实 AppID、合法 request 域名，并在服务端安全配置 AppSecret 以实现 `/api/v1/auth/wechat/session`；客户端只发送 `wx.login` 临时 code，仓库和 Vault 中不得保存 AppSecret。
 
 没有上述微信外部配置时，网站和本地运营闭环可以正常验收，小程序只能做开发者工具界面、配置读取和接口契约验收，不能作为已上线的微信登录渠道。
 

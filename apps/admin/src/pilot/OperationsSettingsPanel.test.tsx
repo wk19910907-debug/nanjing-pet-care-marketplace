@@ -82,6 +82,19 @@ describe('OperationsSettingsPanel', () => {
     expect(api.updateAdminCatalog).not.toHaveBeenCalled();
   });
 
+  it('accepts valid two-decimal prices despite floating-point representation', async () => {
+    const api = setup();
+    const user = userEvent.setup();
+    await screen.findByRole('heading', { name: '运营配置' });
+    const catPrice = screen.getByRole('spinbutton', { name: '上门喂猫起步价' });
+    await user.clear(catPrice);
+    await user.type(catPrice, '34.55');
+    await user.click(screen.getByRole('button', { name: '保存运营配置' }));
+    await waitFor(() => expect(api.updateAdminCatalog).toHaveBeenCalledWith(
+      expect.objectContaining({ services: expect.objectContaining({ CAT_FEEDING: { enabled: true, basePriceFen: 3455 } }) }),
+    ));
+  });
+
   it('shows conflict guidance and can reload the latest version', async () => {
     const getAdminCatalog = vi.fn().mockResolvedValue(catalog);
     setup({

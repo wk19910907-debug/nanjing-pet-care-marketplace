@@ -516,6 +516,23 @@ describe('pilot authentication routes', () => {
     await app.close();
   });
 
+  it('allows explicit bearer clients without Origin but never treats a cookie bridge as bearer auth', async () => {
+    const { app } = createPilotTestApp();
+    app.post('/api/v1/pilot/future-write', async () => ({ written: true }));
+    const bearer = await app.inject({
+      method: 'POST', url: '/api/v1/pilot/future-write',
+      headers: { authorization: 'Bearer native-client-token' },
+    });
+    expect(bearer.statusCode).toBe(200);
+
+    const cookie = await app.inject({
+      method: 'POST', url: '/api/v1/pilot/future-write',
+      headers: { cookie: 'petcare_pilot_session=cookie-token' },
+    });
+    expect(cookie.statusCode).toBe(403);
+    await app.close();
+  });
+
   it('allows development state changes without an Origin header', async () => {
     const { app } = createPilotTestApp('development');
     const response = await app.inject({

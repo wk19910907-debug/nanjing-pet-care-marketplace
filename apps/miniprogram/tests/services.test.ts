@@ -14,7 +14,7 @@ describe('mini program API and session adapters', () => {
     await api.createOrder({ serviceType: 'CAT_FEEDING', petIds: ['pet-1'], addressId: 'address-1',
       startsAt: '2026-08-24T10:00:00+08:00', durationMinutes: 30, notes: '' }, 'request-123');
     expect(calls[0]).toMatchObject({
-      method: 'POST', url: 'https://api.example.test/v1/orders',
+      method: 'POST', url: 'https://api.example.test/api/v1/orders',
       headers: { Authorization: 'Bearer session-token', 'Idempotency-Key': 'request-123' },
     });
   });
@@ -36,6 +36,22 @@ describe('mini program API and session adapters', () => {
     expect(session.read()).toBe('opaque-token');
     session.clear();
     expect(session.read()).toBeNull();
+  });
+
+  it('creates the safe local owner cookie session through the development-only endpoint', async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const api = createApiClient({
+      baseUrl: 'http://127.0.0.1:3000', token: () => null,
+      transport: async (request) => {
+        calls.push(request as unknown as Record<string, unknown>);
+        return { statusCode: 201, data: { expiresAt: '2026-09-05T00:00:00.000Z' } };
+      },
+    });
+    await api.createLocalOwnerSession();
+    expect(calls).toEqual([expect.objectContaining({
+      method: 'POST', url: 'http://127.0.0.1:3000/api/v1/pilot/local-sessions',
+      data: { role: 'OWNER' }, headers: {},
+    })]);
   });
 
   it('loads and strictly validates the public operations catalog', async () => {
