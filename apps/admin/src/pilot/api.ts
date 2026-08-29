@@ -31,7 +31,14 @@ import type {
   ProviderReviewQueueItem,
   ReviewStatus,
   SubmitReportInput,
+  AdminOperationsCatalog,
+  OperationsCatalogUpdate,
+  PublicOperationsCatalog,
 } from './models.js';
+import {
+  AdminOperationsCatalogSchema,
+  PublicOperationsCatalogSchema,
+} from '@pet/contracts';
 import { PILOT_DISTRICTS } from './districts.js';
 
 const ERROR_MESSAGES: Readonly<Record<string, string>> = {
@@ -58,6 +65,9 @@ const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   MEDIA_TOO_LARGE: '图片过大，请选择较小文件',
   UPLOAD_NOT_VERIFIED: '图片上传校验失败，请重新上传',
   EVIDENCE_QUOTA_EXCEEDED: '图片上传次数过多，请稍后重试',
+  OPERATIONS_CATALOG_CONFLICT: '运营配置已被其他管理员修改，请刷新后重试',
+  SERVICE_NOT_AVAILABLE: '该服务当前暂停接单',
+  AREA_NOT_AVAILABLE: '该区域当前暂停接单',
 };
 
 export class PilotApiError extends Error {
@@ -109,6 +119,9 @@ export interface PilotApi {
   uploadEvidence(uploadUrl: string, bytes: Uint8Array, mimeType: string): Promise<void>;
   attachEvidence(orderId: string, input: AttachEvidenceInput): Promise<{ id: string }>;
   submitReport(orderId: string, input: SubmitReportInput): Promise<{ id: string; orderId: string; submittedAt: string }>;
+  getCatalog(): Promise<PublicOperationsCatalog>;
+  getAdminCatalog(): Promise<AdminOperationsCatalog>;
+  updateAdminCatalog(input: OperationsCatalogUpdate): Promise<AdminOperationsCatalog>;
 }
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -137,6 +150,18 @@ const ISO_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1
 
 function invalidResponse(): never {
   throw new PilotApiError(503, 'SERVICE_UNAVAILABLE');
+}
+
+function parsePublicCatalog(value: unknown): PublicOperationsCatalog {
+  const parsed = PublicOperationsCatalogSchema.safeParse(value);
+  if (!parsed.success) invalidResponse();
+  return parsed.data;
+}
+
+function parseAdminCatalog(value: unknown): AdminOperationsCatalog {
+  const parsed = AdminOperationsCatalogSchema.safeParse(value);
+  if (!parsed.success) invalidResponse();
+  return parsed.data;
 }
 
 function asRecord(value: unknown): JsonRecord {
@@ -669,6 +694,12 @@ export function createPilotApi(fetcher: Fetcher = fetch): PilotApi {
   }
 
   return {
+    getCatalog: async () => parsePublicCatalog(await request('/v1/catalog')),
+    getAdminCatalog: async () => parseAdminCatalog(await request('/v1/pilot/admin/catalog')),
+    updateAdminCatalog: async (input) => parseAdminCatalog(await request(
+      '/v1/pilot/admin/catalog',
+      { method: 'PUT', body: JSON.stringify(input) },
+    )),
     getSession: async () => parseSession(await request('/v1/pilot/session')),
     createSession: async (inviteCode) => parseSessionCreated(await request(
       '/v1/pilot/sessions',

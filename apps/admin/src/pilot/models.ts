@@ -1,6 +1,12 @@
 export type PilotRole = 'OWNER' | 'PROVIDER' | 'ADMIN';
 export type PilotInviteRole = Extract<PilotRole, 'OWNER' | 'PROVIDER'>;
 export type LocalPilotRole = Extract<PilotRole, 'OWNER' | 'PROVIDER' | 'ADMIN'>;
+export type {
+  AdminOperationsCatalog,
+  NanjingDistrictCode,
+  OperationsCatalogUpdate,
+  PublicOperationsCatalog,
+} from '@pet/contracts';
 
 export type PilotSession = {
   userId: string;

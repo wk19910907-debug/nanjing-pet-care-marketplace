@@ -442,4 +442,89 @@ describe('pilot API transport', () => {
       status: 503, code: 'SERVICE_UNAVAILABLE', message: '服务暂时不可用，请稍后重试',
     });
   });
+
+  it('reads public and administrator operations catalogs with strict shapes', async () => {
+    const publicCatalog = {
+      services: {
+        CAT_FEEDING: { enabled: true, basePriceFen: 3200 },
+        DOG_WALKING: { enabled: false, basePriceFen: 3700 },
+      },
+      openDistricts: ['JIANYE', 'GULOU'],
+      announcement: '今日正常接单',
+    };
+    const adminCatalog = {
+      ...publicCatalog,
+      version: 2,
+      updatedAt: '2026-08-29T08:00:00.000Z',
+    };
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(publicCatalog))
+      .mockResolvedValueOnce(jsonResponse(adminCatalog));
+    const api = createPilotApi(fetcher);
+
+    await expect(api.getCatalog()).resolves.toEqual(publicCatalog);
+    await expect(api.getAdminCatalog()).resolves.toEqual(adminCatalog);
+    expect(fetcher.mock.calls[0]![0]).toBe('/api/v1/catalog');
+    expect(fetcher.mock.calls[1]![0]).toBe('/api/v1/pilot/admin/catalog');
+  });
+
+  it('updates the complete catalog with an expected version', async () => {
+    const result = {
+      services: {
+        CAT_FEEDING: { enabled: true, basePriceFen: 3500 },
+        DOG_WALKING: { enabled: true, basePriceFen: 3900 },
+      },
+      openDistricts: ['JIANYE' as const],
+      announcement: '',
+      version: 3,
+      updatedAt: '2026-08-29T09:00:00.000Z',
+    };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(result));
+    const input = { expectedVersion: 2, ...result };
+    const {
+      version: _version,
+      updatedAt: _updatedAt,
+      expectedVersion: _expectedVersion,
+      ...publicInput
+    } = input;
+    const api = createPilotApi(fetcher);
+
+    await expect(api.updateAdminCatalog({ expectedVersion: 2, ...publicInput })).resolves.toEqual(result);
+    expect(fetcher).toHaveBeenCalledWith('/api/v1/pilot/admin/catalog', expect.objectContaining({
+      method: 'PUT', body: JSON.stringify({ expectedVersion: 2, ...publicInput }),
+    }));
+  });
+
+  it('rejects malformed or overexposed catalog responses', async () => {
+    const response = {
+      services: {
+        CAT_FEEDING: { enabled: true, basePriceFen: 3200 },
+        DOG_WALKING: { enabled: true, basePriceFen: 3700 },
+      },
+      openDistricts: ['JIANYE'],
+      announcement: '',
+      updatedByUserId: 'must-not-cross',
+    };
+    const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(response)));
+    await expect(api.getCatalog()).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+  });
+
+  it('surfaces an operations catalog version conflict safely', async () => {
+    const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({ code: 'OPERATIONS_CATALOG_CONFLICT' }, 409),
+    ));
+    await expect(api.updateAdminCatalog({
+      expectedVersion: 1,
+      services: {
+        CAT_FEEDING: { enabled: true, basePriceFen: 3200 },
+        DOG_WALKING: { enabled: true, basePriceFen: 3700 },
+      },
+      openDistricts: ['JIANYE'],
+      announcement: '',
+    })).rejects.toMatchObject({
+      status: 409,
+      code: 'OPERATIONS_CATALOG_CONFLICT',
+      message: '运营配置已被其他管理员修改，请刷新后重试',
+    });
+  });
 });

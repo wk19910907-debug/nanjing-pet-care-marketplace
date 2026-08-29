@@ -12,6 +12,7 @@
     "build": "vite build"
   },
   "dependencies": {
+    "@pet/contracts": "workspace:*",
     "@vitejs/plugin-react": "latest",
     "react": "latest",
     "react-dom": "latest",

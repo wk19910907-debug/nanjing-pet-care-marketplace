@@ -32,6 +32,7 @@ function fakeApi(overrides: Partial<PilotApi> = {}): PilotApi {
     applyProvider: vi.fn(), setProviderAvailability: vi.fn(), acceptInvitation: vi.fn(),
     getAssignedAddress: vi.fn(), checkIn: vi.fn(), issueEvidenceUpload: vi.fn(),
     uploadEvidence: vi.fn(), attachEvidence: vi.fn(), submitReport: vi.fn(),
+    getCatalog: vi.fn(), getAdminCatalog: vi.fn(), updateAdminCatalog: vi.fn(),
     ...overrides,
   };
 }
