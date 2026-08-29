@@ -19,10 +19,19 @@ const quote: QuoteBreakdown = {
   baseFen: 3200, extraPetFen: 0, durationFen: 700,
   distanceFen: 0, holidayFen: 0, totalFen: 3900, currency: 'CNY',
 };
+const catalog = {
+  services: {
+    CAT_FEEDING: { enabled: true, basePriceFen: 3_200 },
+    DOG_WALKING: { enabled: true, basePriceFen: 3_700 },
+  },
+  openDistricts: ['JIANYE', 'GULOU'] as Array<'JIANYE' | 'GULOU'>,
+  announcement: '',
+};
 
 function Harness(props: { initial?: BookingDraft; quote?: QuoteBreakdown | null; pets?: typeof pets; onPrepareQuote?: (draft: BookingDraft) => Promise<void> }) {
   const [draft, setDraft] = useState(props.initial ?? createBookingDraft());
   return <BookingFlow
+    catalog={catalog}
     draft={draft}
     setDraft={setDraft}
     pets={props.pets ?? pets}
@@ -91,5 +100,32 @@ describe('BookingFlow', () => {
     expect(screen.queryByLabelText('订单备注（可选）')).toBeNull();
     await user.click(screen.getByText('补充上门要求（选填）'));
     expect(screen.getByLabelText('订单备注（可选）')).toBeTruthy();
+  });
+
+  it('uses only live services, prices, and open districts', () => {
+    render(<BookingFlow
+      catalog={{
+        ...catalog,
+        services: {
+          CAT_FEEDING: { enabled: true, basePriceFen: 3_500 },
+          DOG_WALKING: { enabled: false, basePriceFen: 3_700 },
+        },
+        openDistricts: ['GULOU'],
+      }}
+      draft={{ ...createBookingDraft(), step: 'VISIT_INFO', addressMode: 'NEW' }}
+      setDraft={vi.fn()}
+      pets={pets}
+      addresses={[]}
+      quote={null}
+      quoting={false}
+      submitting={false}
+      submissionLocked={false}
+      onPrepareQuote={vi.fn()}
+      onSubmitOrder={vi.fn()}
+      onAbandonQuote={vi.fn()}
+      onClose={vi.fn()}
+    />);
+    expect(screen.getByRole('option', { name: '鼓楼区' })).toBeTruthy();
+    expect(screen.queryByRole('option', { name: '建邺区' })).toBeNull();
   });
 });

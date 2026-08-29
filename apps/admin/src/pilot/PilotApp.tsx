@@ -6,6 +6,9 @@ import { OwnerPilotWorkspace } from './OwnerPilotWorkspace.js';
 import { ProfilePanel } from './ProfilePanel.js';
 import { AdminPilotWorkspace } from './AdminPilotWorkspace.js';
 import { ProviderPilotWorkspace } from './ProviderPilotWorkspace.js';
+import { PublicLanding } from '../demo/PublicLanding.js';
+import type { PublicQuoteSelection } from '../demo/publicQuote.js';
+import type { PublicOperationsCatalog } from './models.js';
 
 type PilotAppProps = { api?: PilotApi };
 
@@ -14,7 +17,10 @@ const ROLE_LABELS = { OWNER: '宠主', PROVIDER: '服务人员', ADMIN: '平台�
 export function PilotApp({ api = pilotApi }: PilotAppProps) {
   const [session, setSession] = useState<PilotSession | null | undefined>(undefined);
   const [failure, setFailure] = useState('');
+  const [publicCatalog, setPublicCatalog] = useState<PublicOperationsCatalog | null>(null);
+  const [quoteSelection, setQuoteSelection] = useState<PublicQuoteSelection>({ serviceType: 'CAT_FEEDING', district: '建邺区' });
   const bootstrapped = useRef(false);
+  const catalogBootstrapped = useRef(false);
 
   const loadSession = useCallback(async () => {
     setSession(undefined);
@@ -37,6 +43,12 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
     bootstrapped.current = true;
     void loadSession();
   }, [loadSession]);
+
+  useEffect(() => {
+    if (catalogBootstrapped.current) return;
+    catalogBootstrapped.current = true;
+    void api.getCatalog().then(setPublicCatalog).catch(() => setPublicCatalog(null));
+  }, [api]);
 
   useEffect(() => {
     if (!session) return;
@@ -89,7 +101,20 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
     <section className="pilot-state-card"><p>正在确认登录状态…</p></section>
   </main>;
 
-  if (session === null) return <LoginPanel api={api} onAuthenticated={loadSession}/>;
+  if (session === null) {
+    const showLogin = () => window.requestAnimationFrame(() => {
+      document.getElementById('pilot-login')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return <PublicLanding
+      catalog={publicCatalog}
+      onStartOrder={showLogin}
+      onQuoteStartOrder={showLogin}
+      quoteSelection={quoteSelection}
+      onQuoteChange={setQuoteSelection}
+    >
+      <div id="pilot-login"><LoginPanel api={api} onAuthenticated={loadSession}/></div>
+    </PublicLanding>;
+  }
 
   if (session.displayName === null) {
     return <ProfilePanel

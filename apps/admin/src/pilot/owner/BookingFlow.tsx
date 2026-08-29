@@ -1,6 +1,7 @@
 import { useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
+import { NANJING_DISTRICTS } from '@pet/contracts';
 import { PILOT_DISTRICTS } from '../districts.js';
-import type { OwnerAddress, OwnerPet, QuoteBreakdown, ServiceType } from '../models.js';
+import type { OwnerAddress, OwnerPet, PublicOperationsCatalog, QuoteBreakdown, ServiceType } from '../models.js';
 import {
   bookingStepIsComplete,
   nextBookingStep,
@@ -12,6 +13,7 @@ import {
 
 type BookingFlowProps = {
   draft: BookingDraft;
+  catalog: PublicOperationsCatalog;
   setDraft: Dispatch<SetStateAction<BookingDraft>>;
   pets: OwnerPet[];
   addresses: OwnerAddress[];
@@ -30,9 +32,9 @@ const STEP_LABELS: Readonly<Record<BookingStep, string>> = {
 };
 const STEP_ORDER: readonly BookingStep[] = ['SERVICE_TIME', 'VISIT_INFO', 'CONFIRM'];
 const DURATION_OPTIONS = [25, 30, 45, 60, 90, 120] as const;
-const SERVICE_COPY: Readonly<Record<ServiceType, { label: string; price: string; copy: string }>> = {
-  CAT_FEEDING: { label: '上门喂猫', price: '¥32 起', copy: '喂食换水、猫砂清理、宠物状态反馈' },
-  DOG_WALKING: { label: '上门遛狗', price: '¥37 起', copy: '牵引散步、饮水照看、服务状态反馈' },
+const SERVICE_COPY: Readonly<Record<ServiceType, { label: string; copy: string }>> = {
+  CAT_FEEDING: { label: '上门喂猫', copy: '喂食换水、猫砂清理、宠物状态反馈' },
+  DOG_WALKING: { label: '上门遛狗', copy: '牵引散步、饮水照看、服务状态反馈' },
 };
 
 function fen(value: number): string {
@@ -56,10 +58,17 @@ export function BookingFlow(props: BookingFlowProps) {
     draft.serviceType === 'CAT_FEEDING' ? pet.species === 'CAT' : pet.species === 'DOG'
   ));
   const locked = props.submissionLocked || props.quoting || props.submitting;
+  const serviceTypes = (Object.keys(SERVICE_COPY) as ServiceType[])
+    .filter((serviceType) => props.catalog.services[serviceType].enabled);
+  const openDistrictNames = new Set<string>(props.catalog.openDistricts.map((code) => (
+    NANJING_DISTRICTS.find((district) => district.code === code)!.name
+  )));
+  const openDistricts = PILOT_DISTRICTS.filter(({ district }) => openDistrictNames.has(district));
+  const openAddresses = props.addresses.filter((address) => openDistrictNames.has(address.district));
   const normalizedVisitDraft: BookingDraft = {
     ...draft,
     petMode: compatiblePets.length === 0 ? 'NEW' : draft.petMode,
-    addressMode: props.addresses.length === 0 ? 'NEW' : draft.addressMode,
+    addressMode: openAddresses.length === 0 ? 'NEW' : draft.addressMode,
   };
 
   const update = <Key extends keyof BookingDraft>(key: Key, value: BookingDraft[Key]) => {
@@ -91,11 +100,11 @@ export function BookingFlow(props: BookingFlowProps) {
 
     {draft.step === 'SERVICE_TIME' && <div className="owner-booking-step">
       <fieldset className="owner-service-choice"><legend>需要什么服务</legend>
-        {(Object.keys(SERVICE_COPY) as ServiceType[]).map((serviceType) => {
+        {serviceTypes.map((serviceType) => {
           const service = SERVICE_COPY[serviceType];
           return <label key={serviceType}><input type="radio" name="booking-service" checked={draft.serviceType === serviceType} onChange={() => {
             setDraft((current) => selectBookingService(current, serviceType));
-          }}/><span><strong>{service.label}</strong><small>{service.copy}</small></span><b>{service.price}</b></label>;
+          }}/><span><strong>{service.label}</strong><small>{service.copy}</small></span><b>{fen(props.catalog.services[serviceType].basePriceFen)} 起</b></label>;
         })}
       </fieldset>
       <div className="owner-booking-fields">
@@ -123,15 +132,15 @@ export function BookingFlow(props: BookingFlowProps) {
       </section>
 
       <section aria-labelledby="owner-address-info-title"><h2 id="owner-address-info-title">上门地址</h2>
-        {props.addresses.length > 0 && <label>选择已有地址<select value={draft.addressMode === 'EXISTING' ? draft.addressId : ''} onChange={(event) => setDraft((current) => ({
+        {openAddresses.length > 0 && <label>选择已有地址<select value={draft.addressMode === 'EXISTING' ? draft.addressId : ''} onChange={(event) => setDraft((current) => ({
           ...current, addressMode: 'EXISTING', addressId: event.target.value, addressDetail: '',
-        }))}><option value="">请选择</option>{props.addresses.map((address) => <option key={address.id} value={address.id}>{address.city} · {address.district}</option>)}</select></label>}
+        }))}><option value="">请选择</option>{openAddresses.map((address) => <option key={address.id} value={address.id}>{address.city} · {address.district}</option>)}</select></label>}
         <button type="button" className="owner-add-button" onClick={() => setDraft((current) => ({
           ...current, addressMode: 'NEW', addressId: '', addressDetail: '',
         }))}>添加新地址</button>
-        {(draft.addressMode === 'NEW' || props.addresses.length === 0) && <div className="owner-new-resource">
+        {(draft.addressMode === 'NEW' || openAddresses.length === 0) && <div className="owner-new-resource">
           <p className="owner-fixed-value">城市：南京市</p>
-          <label>服务区<select value={draft.districtName} onChange={(event) => update('districtName', event.target.value)}>{PILOT_DISTRICTS.map(({ district }) => <option key={district}>{district}</option>)}</select></label>
+          <label>服务区<select value={draft.districtName} onChange={(event) => update('districtName', event.target.value)}>{openDistricts.map(({ district }) => <option key={district}>{district}</option>)}</select></label>
           <label>详细服务地址<input value={draft.addressDetail} maxLength={300} autoComplete="street-address" onChange={(event) => update('addressDetail', event.target.value)}/></label>
           <p className="pilot-privacy-hint">仅填写完成上门服务所需的信息，请勿填写门锁密码。</p>
         </div>}

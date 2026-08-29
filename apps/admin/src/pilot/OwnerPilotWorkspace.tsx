@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createIdempotencyKey, type PilotApi } from './api.js';
+import { NANJING_DISTRICTS } from '@pet/contracts';
 import { pilotDistrict } from './districts.js';
 import type {
   CreateOwnerOrder,
@@ -9,6 +10,7 @@ import type {
   OwnerPet,
   QuoteBreakdown,
   QuoteRequest,
+  PublicOperationsCatalog,
   ServiceType,
 } from './models.js';
 import { BookingFlow } from './owner/BookingFlow.js';
@@ -99,6 +101,7 @@ export function OwnerPilotWorkspace({ api, displayName = '宠主', onError }: Ow
   const [pets, setPets] = useState<OwnerPet[]>([]);
   const [addresses, setAddresses] = useState<OwnerAddress[]>([]);
   const [orders, setOrders] = useState<OwnerOrder[]>([]);
+  const [catalog, setCatalog] = useState<PublicOperationsCatalog | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const loadVersion = useRef(0);
@@ -142,13 +145,14 @@ export function OwnerPilotWorkspace({ api, displayName = '宠主', onError }: Ow
     if (showLoading) setLoading(true);
     setError('');
     try {
-      const [nextPets, nextAddresses, nextOrders] = await Promise.all([
-        api.listPets(), api.listAddresses(), api.listOrders(),
+      const [nextPets, nextAddresses, nextOrders, nextCatalog] = await Promise.all([
+        api.listPets(), api.listAddresses(), api.listOrders(), api.getCatalog(),
       ]);
       if (!isCurrent(generation) || version !== loadVersion.current) return;
       setPets(nextPets);
       setAddresses(nextAddresses);
       setOrders(nextOrders);
+      setCatalog(nextCatalog);
     } catch (caught) {
       if (isCurrent(generation) && version === loadVersion.current) {
         reportError(caught, generation);
@@ -183,8 +187,14 @@ export function OwnerPilotWorkspace({ api, displayName = '宠主', onError }: Ow
   };
 
   const openBooking = (serviceType: ServiceType) => {
+    if (!catalog?.services[serviceType].enabled) return;
     invalidateQuote();
-    setBookingDraft(createBookingDraft(serviceType));
+    const firstDistrictCode = catalog.openDistricts[0];
+    const firstDistrictName = NANJING_DISTRICTS.find(({ code }) => code === firstDistrictCode)?.name;
+    setBookingDraft({
+      ...createBookingDraft(serviceType),
+      ...(firstDistrictName ? { districtName: firstDistrictName } : {}),
+    });
     setBookingOpen(true);
   };
 
@@ -360,7 +370,8 @@ export function OwnerPilotWorkspace({ api, displayName = '宠主', onError }: Ow
 
   return <section className="pilot-owner-workspace">
     {error && <p className="pilot-error" role="alert">{error}</p>}
-    {bookingOpen ? <BookingFlow
+    {!catalog ? <div className="pilot-owner-loading">服务配置暂不可用，请刷新后重试。</div> : bookingOpen ? <BookingFlow
+      catalog={catalog}
       draft={bookingDraft}
       setDraft={setBookingDraft}
       pets={pets}
@@ -375,6 +386,7 @@ export function OwnerPilotWorkspace({ api, displayName = '宠主', onError }: Ow
       onClose={closeBooking}
     /> : <>
       <OwnerHome
+        catalog={catalog}
         displayName={displayName}
         orders={orders}
         loading={loading}

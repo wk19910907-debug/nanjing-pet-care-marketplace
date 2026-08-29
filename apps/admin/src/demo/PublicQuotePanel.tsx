@@ -1,10 +1,13 @@
-import { PUBLIC_DISTRICTS, getPublicQuote, type PublicQuoteSelection } from './publicQuote.js';
+import { NANJING_DISTRICTS } from '@pet/contracts';
+import type { PublicOperationsCatalog } from '../pilot/models.js';
+import { type PublicQuoteSelection } from './publicQuote.js';
 import type { ServiceType } from './workflow.js';
 
 type PublicQuoteProps = {
   selection: PublicQuoteSelection;
   onChange: (selection: PublicQuoteSelection) => void;
   onStartOrder: () => void;
+  catalog: PublicOperationsCatalog;
 };
 
 const serviceOptions: Array<{ value: ServiceType; label: string }> = [
@@ -12,8 +15,25 @@ const serviceOptions: Array<{ value: ServiceType; label: string }> = [
   { value: 'DOG_WALKING', label: '上门遛狗' },
 ];
 
-export function PublicQuote({ selection, onChange, onStartOrder }: PublicQuoteProps) {
-  const quote = getPublicQuote(selection.serviceType);
+function price(value: number): string {
+  return `¥${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(value / 100)}`;
+}
+
+export function PublicQuote({ selection, onChange, onStartOrder, catalog }: PublicQuoteProps) {
+  const availableServices = serviceOptions.filter(({ value }) => catalog.services[value].enabled);
+  const selectedService = availableServices.some(({ value }) => value === selection.serviceType)
+    ? selection.serviceType
+    : availableServices[0]?.value;
+  const availableDistricts = catalog.openDistricts.map((code) => (
+    NANJING_DISTRICTS.find((district) => district.code === code)!.name
+  ));
+  const selectedDistrict = availableDistricts.includes(selection.district)
+    ? selection.district
+    : availableDistricts[0];
+
+  if (!selectedService || !selectedDistrict) {
+    return <section className="public-quote" aria-label="预约参考"><p>服务配置暂不可用，请稍后重试。</p></section>;
+  }
 
   return <section className="public-quote" aria-label="预约参考">
     <div>
@@ -23,19 +43,19 @@ export function PublicQuote({ selection, onChange, onStartOrder }: PublicQuotePr
     </div>
     <div className="quote-controls">
       <label>服务类型
-        <select value={selection.serviceType} onChange={(event) => onChange({ ...selection, serviceType: event.target.value as ServiceType })}>
-          {serviceOptions.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
+        <select value={selectedService} onChange={(event) => onChange({ serviceType: event.target.value as ServiceType, district: selectedDistrict })}>
+          {availableServices.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
         </select>
       </label>
       <label>服务区域
-        <select value={selection.district} onChange={(event) => onChange({ ...selection, district: event.target.value as PublicQuoteSelection['district'] })}>
-          {PUBLIC_DISTRICTS.map((district) => <option key={district} value={district}>{district}</option>)}
+        <select value={selectedDistrict} onChange={(event) => onChange({ serviceType: selectedService, district: event.target.value as PublicQuoteSelection['district'] })}>
+          {availableDistricts.map((district) => <option key={district} value={district}>{district}</option>)}
         </select>
       </label>
     </div>
     <div className="quote-decision">
-      <div className="quote-summary" role="status" aria-live="polite"><span>服务起步价 / 次</span><strong>{quote.priceLabel}</strong></div>
-      <button className="quote-action" onClick={onStartOrder}>按此服务立即预约</button>
+      <div className="quote-summary" role="status" aria-live="polite"><span>服务起步价 / 次</span><strong>{price(catalog.services[selectedService].basePriceFen)}</strong></div>
+      <button className="quote-action" onClick={() => { onChange({ serviceType: selectedService, district: selectedDistrict }); onStartOrder(); }}>按此服务立即预约</button>
     </div>
   </section>;
 }

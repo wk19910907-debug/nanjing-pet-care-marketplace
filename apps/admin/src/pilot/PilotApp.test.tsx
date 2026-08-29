@@ -11,6 +11,14 @@ const adminSession = {
   userId: 'admin-1', role: 'ADMIN' as const, displayName: '试点运营',
   expiresAt: '2026-09-03T10:00:00.000Z',
 };
+const publicCatalog = {
+  services: {
+    CAT_FEEDING: { enabled: true, basePriceFen: 3_200 },
+    DOG_WALKING: { enabled: true, basePriceFen: 3_700 },
+  },
+  openDistricts: ['JIANYE', 'GULOU', 'XUANWU', 'QINHUAI'] as Array<'JIANYE' | 'GULOU' | 'XUANWU' | 'QINHUAI'>,
+  announcement: '',
+};
 
 function fakeApi(overrides: Partial<PilotApi> = {}): PilotApi {
   return {
@@ -32,7 +40,11 @@ function fakeApi(overrides: Partial<PilotApi> = {}): PilotApi {
     applyProvider: vi.fn(), setProviderAvailability: vi.fn(), acceptInvitation: vi.fn(),
     getAssignedAddress: vi.fn(), checkIn: vi.fn(), issueEvidenceUpload: vi.fn(),
     uploadEvidence: vi.fn(), attachEvidence: vi.fn(), submitReport: vi.fn(),
-    getCatalog: vi.fn(), getAdminCatalog: vi.fn(), updateAdminCatalog: vi.fn(),
+    getCatalog: vi.fn().mockResolvedValue(publicCatalog),
+    getAdminCatalog: vi.fn().mockResolvedValue({
+      ...publicCatalog, version: 1, updatedAt: '2026-08-29T08:00:00.000Z',
+    }),
+    updateAdminCatalog: vi.fn(),
     ...overrides,
   };
 }
@@ -59,7 +71,8 @@ describe('PilotApp', () => {
     expect(screen.getByRole('button', { name: '以服务人员身份进入' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '以平台管理员身份进入' })).toBeTruthy();
     expect(screen.getByText('当前版本仅记录线下费用，不收集联系方式')).toBeTruthy();
-    expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual([
+    expect(screen.getByRole('heading', { name: '出门放心，宠物在家也被认真照顾' })).toBeTruthy();
+    expect(within(screen.getByRole('group', { name: '身份入口' })).getAllByRole('button').map((button) => button.textContent)).toEqual([
       '以宠主身份进入', '以服务人员身份进入', '以平台管理员身份进入',
     ]);
     expect(screen.queryByLabelText('邀请码')).toBeNull();

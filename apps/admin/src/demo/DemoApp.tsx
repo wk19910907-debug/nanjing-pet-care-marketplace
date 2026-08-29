@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { DEFAULT_OPERATIONS_CATALOG } from '@pet/contracts';
 import { OperatorWorkspace } from './OperatorWorkspace.js';
 import { OwnerWorkspace } from './OwnerWorkspace.js';
 import { ProviderWorkspace } from './ProviderWorkspace.js';
@@ -34,7 +35,7 @@ export function DemoApp() {
     setRole('PROVIDER');
   };
   return <div className="demo-shell"><header className="topbar"><div className="brand"><span className="brand-mark">宠</span><div><strong>南京安心宠</strong><small>上门喂猫 · 遛狗</small></div></div><div className="demo-badge">安全体验版</div></header>
-    <PublicLanding onStartOrder={startOrderExperience} onQuoteStartOrder={startQuoteOrderExperience} quoteSelection={quoteSelection} onQuoteChange={setQuoteSelection}>
+    <PublicLanding catalog={DEFAULT_OPERATIONS_CATALOG} onStartOrder={startOrderExperience} onQuoteStartOrder={startQuoteOrderExperience} quoteSelection={quoteSelection} onQuoteChange={setQuoteSelection}>
     <nav id="order-experience" className="role-tabs" aria-label="体验身份"><button className={role === 'OWNER' ? 'active' : ''} onClick={() => setRole('OWNER')}>宠主</button><button className={role === 'OPERATOR' ? 'active' : ''} onClick={() => setRole('OPERATOR')}>平台运营</button><button className={role === 'PROVIDER' ? 'active' : ''} onClick={showProvider}>服务人员</button><button className="reset" onClick={reset}>恢复体验数据</button></nav>
     <div className="notice" role="status">{notice}</div><main className="demo-main">
       {role === 'OWNER' && (

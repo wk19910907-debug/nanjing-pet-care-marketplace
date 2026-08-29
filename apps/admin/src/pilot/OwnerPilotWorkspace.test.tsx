@@ -21,6 +21,14 @@ const pendingOrder = {
   city: '南京市', district: '建邺区', serviceZone: '建邺区', petNames: ['团子'],
   notes: '请轻声进门',
 };
+const catalog = {
+  services: {
+    CAT_FEEDING: { enabled: true, basePriceFen: 3_200 },
+    DOG_WALKING: { enabled: true, basePriceFen: 3_700 },
+  },
+  openDistricts: ['JIANYE', 'GULOU', 'XUANWU', 'QINHUAI'] as Array<'JIANYE' | 'GULOU' | 'XUANWU' | 'QINHUAI'>,
+  announcement: '',
+};
 
 function fakeApi(overrides: Partial<PilotApi> = {}): PilotApi {
   return {
@@ -48,6 +56,7 @@ function fakeApi(overrides: Partial<PilotApi> = {}): PilotApi {
     applyProvider: vi.fn(), setProviderAvailability: vi.fn(), acceptInvitation: vi.fn(),
     getAssignedAddress: vi.fn(), checkIn: vi.fn(), issueEvidenceUpload: vi.fn(),
     uploadEvidence: vi.fn(), attachEvidence: vi.fn(), submitReport: vi.fn(),
+    getCatalog: vi.fn().mockResolvedValue(catalog),
     ...overrides,
   } as PilotApi;
 }
