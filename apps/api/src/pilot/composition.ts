@@ -13,6 +13,8 @@ import { PrismaAuditRepository } from '../audit/audit-repository.js';
 import type { AuthService } from '../auth/auth-service.js';
 import { PilotSessionService } from '../auth/pilot-session-service.js';
 import { QuoteService } from '../catalog/quote-service.js';
+import { PrismaOperationsCatalogRepository } from '../catalog/operations-catalog-repository.js';
+import { OperationsCatalogService } from '../catalog/operations-catalog-service.js';
 import type { AppConfig } from '../config.js';
 import { createDb } from '../db.js';
 import { DispatchService, type DispatchAlertSink } from '../dispatch/dispatch-service.js';
@@ -105,6 +107,9 @@ export async function createPilotApplication(
   const prisma = overrides.prisma ?? createDb(config.databaseUrl);
   try {
     const audit = new PrismaAuditRepository(prisma);
+    const operationsCatalog = new OperationsCatalogService(
+      new PrismaOperationsCatalogRepository(prisma, audit),
+    );
     const sessions = new PilotSessionService(prisma, {
       pepper: config.pilot.authPepper,
       inviteHours: config.pilot.inviteHours,
@@ -184,6 +189,7 @@ export async function createPilotApplication(
         read: new PilotReadModel(prisma),
         fulfillment,
       },
+      operationsCatalog: { service: operationsCatalog, sessions },
     }, {
       apiPrefix: '/api',
       clientFulfillmentTimestampsEnabled: false,

@@ -12,6 +12,10 @@ import {
 } from './auth/pilot-routes.js';
 import { requirePilotOrigin } from './auth/pilot-origin-guard.js';
 import { registerPilotRoutes, type PilotRoutesDependencies } from './pilot/pilot-routes.js';
+import {
+  registerOperationsCatalogRoutes,
+  type OperationsCatalogRoutesDependencies,
+} from './catalog/routes.js';
 
 const SAFE_PILOT_FRAMEWORK_ERRORS: ReadonlyMap<string, number> = new Map([
   ['FST_ERR_CTP_INVALID_JSON_BODY', 400],
@@ -27,6 +31,7 @@ type AppDependencies = PetRoutesDependencies
   & {
     pilot?: PilotAuthRoutesDependencies;
     pilotBusiness?: Omit<PilotRoutesDependencies, 'sessions'>;
+    operationsCatalog?: OperationsCatalogRoutesDependencies;
   };
 
 type AppOptions = {
@@ -36,7 +41,7 @@ type AppOptions = {
 };
 
 export function createApp(dependencies: AppDependencies, options: AppOptions = {}) {
-  if (dependencies.pilotBusiness && !dependencies.pilot) {
+  if ((dependencies.pilotBusiness || dependencies.operationsCatalog) && !dependencies.pilot) {
     throw new Error('PILOT_SECURITY_CONFIGURATION_REQUIRED');
   }
   const trustedProxies = dependencies.pilot?.config.pilot?.trustedProxies;
@@ -82,6 +87,9 @@ export function createApp(dependencies: AppDependencies, options: AppOptions = {
       return reply.code(409).send({ code: error.message });
     }
     if (error instanceof Error && ['MANUAL_FEE_CONFLICT'].includes(error.message)) {
+      return reply.code(409).send({ code: error.message });
+    }
+    if (error instanceof Error && error.message === 'OPERATIONS_CATALOG_CONFLICT') {
       return reply.code(409).send({ code: error.message });
     }
     if (error instanceof Error && error.message === 'ORDER_NOT_FOUND') {
@@ -135,6 +143,9 @@ export function createApp(dependencies: AppDependencies, options: AppOptions = {
       ...dependencies.pilotBusiness,
       sessions: dependencies.pilot!.sessions,
     });
+  }
+  if (dependencies.operationsCatalog) {
+    void app.register(registerOperationsCatalogRoutes, dependencies.operationsCatalog);
   }
   void app.register(async (api) => {
     await api.register(registerPetRoutes, dependencies);
