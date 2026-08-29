@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createIdempotencyKey, type PilotApi } from './api.js';
 import type { AdminOrder, OrderStatus, ProviderReviewQueueItem, ReviewStatus, ServiceType } from './models.js';
+import { OperationsSettingsPanel } from './OperationsSettingsPanel.js';
 
 type Props = { api: PilotApi; onError(caught: unknown): string | null };
 type Confirmation =
@@ -152,6 +153,7 @@ export function AdminPilotWorkspace({ api, onError }: Props) {
     <p className="pilot-owner-intro">逐人审核、逐单核对与派单；所有列表仅显示运营所需的脱敏字段。</p>
     <p className="pilot-offline-fee">本系统未处理在线支付</p>
     {error && <p className="pilot-error" role="alert">{error}</p>}
+    <OperationsSettingsPanel api={api} onError={onError}/>
     {loading ? <div className="pilot-owner-loading" aria-live="polite">正在读取运营数据…</div> : <div className="pilot-ops-grid">
       <section className="pilot-ops-section" aria-labelledby="admin-review-title">
         <h2 id="admin-review-title">服务人员审核</h2>

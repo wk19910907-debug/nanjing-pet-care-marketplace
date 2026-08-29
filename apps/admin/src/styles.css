@@ -360,3 +360,81 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
   *,*::before,*::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
   button:hover { transform: none; }
 }
+.pilot-operations-settings {
+  margin: 22px 0;
+  padding: 24px;
+  border: 1px solid #eadfd7;
+  border-radius: 22px;
+  background: #fffdfb;
+  box-shadow: 0 14px 40px rgba(72, 48, 36, 0.07);
+}
+
+.pilot-settings-services {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 18px 0;
+}
+
+.pilot-settings-service,
+.pilot-settings-districts {
+  border: 1px solid #eadfd7;
+  border-radius: 16px;
+  padding: 16px;
+}
+
+.pilot-settings-service legend,
+.pilot-settings-districts legend {
+  padding: 0 6px;
+  font-weight: 700;
+  color: #49382f;
+}
+
+.pilot-settings-service label,
+.pilot-settings-districts label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.pilot-settings-service input[type='number'] {
+  width: 110px;
+  margin-left: auto;
+}
+
+.pilot-settings-districts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+
+.pilot-settings-announcement {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+  font-weight: 700;
+}
+
+.pilot-settings-announcement textarea {
+  min-height: 86px;
+  resize: vertical;
+}
+
+.pilot-settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.pilot-success {
+  color: #21724b;
+  font-weight: 700;
+}
+
+@media (max-width: 720px) {
+  .pilot-settings-services {
+    grid-template-columns: 1fr;
+  }
+}

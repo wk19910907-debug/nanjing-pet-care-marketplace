@@ -26,6 +26,17 @@ function fakeApi(overrides: Partial<PilotApi> = {}): PilotApi {
     reviewProvider: vi.fn().mockResolvedValue(undefined),
     confirmManualFee: vi.fn().mockResolvedValue(undefined),
     startDispatch: vi.fn().mockResolvedValue(undefined),
+    getAdminCatalog: vi.fn().mockResolvedValue({
+      version: 1,
+      updatedAt: '2026-08-29T08:00:00.000Z',
+      services: {
+        CAT_FEEDING: { enabled: true, basePriceFen: 3200 },
+        DOG_WALKING: { enabled: true, basePriceFen: 3700 },
+      },
+      openDistricts: ['JIANYE', 'GULOU'],
+      announcement: '',
+    }),
+    updateAdminCatalog: vi.fn(),
     ...overrides,
   } as PilotApi;
 }
