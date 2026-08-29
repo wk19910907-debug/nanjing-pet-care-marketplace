@@ -12,13 +12,15 @@ describe('OwnerHome', () => {
     const onBook = vi.fn();
     render(<OwnerHome displayName="建邺宠主" orders={[]} loading={false} onBook={onBook} onRefresh={vi.fn()}/>);
 
-    expect(screen.getByRole('heading', { name: '放心把它交给我们' })).toBeTruthy();
+    expect(screen.getByText('南京 · 今日可预约')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '今天需要照顾谁？' })).toBeTruthy();
     expect(screen.getByText('¥32 起')).toBeTruthy();
     expect(screen.getByText('¥37 起')).toBeTruthy();
     const safeguards = screen.getByRole('region', { name: '每次上门都有交代' });
-    expect(within(safeguards).getAllByText(/人员认证|平台匹配|服务留痕|异常协助/)).toHaveLength(4);
+    expect(within(safeguards).getAllByText(/身份审核|平台匹配|服务留痕/)).toHaveLength(3);
     expect(document.querySelector('form')).toBeNull();
     expect(screen.queryByRole('textbox')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/本地试运营|宠主工作区|刷新全部/);
 
     await userEvent.click(screen.getByRole('button', { name: '预约上门遛狗' }));
     expect(onBook).toHaveBeenCalledWith('DOG_WALKING');

@@ -26,10 +26,9 @@ const SERVICES = [
 ] as const;
 
 const TRUST = [
-  ['人员认证', '审核通过后才进入匹配池'],
+  ['身份审核', '审核通过后才进入匹配范围'],
   ['平台匹配', '按区域与服务能力安排人员'],
   ['服务留痕', '服务照片与标准报告可查看'],
-  ['异常协助', '履约异常由平台继续跟进'],
 ] as const;
 
 const STATUS_LABELS: Readonly<Record<OrderStatus, string>> = {
@@ -66,9 +65,9 @@ export function OwnerHome({ displayName, orders, loading, onBook, onRefresh }: O
   return <section id="owner-home" className="owner-home">
     <header className="owner-hero">
       <div className="owner-hero-copy">
-        <p className="owner-location">南京 · 上门宠物照护</p>
-        <h1>放心把它交给我们</h1>
-        <p>上门喂猫、上门遛狗，由平台匹配已认证服务人员。</p>
+        <p className="owner-location">南京 · 今日可预约</p>
+        <h1>今天需要照顾谁？</h1>
+        <p>提交需求，平台为你匹配合适的服务人员。</p>
       </div>
       <div className="owner-hero-mark" aria-hidden="true"><span>安心</span><strong>宠</strong></div>
     </header>
@@ -114,7 +113,12 @@ export function OwnerHome({ displayName, orders, loading, onBook, onRefresh }: O
 
     <section id="owner-account" className="owner-account" aria-labelledby="owner-account-title">
       <div><p>我的</p><h2 id="owner-account-title">{displayName}</h2></div>
-      <span>宠主身份 · 南京本地试运营</span>
+      <span>宠主账户 · 南京上门宠物照护</span>
     </section>
+    <nav className="owner-bottom-nav" aria-label="宠主导航">
+      <a href="#owner-home" aria-current="page"><span aria-hidden="true">⌂</span>首页</a>
+      <a href="#owner-orders"><span aria-hidden="true">▣</span>订单</a>
+      <a href="#owner-account"><span aria-hidden="true">○</span>我的</a>
+    </nav>
   </section>;
 }

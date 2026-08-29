@@ -79,7 +79,7 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
 
   if (failure) return <main className="pilot-state-page">
     <section className="pilot-state-card" role="alert">
-      <h1>暂时无法连接试运营服务</h1>
+      <h1>暂时无法连接服务</h1>
       <p>{failure}</p>
       <button type="button" onClick={() => void loadSession()}>重试</button>
     </section>
@@ -104,7 +104,7 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
     <header className="pilot-header">
       <div>
         <strong>南京安心宠</strong>
-        <span>本地试运营</span>
+        <span>南京 · 上门宠物照护</span>
       </div>
       <div className="pilot-session-summary">
         <span>{session.displayName} · {ROLE_LABELS[session.role]}</span>

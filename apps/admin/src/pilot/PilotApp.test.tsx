@@ -57,7 +57,7 @@ describe('PilotApp', () => {
     expect(await screen.findByRole('button', { name: '以宠主身份进入' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '以服务人员身份进入' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '以平台管理员身份进入' })).toBeTruthy();
-    expect(screen.getByText('仅限本机试运营；仅记录线下费用，不收集联系方式')).toBeTruthy();
+    expect(screen.getByText('当前版本仅记录线下费用，不收集联系方式')).toBeTruthy();
     expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual([
       '以宠主身份进入', '以服务人员身份进入', '以平台管理员身份进入',
     ]);
@@ -72,14 +72,14 @@ describe('PilotApp', () => {
     });
     render(<PilotApp api={api}/>);
 
-    const group = await screen.findByRole('group', { name: '试运营身份入口' });
+    const group = await screen.findByRole('group', { name: '身份入口' });
     expect(within(group).getAllByRole('button').map((button) => button.textContent)).toEqual([
       '以宠主身份进入', '以服务人员身份进入', '以平台管理员身份进入',
     ]);
   });
 
   it.each([
-    ['以宠主身份进入', 'OWNER', '放心把它交给我们'],
+    ['以宠主身份进入', 'OWNER', '今天需要照顾谁？'],
     ['以服务人员身份进入', 'PROVIDER', '服务人员工作区'],
     ['以平台管理员身份进入', 'ADMIN', '平台工作区'],
   ] as const)('maps %s to %s and opens %s', async (action, role, workspace) => {
@@ -148,7 +148,7 @@ describe('PilotApp', () => {
     await user.type(screen.getByLabelText('展示昵称'), '秦淮宠主');
     await user.click(screen.getByRole('button', { name: '保存昵称' }));
     expect(api.updateProfile).toHaveBeenCalledWith('秦淮宠主');
-    expect(await screen.findByRole('heading', { name: '放心把它交给我们' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: '今天需要照顾谁？' })).toBeTruthy();
   });
 
   it('mounts a provider workspace keyed to the authenticated server identity', async () => {
@@ -247,10 +247,11 @@ describe('PilotApp', () => {
     expect(screen.getByRole('button', { name: '以宠主身份进入' })).toBeTruthy();
   });
 
-  it('renders the admin workspace without invitation management and labels the shell local pilot', async () => {
+  it('renders the admin workspace without invitation management in the formal service shell', async () => {
     render(<PilotApp api={fakeApi()}/>);
     expect(await screen.findByRole('heading', { name: '平台工作区' })).toBeTruthy();
-    expect(screen.getByText('本地试运营')).toBeTruthy();
+    expect(screen.getByText('南京 · 上门宠物照护')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('本地试运营');
     expect(screen.queryByText('邀请码管理')).toBeNull();
     expect(screen.queryByText('邀请制试运营')).toBeNull();
   });

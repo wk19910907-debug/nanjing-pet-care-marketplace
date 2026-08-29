@@ -40,10 +40,10 @@ export function LoginPanel({ api, onAuthenticated }: LoginPanelProps) {
 
   return <main className="pilot-auth-page">
     <section className="pilot-auth-card" aria-labelledby="pilot-login-title">
-      <p className="pilot-kicker">南京安心宠 · 本地试运营</p>
-      <h1 id="pilot-login-title">选择进入身份</h1>
-      <p className="pilot-lead">请选择体验身份进入南京本地试运营。</p>
-      <div className="pilot-form" role="group" aria-label="试运营身份入口">
+      <p className="pilot-kicker">南京安心宠 · 上门宠物照护</p>
+      <h1 id="pilot-login-title">欢迎使用南京安心宠</h1>
+      <p className="pilot-lead">请选择身份进入对应的服务页面。</p>
+      <div className="pilot-form" role="group" aria-label="身份入口">
         {ENTRY_OPTIONS.map(({ role, label, pendingLabel }) => <button
           key={role}
           type="button"
@@ -55,8 +55,8 @@ export function LoginPanel({ api, onAuthenticated }: LoginPanelProps) {
       </div>
       {error && <p className="pilot-error" role="alert">{error}</p>}
       <div className="pilot-boundary">
-        <strong>隐私与试运营边界</strong>
-        <p>仅限本机试运营；仅记录线下费用，不收集联系方式</p>
+        <strong>隐私与服务说明</strong>
+        <p>当前版本仅记录线下费用，不收集联系方式</p>
         <p>进入后可设置展示昵称。</p>
       </div>
     </section>
