@@ -1,5 +1,17 @@
 <view class="page">
-  <view class="card"><text>服务项目</text><picker range="{{['上门喂猫','遛狗']}}"><view>请选择服务、宠物、地址和时间</view></picker></view>
-  <view class="card"><block wx:for="{{quoteRows}}" wx:key="label"><view>{{item.label}}　{{item.value}}</view></block></view>
-  <button class="primary" bindtap="refreshQuote">获取平台报价</button><button class="primary" loading="{{busy}}" bindtap="submit">确认并支付</button>
+  <view wx:if="{{status==='loading'}}" class="card">正在加载预约信息…</view>
+  <view wx:elif="{{status==='error'}}" class="card"><text>{{errorMessage}}</text><button bindtap="loadForm">重新加载</button></view>
+  <block wx:else>
+    <view wx:if="{{announcement}}" class="card">{{announcement}}</view>
+    <view class="card"><text class="heading">选择服务</text><view class="service-switch"><button wx:for="{{serviceCards}}" wx:key="type" class="{{serviceType===item.type?'selected':''}}" data-value="{{item.type}}" bindtap="chooseService">{{item.title}} {{item.price}}</button></view></view>
+    <view class="card"><text class="heading">预约信息</text>
+      <picker range="{{pets}}" range-key="name" value="{{petIndex}}" bindchange="choosePet"><view class="field">宠物：{{pets[petIndex].name || '暂无宠物资料'}}</view></picker>
+      <picker range="{{addresses}}" range-key="serviceZone" value="{{addressIndex}}" bindchange="chooseAddress"><view class="field">地址：{{addresses[addressIndex].serviceZone || '暂无开放区域地址'}}</view></picker>
+      <input class="field" value="{{startsAt}}" bindinput="changeStartsAt" placeholder="上门时间，如 2026-09-01T10:00:00+08:00"/>
+    </view>
+    <view wx:if="{{quoteRows.length}}" class="card"><view wx:for="{{quoteRows}}" wx:key="label" class="quote-row"><text>{{item.label}}</text><text>{{item.value}}</text></view></view>
+    <button class="secondary" bindtap="refreshQuote">获取平台报价</button>
+    <button class="primary" disabled="{{!quote || busy}}" loading="{{busy}}" bindtap="submit">提交订单</button>
+    <text class="hint">订单提交后由平台匹配服务人员，价格以服务器报价为准。</text>
+  </block>
 </view>

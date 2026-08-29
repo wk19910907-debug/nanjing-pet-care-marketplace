@@ -11,6 +11,7 @@ declare const wx: {
   }): void;
   getAccountInfoSync(): { miniProgram: { envVersion: 'develop' | 'trial' | 'release' } };
   getExtConfigSync(): { apiBaseUrl?: string; developmentApiBaseUrl?: string };
+  navigateTo(options: { url: string }): void;
 };
 declare function App(options: any): void;
 declare function Page(options: any): void;

@@ -41,6 +41,8 @@ export function createApiClient(config: {
       return { token, expiresAt };
     },
     quote: (input: unknown) => request('POST', '/v1/quotes', input),
+    listPets: () => request<Array<{ id: string; name: string; species: 'CAT' | 'DOG' }>>('GET', '/v1/pets'),
+    listAddresses: () => request<Array<{ id: string; city: string; district: string; serviceZone: string }>>('GET', '/v1/addresses'),
     createOrder: (input: unknown, idempotencyKey: string) =>
       request('POST', '/v1/orders', input, { 'Idempotency-Key': idempotencyKey }),
     getOrder: (orderId: string) => request('GET', `/v1/orders/${orderId}`),
