@@ -92,6 +92,9 @@ export function createApp(dependencies: AppDependencies, options: AppOptions = {
     if (error instanceof Error && error.message === 'OPERATIONS_CATALOG_CONFLICT') {
       return reply.code(409).send({ code: error.message });
     }
+    if (error instanceof Error && ['SERVICE_NOT_AVAILABLE', 'AREA_NOT_AVAILABLE'].includes(error.message)) {
+      return reply.code(409).send({ code: error.message });
+    }
     if (error instanceof Error && error.message === 'ORDER_NOT_FOUND') {
       return reply.code(404).send({ code: 'ORDER_NOT_FOUND' });
     }

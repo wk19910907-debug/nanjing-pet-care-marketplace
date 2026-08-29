@@ -325,7 +325,8 @@ describe('pilot application composition', () => {
     expect(catQuote.json()).toMatchObject({ totalFen: 3200 });
     expect(dogQuote.statusCode).toBe(200);
     expect(dogQuote.json()).toMatchObject({ totalFen: 3700 });
-    expect(unsupportedPersistedDistrictQuote.statusCode).toBe(403);
+    expect(unsupportedPersistedDistrictQuote.statusCode).toBe(409);
+    expect(unsupportedPersistedDistrictQuote.json()).toEqual({ code: 'AREA_NOT_AVAILABLE' });
     expect(mismatchedPersistedDistrictQuote.statusCode).toBe(403);
     await application.app.close();
   });

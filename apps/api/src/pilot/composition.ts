@@ -135,6 +135,7 @@ export async function createPilotApplication(
         },
       },
       { isHoliday: () => false },
+      operationsCatalog,
     );
     const orders = new OrderService(prisma, quotes, gateway, audit);
     const payments = new PaymentService(prisma, gateway, audit);
