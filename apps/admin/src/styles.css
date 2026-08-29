@@ -403,6 +403,13 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
   margin-left: auto;
 }
 
+.pilot-settings-service input[type='checkbox'],
+.pilot-settings-districts input[type='checkbox'] {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+}
+
 .pilot-settings-districts {
   display: flex;
   flex-wrap: wrap;

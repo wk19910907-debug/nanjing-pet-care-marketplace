@@ -288,6 +288,19 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     ));
     await assertSessionCookie(adminContext, adminPage);
 
+    await expect(adminPage.getByRole('heading', { name: '运营配置' })).toBeVisible();
+    await adminPage.getByRole('spinbutton', { name: '上门喂猫起步价' }).fill('34.50');
+    await adminPage.getByRole('textbox', { name: '运营公告' }).fill('周末订单请提前预约');
+    await adminPage.getByRole('button', { name: '保存运营配置' }).click();
+    await expect(adminPage.getByText('运营配置已保存')).toBeVisible();
+    await withinNegativeWindow(ownerPage, '/api/v1/pilot/session', [401], async () => {
+      await ownerPage.goto(baseUrl!);
+      await expect(ownerPage.getByRole('heading', { name: '出门放心，宠物在家也被认真照顾' })).toBeVisible();
+      await expect(ownerPage.getByText('周末订单请提前预约')).toBeVisible();
+      await expect(ownerPage.getByText('¥34.5 起')).toBeVisible();
+      await ownerPage.waitForTimeout(100);
+    });
+
     await Promise.all([
       withinNegativeWindow(ownerPage, '/api/v1/pilot/session', [401], () => (
         loginDirect(ownerPage, 'OWNER', '建邺团子家', '今天需要照顾谁？')
@@ -351,9 +364,10 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await ownerPage.getByRole('button', { name: '确认提交订单' }).click();
     const orderResponse = await orderResponsePromise;
     const ownerOrderInput = orderResponse.request().postDataJSON() as Record<string, unknown>;
-    const order = await orderResponse.json() as { id: string; status: string; paymentToken: null };
+    const order = await orderResponse.json() as { id: string; status: string; paymentToken: null; totalFen: number };
     expect(order).toMatchObject({ status: 'PENDING_PAYMENT', paymentToken: null });
     const orderId = order.id;
+    const originalOrderTotalFen = order.totalFen;
     await assertMobilePrivacy(ownerPage);
     await assertDesktopPrivacy(ownerPage, '今天需要照顾谁？');
 
@@ -363,6 +377,23 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     ]);
     expect(JSON.stringify(adminOrdersBefore.body)).not.toContain(exactAddress);
     expect(JSON.stringify(providerOrdersBefore.body)).not.toContain(exactAddress);
+
+    const catalogBeforeUpdate = await browserFetch(adminPage, '/api/v1/pilot/admin/catalog');
+    expect(catalogBeforeUpdate.status).toBe(200);
+    const catalog = catalogBeforeUpdate.body as {
+      services: { CAT_FEEDING: { enabled: boolean; basePriceFen: number }; DOG_WALKING: { enabled: boolean; basePriceFen: number } };
+      openDistricts: string[]; announcement: string; version: number;
+    };
+    const catalogUpdate = await browserFetch(adminPage, '/api/v1/pilot/admin/catalog', {
+      method: 'PUT',
+      body: { services: { ...catalog.services, CAT_FEEDING: { enabled: true, basePriceFen: 4100 } },
+        openDistricts: catalog.openDistricts, announcement: catalog.announcement, expectedVersion: catalog.version },
+    });
+    expect(catalogUpdate.status).toBe(200);
+    const ownerOrdersAfterCatalogUpdate = await browserFetch(ownerPage, '/api/v1/pilot/orders');
+    expect((ownerOrdersAfterCatalogUpdate.body as Array<{ id: string; totalFen: number }>).find(
+      (item) => item.id === orderId,
+    )?.totalFen).toBe(originalOrderTotalFen);
 
     const restart = await fetch(`${controlUrl}/restart`, { method: 'POST' });
     expect(restart.status).toBe(200);
@@ -599,7 +630,12 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await ownerPage.getByLabel('宠物昵称').fill('布丁');
     await ownerPage.getByRole('combobox', { name: '服务区' }).selectOption('建邺区');
     await ownerPage.getByLabel('详细服务地址').fill(secondExactAddress);
+    const updatedQuoteResponsePromise = ownerPage.waitForResponse((response) => (
+      new URL(response.url()).pathname === '/api/v1/quotes' && response.request().method() === 'POST'
+    ));
     await ownerPage.getByRole('button', { name: '获取服务报价' }).click();
+    const updatedQuote = await (await updatedQuoteResponsePromise).json() as { baseFen: number };
+    expect(updatedQuote.baseFen).toBe(4100);
     await ownerPage.getByRole('button', { name: '补充上门要求（选填）' }).click();
     await ownerPage.getByLabel('订单备注（可选）').fill('第二账号隔离验收');
     const secondOrderResponsePromise = ownerPage.waitForResponse((response) => (
