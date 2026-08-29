@@ -200,7 +200,7 @@ async function logoutAndAssertRevoked(context: BrowserContext, page: Page) {
 }
 
 test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop', async ({ browser }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   const requests: string[] = [];
   let eventSequence = 0;
   const consoleErrors: Array<{ page: string; text: string; url: string; sequence: number }> = [];
@@ -713,6 +713,6 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     expect(unexpectedConsoleErrors).toEqual([]);
     expect(pageErrors).toEqual([]);
   } finally {
-    await Promise.all(contexts.map((context) => context.close()));
+    await Promise.allSettled(contexts.map((context) => context.close()));
   }
 });

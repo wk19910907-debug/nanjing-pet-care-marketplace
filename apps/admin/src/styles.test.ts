@@ -11,5 +11,6 @@ describe('formal operating visual system', () => {
     expect(css).toContain('min-height: 44px');
     expect(css).toContain('@media (max-width: 640px)');
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
+    expect(css).not.toContain('transform: translateY(-1px)');
   });
 });
