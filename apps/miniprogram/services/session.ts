@@ -13,3 +13,17 @@ export function createSessionStore(storage: KeyValueStorage) {
     clear: () => storage.remove(SESSION_KEY),
   };
 }
+
+export function createWechatLoginAdapter(dependencies: {
+  wxLogin: () => Promise<{ code: string; errMsg?: string }>;
+  exchange: (input: { code: string }) => Promise<{ token: string; expiresAt: string }>;
+  saveToken: (token: string) => unknown;
+}) {
+  return async () => {
+    const result = await dependencies.wxLogin();
+    if (typeof result.code !== 'string' || result.code.length === 0) throw new Error('WECHAT_LOGIN_FAILED');
+    const session = await dependencies.exchange({ code: result.code });
+    dependencies.saveToken(session.token);
+    return { expiresAt: session.expiresAt };
+  };
+}
