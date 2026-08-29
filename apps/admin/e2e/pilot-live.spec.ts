@@ -290,7 +290,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
 
     await Promise.all([
       withinNegativeWindow(ownerPage, '/api/v1/pilot/session', [401], () => (
-        loginDirect(ownerPage, 'OWNER', '建邺团子家', '放心把它交给我们')
+        loginDirect(ownerPage, 'OWNER', '建邺团子家', '今天需要照顾谁？')
       )),
       withinNegativeWindow(providerPage, '/api/v1/pilot/session', [401], () => (
         loginDirect(providerPage, 'PROVIDER', '建邺小周', '服务人员工作区')
@@ -333,11 +333,10 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
 
     await expect(ownerPage.locator('input:visible, select:visible, textarea:visible')).toHaveCount(0);
     await ownerPage.getByRole('button', { name: '预约上门喂猫' }).click();
-    await ownerPage.getByRole('button', { name: '下一步：选择时间' }).click();
     await ownerPage.getByLabel('服务时间').fill(localInput(serviceStarts));
-    await ownerPage.getByRole('button', { name: '下一步：宠物信息' }).click();
+    await expect(ownerPage.getByRole('list', { name: '预约进度' }).getByRole('listitem')).toHaveCount(3);
+    await ownerPage.getByRole('button', { name: '下一步：填写上门信息' }).click();
     await ownerPage.getByLabel('宠物昵称').fill('团子');
-    await ownerPage.getByRole('button', { name: '下一步：上门信息' }).click();
     await ownerPage.getByRole('combobox', { name: '服务区' }).selectOption('建邺区');
     await ownerPage.getByLabel('详细服务地址').fill(exactAddress);
     await ownerPage.getByRole('button', { name: '获取服务报价' }).click();
@@ -356,7 +355,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     expect(order).toMatchObject({ status: 'PENDING_PAYMENT', paymentToken: null });
     const orderId = order.id;
     await assertMobilePrivacy(ownerPage);
-    await assertDesktopPrivacy(ownerPage, '放心把它交给我们');
+    await assertDesktopPrivacy(ownerPage, '今天需要照顾谁？');
 
     const [adminOrdersBefore, providerOrdersBefore] = await Promise.all([
       browserFetch(adminPage, '/api/v1/pilot/orders'),
@@ -370,7 +369,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     expect((await restart.json() as { generation: number }).generation).toBe(2);
     await Promise.all([adminPage.reload(), ownerPage.reload(), providerPage.reload()]);
     await expect(adminPage.getByRole('heading', { name: '平台工作区' })).toBeVisible();
-    await expect(ownerPage.getByRole('heading', { name: '放心把它交给我们' })).toBeVisible();
+    await expect(ownerPage.getByRole('heading', { name: '今天需要照顾谁？' })).toBeVisible();
     await expect(providerPage.getByRole('heading', { name: '服务人员工作区' })).toBeVisible();
     await Promise.all([
       assertMobilePrivacy(adminPage), assertMobilePrivacy(ownerPage), assertMobilePrivacy(providerPage),
@@ -496,7 +495,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     expect(JSON.stringify(confirmationBody)).not.toMatch(/providerId|providerFen|commission/);
     await expect(ownerPage.getByText('服务已完成')).toBeVisible();
     expect(await contextStatus(providerContext, `/api/v1/orders/${orderId}/address/assigned`)).toBe(403);
-    await assertDesktopPrivacy(ownerPage, '放心把它交给我们');
+    await assertDesktopPrivacy(ownerPage, '今天需要照顾谁？');
 
     const holdingOrderResponse = await browserFetch(ownerPage, '/api/v1/orders', {
       method: 'POST',
@@ -543,7 +542,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await withinNegativeWindow(ownerPage, '/api/v1/pilot/session', [401], () => (
       logoutAndAssertRevoked(ownerContext, ownerPage)
     ));
-    await loginSecondaryWithInvite(ownerPage, secondOwnerInvite, '建邺布丁家', '放心把它交给我们');
+    await loginSecondaryWithInvite(ownerPage, secondOwnerInvite, '建邺布丁家', '今天需要照顾谁？');
     await assertSessionCookie(ownerContext, ownerPage);
 
     for (const result of [
@@ -595,11 +594,9 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await assertMobilePrivacy(adminPage);
 
     await ownerPage.getByRole('button', { name: '预约上门喂猫' }).click();
-    await ownerPage.getByRole('button', { name: '下一步：选择时间' }).click();
     await ownerPage.getByLabel('服务时间').fill(localInput(new Date(now.getTime() + 20 * 60_000)));
-    await ownerPage.getByRole('button', { name: '下一步：宠物信息' }).click();
+    await ownerPage.getByRole('button', { name: '下一步：填写上门信息' }).click();
     await ownerPage.getByLabel('宠物昵称').fill('布丁');
-    await ownerPage.getByRole('button', { name: '下一步：上门信息' }).click();
     await ownerPage.getByRole('combobox', { name: '服务区' }).selectOption('建邺区');
     await ownerPage.getByLabel('详细服务地址').fill(secondExactAddress);
     await ownerPage.getByRole('button', { name: '获取服务报价' }).click();
@@ -684,7 +681,7 @@ test('real PostgreSQL pilot closes the ADMIN, OWNER, and PROVIDER service loop',
     await Promise.all([assertMobilePrivacy(adminPage), assertMobilePrivacy(ownerPage), assertMobilePrivacy(providerPage)]);
     await Promise.all([
       assertDesktopPrivacy(adminPage, '平台工作区'),
-      assertDesktopPrivacy(ownerPage, '放心把它交给我们'),
+      assertDesktopPrivacy(ownerPage, '今天需要照顾谁？'),
       assertDesktopPrivacy(providerPage, '服务人员工作区'),
     ]);
     await Promise.all([
