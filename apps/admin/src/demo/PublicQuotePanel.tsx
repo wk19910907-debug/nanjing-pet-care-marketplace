@@ -15,11 +15,11 @@ const serviceOptions: Array<{ value: ServiceType; label: string }> = [
 export function PublicQuote({ selection, onChange, onStartOrder }: PublicQuoteProps) {
   const quote = getPublicQuote(selection.serviceType);
 
-  return <section className="public-quote" aria-label="体验报价">
+  return <section className="public-quote" aria-label="预约参考">
     <div>
-      <span className="eyebrow">EXPERIENCE QUOTE</span>
-      <h2>体验报价</h2>
-      <p>体验参考价，不会产生真实费用</p>
+      <span className="eyebrow">预约参考</span>
+      <h2>看看你的服务起步价</h2>
+      <p>最终价格以预约确认页的服务器报价为准</p>
     </div>
     <div className="quote-controls">
       <label>服务类型
@@ -34,8 +34,8 @@ export function PublicQuote({ selection, onChange, onStartOrder }: PublicQuotePr
       </label>
     </div>
     <div className="quote-decision">
-      <div className="quote-summary" role="status" aria-live="polite"><span>体验参考价 / 次</span><strong>{quote.priceLabel}</strong></div>
-      <button className="quote-action" onClick={onStartOrder}>按此方案体验下单</button>
+      <div className="quote-summary" role="status" aria-live="polite"><span>服务起步价 / 次</span><strong>{quote.priceLabel}</strong></div>
+      <button className="quote-action" onClick={onStartOrder}>按此服务立即预约</button>
     </div>
   </section>;
 }

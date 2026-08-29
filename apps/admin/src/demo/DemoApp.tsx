@@ -43,5 +43,5 @@ export function DemoApp() {
       {role === 'OPERATOR' && <OperatorWorkspace state={state} approve={(id) => { apply((current) => approveProviderApplication(current, id), '审核通过，申请人已进入匹配池。'); }} assign={(id, providerId) => { if (apply((current) => assignOrder(current, id, providerId), '已完成匹配并通知服务人员。')) setSelectedProviderId(providerId); }}/>}
       {role === 'PROVIDER' && <ProviderWorkspace state={state} {...(selectedProviderId ? { providerId: selectedProviderId } : {})} selectProvider={setSelectedProviderId} submitApplication={(draft: ProviderApplicationDraft) => apply((current) => submitProviderApplication(current, draft), '申请已提交，等待平台审核。')} start={(id, providerId) => apply((current) => startService(current, id, providerId), '服务已开始，请完成清单。')} report={(id, providerId, report: ServiceReport) => apply((current) => submitReport(current, id, providerId, report), '报告已提交，等待宠主确认。')}/>}
     </main>
-    </PublicLanding><footer>体验数据只保存在当前浏览器 · 当前不承接真实订单 · 请勿填写真实门锁密码或敏感信息</footer></div>;
+    </PublicLanding><footer>服务范围与接单时间以平台确认为准 · 请勿填写门锁密码等敏感信息</footer></div>;
 }
