@@ -1,6 +1,6 @@
 import type { OwnerPet, ServiceType } from '../models.js';
 
-export type BookingStep = 'SERVICE' | 'SCHEDULE' | 'PET' | 'ADDRESS' | 'QUOTE';
+export type BookingStep = 'SERVICE_TIME' | 'VISIT_INFO' | 'CONFIRM';
 
 export type BookingDraft = {
   step: BookingStep;
@@ -19,11 +19,11 @@ export type BookingDraft = {
   addressMode: 'EXISTING' | 'NEW';
 };
 
-const STEPS: readonly BookingStep[] = ['SERVICE', 'SCHEDULE', 'PET', 'ADDRESS', 'QUOTE'];
+const STEPS: readonly BookingStep[] = ['SERVICE_TIME', 'VISIT_INFO', 'CONFIRM'];
 
 export function createBookingDraft(serviceType: ServiceType = 'CAT_FEEDING'): BookingDraft {
   return {
-    step: 'SERVICE',
+    step: 'SERVICE_TIME',
     serviceType,
     startsAt: '',
     durationMinutes: 30,
@@ -56,17 +56,15 @@ export function selectBookingService(
 }
 
 export function bookingStepIsComplete(draft: BookingDraft): boolean {
-  if (draft.step === 'SERVICE') return true;
-  if (draft.step === 'SCHEDULE') {
+  if (draft.step === 'SERVICE_TIME') {
     return draft.startsAt !== '' && Number.isFinite(new Date(draft.startsAt).getTime());
   }
-  if (draft.step === 'PET') {
-    return draft.petMode === 'EXISTING' ? draft.petId !== '' : draft.petName.trim() !== '';
-  }
-  if (draft.step === 'ADDRESS') {
-    return draft.addressMode === 'EXISTING'
+  if (draft.step === 'VISIT_INFO') {
+    const petReady = draft.petMode === 'EXISTING' ? draft.petId !== '' : draft.petName.trim() !== '';
+    const addressReady = draft.addressMode === 'EXISTING'
       ? draft.addressId !== ''
       : draft.addressDetail.trim() !== '';
+    return petReady && addressReady;
   }
   return draft.petId !== ''
     && draft.addressId !== ''

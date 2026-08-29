@@ -64,11 +64,9 @@ function deferred<T>() {
 
 async function reachQuote(user: ReturnType<typeof userEvent.setup>, service: '上门喂猫' | '上门遛狗' = '上门喂猫') {
   await user.click(await screen.findByRole('button', { name: `预约${service}` }));
-  await user.click(screen.getByRole('button', { name: '下一步：选择时间' }));
   fireEvent.change(screen.getByLabelText('服务时间'), { target: { value: '2026-09-10T10:00' } });
-  await user.click(screen.getByRole('button', { name: '下一步：宠物信息' }));
+  await user.click(screen.getByRole('button', { name: '下一步：填写上门信息' }));
   await user.selectOptions(screen.getByLabelText('选择已有宠物'), service === '上门喂猫' ? pets[0]!.id : pets[1]!.id);
-  await user.click(screen.getByRole('button', { name: '下一步：上门信息' }));
   await user.selectOptions(screen.getByLabelText('选择已有地址'), addresses[0]!.id);
   await user.click(screen.getByRole('button', { name: '获取服务报价' }));
 }
@@ -79,7 +77,7 @@ describe('OwnerPilotWorkspace', () => {
   it('starts as a service home with zero visible form fields and truthful navigation', async () => {
     render(<OwnerPilotWorkspace displayName="建邺宠主" api={fakeApi({ listOrders: vi.fn().mockResolvedValue([]) })} onError={() => 'error'}/>);
 
-    expect(await screen.findByRole('heading', { name: '放心把它交给我们' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: '今天需要照顾谁？' })).toBeTruthy();
     expect(screen.queryByRole('textbox')).toBeNull();
     expect(screen.queryByRole('combobox')).toBeNull();
     const navigation = screen.getByRole('navigation', { name: '宠主导航' });
@@ -132,13 +130,11 @@ describe('OwnerPilotWorkspace', () => {
     render(<OwnerPilotWorkspace displayName="建邺宠主" api={api} onError={() => 'error'}/>);
 
     await user.click(await screen.findByRole('button', { name: '预约上门喂猫' }));
-    await user.click(screen.getByRole('button', { name: '下一步：选择时间' }));
     fireEvent.change(screen.getByLabelText('服务时间'), { target: { value: '2026-09-10T10:00' } });
-    await user.click(screen.getByRole('button', { name: '下一步：宠物信息' }));
+    await user.click(screen.getByRole('button', { name: '下一步：填写上门信息' }));
     await user.type(screen.getByLabelText('宠物昵称'), '团子');
     await user.click(screen.getByRole('button', { name: '补充照护要求（选填）' }));
     await user.type(screen.getByLabelText('照护备注（可选）'), '怕生');
-    await user.click(screen.getByRole('button', { name: '下一步：上门信息' }));
     await user.selectOptions(screen.getByLabelText('服务区'), '秦淮区');
     await user.type(screen.getByLabelText('详细服务地址'), '中华路 88 号 2 幢 301');
     await user.click(screen.getByRole('button', { name: '获取服务报价' }));

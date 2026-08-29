@@ -115,10 +115,5 @@ export function OwnerHome({ displayName, orders, loading, onBook, onRefresh }: O
       <div><p>我的</p><h2 id="owner-account-title">{displayName}</h2></div>
       <span>宠主账户 · 南京上门宠物照护</span>
     </section>
-    <nav className="owner-bottom-nav" aria-label="宠主导航">
-      <a href="#owner-home" aria-current="page"><span aria-hidden="true">⌂</span>首页</a>
-      <a href="#owner-orders"><span aria-hidden="true">▣</span>订单</a>
-      <a href="#owner-account"><span aria-hidden="true">○</span>我的</a>
-    </nav>
   </section>;
 }

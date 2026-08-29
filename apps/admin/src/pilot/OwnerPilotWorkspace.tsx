@@ -196,7 +196,7 @@ export function OwnerPilotWorkspace({ api, displayName = '宠主', onError }: Ow
 
   const abandonQuote = () => {
     invalidateQuote();
-    setBookingDraft((current) => ({ ...current, step: 'ADDRESS' }));
+    setBookingDraft((current) => ({ ...current, step: 'VISIT_INFO' }));
   };
 
   const prepareQuote = async (inputDraft: BookingDraft) => {
@@ -435,9 +435,9 @@ export function OwnerPilotWorkspace({ api, displayName = '宠主', onError }: Ow
         </div>}
       </section>
       <nav className="owner-bottom-nav" aria-label="宠主导航">
-        <a href="#owner-home">首页</a>
-        <a href="#owner-orders">订单</a>
-        <a href="#owner-account">我的</a>
+        <a href="#owner-home" aria-current="page"><span aria-hidden="true">⌂</span>首页</a>
+        <a href="#owner-orders"><span aria-hidden="true">▣</span>订单</a>
+        <a href="#owner-account"><span aria-hidden="true">○</span>我的</a>
       </nav>
     </>}
   </section>;

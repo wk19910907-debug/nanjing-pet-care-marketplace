@@ -41,32 +41,28 @@ function Harness(props: { initial?: BookingDraft; quote?: QuoteBreakdown | null;
 describe('BookingFlow', () => {
   afterEach(cleanup);
 
-  it('shows one decision at a time and advances through existing pet and address choices', async () => {
+  it('uses three stages and advances through existing pet and address choices', async () => {
     const onPrepareQuote = vi.fn().mockResolvedValue(undefined);
     const user = userEvent.setup();
     render(<Harness onPrepareQuote={onPrepareQuote}/>);
 
-    expect(screen.getByRole('heading', { name: '选择服务' })).toBeTruthy();
-    expect(screen.queryByLabelText('服务时间')).toBeNull();
-    await user.click(screen.getByRole('button', { name: '下一步：选择时间' }));
-
+    expect(screen.getByRole('heading', { name: '服务与时间' })).toBeTruthy();
+    expect(screen.getAllByRole('listitem').map((item) => item.textContent)).toEqual(['服务与时间', '上门信息', '确认预约']);
     fireEvent.change(screen.getByLabelText('服务时间'), { target: { value: '2026-09-10T10:00' } });
-    await user.click(screen.getByRole('button', { name: '下一步：宠物信息' }));
-    expect(screen.queryByLabelText('详细服务地址')).toBeNull();
+    await user.click(screen.getByRole('button', { name: '下一步：填写上门信息' }));
 
     await user.selectOptions(screen.getByLabelText('选择已有宠物'), 'cat-id');
-    await user.click(screen.getByRole('button', { name: '下一步：上门信息' }));
     await user.selectOptions(screen.getByLabelText('选择已有地址'), 'address-id');
     await user.click(screen.getByRole('button', { name: '获取服务报价' }));
 
     expect(onPrepareQuote).toHaveBeenCalledWith(expect.objectContaining({
-      step: 'QUOTE', serviceType: 'CAT_FEEDING', petId: 'cat-id', addressId: 'address-id',
+      step: 'CONFIRM', serviceType: 'CAT_FEEDING', petId: 'cat-id', addressId: 'address-id',
     }));
   });
 
   it('uses new-resource fields only when the user asks to add them', async () => {
     const user = userEvent.setup();
-    render(<Harness initial={{ ...createBookingDraft(), step: 'PET' }}/>);
+    render(<Harness initial={{ ...createBookingDraft(), step: 'VISIT_INFO' }}/>);
 
     expect(screen.queryByLabelText('宠物昵称')).toBeNull();
     await user.click(screen.getByRole('button', { name: '添加新宠物' }));
@@ -76,17 +72,17 @@ describe('BookingFlow', () => {
 
   it('advances with a new pet when there are no compatible saved pets', async () => {
     const user = userEvent.setup();
-    render(<Harness pets={[]} initial={{ ...createBookingDraft(), step: 'PET' }}/>);
+    render(<Harness pets={[]} initial={{ ...createBookingDraft(), step: 'VISIT_INFO', addressId: 'address-id' }}/>);
 
     await user.type(screen.getByLabelText('宠物昵称'), '团子');
-    await user.click(screen.getByRole('button', { name: '下一步：上门信息' }));
-    expect(screen.getByRole('heading', { name: '上门信息' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '获取服务报价' }));
+    expect(screen.getByRole('heading', { name: '确认预约' })).toBeTruthy();
   });
 
   it('renders a server quote and keeps optional order notes collapsed', async () => {
     const user = userEvent.setup();
     render(<Harness quote={quote} initial={{
-      ...createBookingDraft(), step: 'QUOTE', startsAt: '2026-09-10T10:00',
+      ...createBookingDraft(), step: 'CONFIRM', startsAt: '2026-09-10T10:00',
       petId: 'cat-id', addressId: 'address-id',
     }}/>);
 
