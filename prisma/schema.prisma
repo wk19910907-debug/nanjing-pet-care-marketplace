@@ -82,9 +82,26 @@ model User {
   disputesOpened       Dispute[]        @relation("DisputeOpenedBy")
   disputesResolved     Dispute[]        @relation("DisputeResolvedBy")
   auditEvents          AuditEvent[]
+  operationsCatalogUpdates OperationsCatalog[] @relation("OperationsCatalogUpdatedBy")
   pilotSessions        PilotSession[]
   pilotInvitesCreated  PilotInvite[]    @relation("PilotInviteCreator")
   pilotInvitesTargeted PilotInvite[]    @relation("PilotInviteTarget")
+}
+
+model OperationsCatalog {
+  id                       String   @id @db.Uuid
+  version                  Int      @default(1)
+  catFeedingEnabled        Boolean  @default(true)
+  catFeedingBasePriceFen   Int      @default(3200)
+  dogWalkingEnabled        Boolean  @default(true)
+  dogWalkingBasePriceFen   Int      @default(3700)
+  openDistricts            String[]
+  announcement             String   @default("") @db.VarChar(120)
+  updatedByUserId          String?  @db.Uuid
+  updatedAt                DateTime @updatedAt @db.Timestamptz(3)
+  updatedBy                User?    @relation("OperationsCatalogUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([updatedByUserId])
 }
 
 model PilotInvite {
