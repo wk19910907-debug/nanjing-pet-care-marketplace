@@ -62,7 +62,7 @@ test('restores the default provider identity after resetting the experience', as
   await identity.selectOption('provider-chen');
   await expect(identity).toHaveValue('provider-chen');
 
-  await page.getByRole('button', { name: '恢复体验数据' }).click();
+  await page.getByRole('button', { name: '清空演示数据' }).click();
   await page.getByRole('button', { name: '服务人员', exact: true }).click();
   await expect(page.getByLabel('体验服务人员身份')).toHaveValue('provider-wang');
 });

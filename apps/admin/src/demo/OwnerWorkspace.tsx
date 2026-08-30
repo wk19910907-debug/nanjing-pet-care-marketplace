@@ -79,7 +79,7 @@ export function OwnerWorkspace(props: { state: DemoState; prefill?: OrderPrefill
           <div><dt>时间</dt><dd>{draft.scheduledAt.replace('T', ' ')}</dd></div>
           {draft.notes && <div><dt>备注</dt><dd>{draft.notes}</dd></div>}
         </dl>
-        <p className="pilot-privacy-hint">提交后由平台匹配已认证服务人员，本体验不会产生真实费用。</p>
+        <p className="pilot-privacy-hint">提交后由平台匹配已认证服务人员；此处为功能演示，不会形成真实订单或费用。</p>
         <div className="demo-booking-actions"><button type="button" onClick={() => setStep(2)}>返回修改</button><button className="primary" type="submit">提交订单</button></div>
       </div>}
     </form><h3>我的订单</h3><div className="orders">{props.state.orders.length === 0 ? <div className="empty">还没有订单，请先提交一次服务需求。</div> : [...props.state.orders].reverse().map((order) => <OrderCard key={order.id} order={order} providerName={props.state.providers.find((item) => item.id === order.providerId)?.name} confirm={() => props.confirm(order.id)}/>)}</div>

@@ -128,7 +128,7 @@ test('consumes quote prefills without blocking a repeated quote', async ({ page 
   await expect(form.getByLabel('服务类型')).toHaveValue('DOG_WALKING');
 
   await page.getByRole('button', { name: '平台运营', exact: true }).click();
-  await page.getByRole('button', { name: '恢复体验数据' }).click();
+  await page.getByRole('button', { name: '清空演示数据' }).click();
   await expect(form.getByLabel('服务类型')).toHaveValue('CAT_FEEDING');
   await form.getByLabel('上门时间').fill('2026-09-01T19:00');
   await form.getByRole('button', { name: '下一步：填写上门信息' }).click();

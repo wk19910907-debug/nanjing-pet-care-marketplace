@@ -19,7 +19,7 @@ export function DemoApp() {
   const [orderPrefill, setOrderPrefill] = useState<OrderPrefill>();
   const orderPrefillRequestKey = useRef(0);
   const apply = (operation: (current: DemoState) => DemoState, message: string): boolean => { try { const next = operation(state); setState(next); saveDemoState(window.localStorage, next); setNotice(message); return true; } catch (error) { setNotice(error instanceof Error ? error.message : '操作失败，请重试'); return false; } };
-  const reset = () => { const next = createInitialState(); setState(next); setSelectedProviderId(preferredProviderId(next)); saveDemoState(window.localStorage, next); setOrderPrefill(undefined); setRole('OWNER'); setNotice('体验数据已恢复。'); };
+  const reset = () => { const next = createInitialState(); setState(next); setSelectedProviderId(preferredProviderId(next)); saveDemoState(window.localStorage, next); setOrderPrefill(undefined); setRole('OWNER'); setNotice('演示数据已清空。'); };
   const startOrderExperience = () => {
     setRole('OWNER');
     window.requestAnimationFrame(() => {
@@ -34,9 +34,9 @@ export function DemoApp() {
     setSelectedProviderId(preferredProviderId(state, selectedProviderId));
     setRole('PROVIDER');
   };
-  return <div className="demo-shell"><header className="topbar"><div className="brand"><span className="brand-mark">宠</span><div><strong>南京安心宠</strong><small>上门喂猫 · 遛狗</small></div></div><div className="demo-badge">安全体验版</div></header>
-    <PublicLanding catalog={DEFAULT_OPERATIONS_CATALOG} onStartOrder={startOrderExperience} onQuoteStartOrder={startQuoteOrderExperience} quoteSelection={quoteSelection} onQuoteChange={setQuoteSelection}>
-    <nav id="order-experience" className="role-tabs" aria-label="体验身份"><button className={role === 'OWNER' ? 'active' : ''} onClick={() => setRole('OWNER')}>宠主</button><button className={role === 'OPERATOR' ? 'active' : ''} onClick={() => setRole('OPERATOR')}>平台运营</button><button className={role === 'PROVIDER' ? 'active' : ''} onClick={showProvider}>服务人员</button><button className="reset" onClick={reset}>恢复体验数据</button></nav>
+  return <div className="demo-shell"><PublicLanding catalog={DEFAULT_OPERATIONS_CATALOG} onStartOrder={startOrderExperience} onQuoteStartOrder={startQuoteOrderExperience} quoteSelection={quoteSelection} onQuoteChange={setQuoteSelection}>
+    <section id="order-experience" className="demo-intro" aria-labelledby="demo-intro-title"><span className="eyebrow">PRODUCT DEMO</span><h2 id="demo-intro-title">平台功能演示</h2><p>演示数据仅保存在当前浏览器，不会形成真实订单。</p></section>
+    <nav className="role-tabs" aria-label="功能演示角色"><button className={role === 'OWNER' ? 'active' : ''} onClick={() => setRole('OWNER')}>宠主</button><button className={role === 'OPERATOR' ? 'active' : ''} onClick={() => setRole('OPERATOR')}>平台运营</button><button className={role === 'PROVIDER' ? 'active' : ''} onClick={showProvider}>服务人员</button><button className="reset" onClick={reset}>清空演示数据</button></nav>
     <div className="notice" role="status">{notice}</div><main className="demo-main">
       {role === 'OWNER' && (
         <OwnerWorkspace state={state} prefill={orderPrefill} consumePrefill={() => setOrderPrefill(undefined)} create={(draft: OrderDraft) => apply((current) => createOrder(current, draft), '订单已提交，等待平台匹配。')} confirm={(id) => apply((current) => confirmOrder(current, id), '订单已确认完成。')} />
