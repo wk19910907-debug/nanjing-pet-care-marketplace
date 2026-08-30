@@ -31,4 +31,3 @@ Make `start-local.cmd` launch the real website, API, PostgreSQL-backed data, and
 ## Error handling and testing
 
 Pure helpers accept injected probes so tests do not bind ports or mutate Docker. Integration verification runs the helper tests, the repository check, pilot build, and a live `/health/ready` request. The launcher never performs recursive deletion and never removes an existing container or volume.
-

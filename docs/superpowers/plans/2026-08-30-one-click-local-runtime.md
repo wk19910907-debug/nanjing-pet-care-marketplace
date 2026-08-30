@@ -87,4 +87,3 @@ Expected: five helper tests pass, all repository checks pass, the pilot build ex
 - [x] **Step 5: Commit the implementation**
 
 Commit only the launcher, tests, documentation, package script, design, and plan with message `feat: add safe one-click local runtime`.
-
