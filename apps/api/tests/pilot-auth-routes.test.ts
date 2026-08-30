@@ -34,6 +34,8 @@ function pilotConfig(
           bucket: 'pilot-evidence',
           accessKeyId: 'pilot-access-id',
           secretAccessKey: 'pilot-storage-secret',
+          region: 'auto',
+          forcePathStyle: false,
         },
       },
     } : {}),

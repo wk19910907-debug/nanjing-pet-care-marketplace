@@ -14,6 +14,7 @@ const productionEnvironment = {
   PAYMENT_WEBHOOK_BASE_URL: 'https://api.example.com',
   S3_ENDPOINT: 'https://objects.example.com', S3_BUCKET: 'pet-evidence',
   S3_ACCESS_KEY_ID: 'access-id-value', S3_SECRET_ACCESS_KEY: 'access-secret-value',
+  S3_REGION: 'us-east-1',
   WECHAT_APP_ID: 'wx-app-id', WECHAT_APP_SECRET: 'wx-app-secret',
 };
 
@@ -24,6 +25,7 @@ const pilotProductionEnvironment = {
   FIELD_ENCRYPTION_KEY_V1: Buffer.alloc(32, 2).toString('base64'),
   S3_ENDPOINT: 'https://objects.example.com', S3_BUCKET: 'pilot-evidence',
   S3_ACCESS_KEY_ID: 'pilot-access-id', S3_SECRET_ACCESS_KEY: 'pilot-storage-secret',
+  S3_REGION: 'auto',
 };
 
 describe('production readiness', () => {
@@ -49,6 +51,7 @@ describe('production readiness', () => {
   it.each([
     'DATABASE_URL', 'PILOT_PUBLIC_ORIGIN', 'PILOT_AUTH_PEPPER', 'FIELD_ENCRYPTION_KEY_V1',
     'S3_ENDPOINT', 'S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY',
+    'S3_REGION',
   ])('fails closed when pilot production configuration omits %s', (key) => {
     expect(() => loadConfig({ ...pilotProductionEnvironment, [key]: undefined })).toThrow(key);
   });

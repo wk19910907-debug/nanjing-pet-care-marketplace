@@ -75,6 +75,8 @@ function productionConfig(diskPath: string): AppConfig {
         bucket: 'pilot-evidence',
         accessKeyId: 'access-id',
         secretAccessKey: 'access-secret',
+        region: 'auto',
+        forcePathStyle: false,
       },
     },
   };

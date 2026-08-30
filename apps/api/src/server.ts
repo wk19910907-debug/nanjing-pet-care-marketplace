@@ -1,7 +1,19 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadConfig } from './config.js';
+import { createAwsS3Signer } from './adapters/aws-s3-signer.js';
+import type { S3Signer } from './adapters/s3-object-storage.js';
+import { loadConfig, type AppConfig, type ObjectStorageConfig } from './config.js';
 import { createPilotApplication, type PilotCompositionOverrides } from './pilot/composition.js';
+
+export function resolvePilotServerOverrides(
+  config: AppConfig,
+  overrides: PilotCompositionOverrides,
+  signerFactory: (storage: ObjectStorageConfig) => S3Signer = createAwsS3Signer,
+): PilotCompositionOverrides {
+  if (config.nodeEnv !== 'production' || overrides.s3Signer) return overrides;
+  if (!config.production) throw new Error('PILOT_PRODUCTION_CONFIG_REQUIRED');
+  return { ...overrides, s3Signer: signerFactory(config.production.objectStorage) };
+}
 
 export async function runPilotServer(
   environment: Record<string, string | undefined> = process.env,
@@ -9,7 +21,10 @@ export async function runPilotServer(
 ) {
   const config = loadConfig(environment);
   if (!config.pilot) throw new Error('PILOT_MODE_REQUIRED');
-  const application = await createPilotApplication(config, overrides);
+  const application = await createPilotApplication(
+    config,
+    resolvePilotServerOverrides(config, overrides),
+  );
   try {
     const readiness = await application.app.inject({ method: 'GET', url: '/health/ready' });
     if (readiness.statusCode !== 200) throw new Error('PILOT_DEPENDENCIES_NOT_READY');

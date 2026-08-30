@@ -65,6 +65,7 @@ describe('loadConfig', () => {
       FIELD_ENCRYPTION_KEY_V1: Buffer.alloc(32, 1).toString('base64'),
       S3_ENDPOINT: 'https://objects.example.com', S3_BUCKET: 'pilot-evidence',
       S3_ACCESS_KEY_ID: 'access-id', S3_SECRET_ACCESS_KEY: 'access-secret',
+      S3_REGION: 'auto', S3_FORCE_PATH_STYLE: 'true',
     });
     expect(config.pilot).toEqual({
       enabled: true, host: '0.0.0.0', port: 43124,
@@ -74,6 +75,23 @@ describe('loadConfig', () => {
     });
     expect(config.production).not.toHaveProperty('wechatPay');
     expect(config.production).not.toHaveProperty('wechatNotifications');
+    expect(config.production?.objectStorage).toEqual({
+      endpoint: 'https://objects.example.com', bucket: 'pilot-evidence',
+      accessKeyId: 'access-id', secretAccessKey: 'access-secret',
+      region: 'auto', forcePathStyle: true,
+    });
+  });
+
+  it.each(['TRUE', '1', 'yes', ''])('rejects malformed S3_FORCE_PATH_STYLE value %j', (value) => {
+    expect(() => loadConfig({
+      NODE_ENV: 'production', DATABASE_URL: 'postgresql://db.internal/pilot',
+      PILOT_MODE: 'enabled', PILOT_PUBLIC_ORIGIN: 'https://pilot.example.com',
+      PILOT_AUTH_PEPPER: Buffer.alloc(32, 9).toString('base64'),
+      FIELD_ENCRYPTION_KEY_V1: Buffer.alloc(32, 2).toString('base64'),
+      S3_ENDPOINT: 'https://objects.example.com', S3_BUCKET: 'pilot-evidence',
+      S3_ACCESS_KEY_ID: 'access-id', S3_SECRET_ACCESS_KEY: 'access-secret',
+      S3_REGION: 'auto', S3_FORCE_PATH_STYLE: value,
+    })).toThrow('S3_FORCE_PATH_STYLE');
   });
 
   it.each(['true', '*', '0.0.0.0/0', '::/0', '127.0.0.1/33', 'example.com'])

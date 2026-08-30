@@ -557,16 +557,29 @@ function parseAssignedAddress(value: unknown): AssignedAddress {
   return { ...parsePilotLocation(record), detail: asString(record, 'detail', 300) };
 }
 
-function assertLocalUploadUrl(uploadUrl: string): void {
-  if (
-    !/^\/(?!\/)/.test(uploadUrl)
-    || /[\\%#\s\u0000-\u001f\u007f]/.test(uploadUrl)
-  ) invalidResponse();
+function assertUploadUrl(uploadUrl: string): void {
+  if (/^\/(?!\/)/.test(uploadUrl)) {
+    if (/[\\%#\s\u0000-\u001f\u007f]/.test(uploadUrl)) invalidResponse();
+    try {
+      const parsed = new URL(uploadUrl, 'https://pilot.invalid');
+      if (
+        parsed.origin !== 'https://pilot.invalid'
+        || uploadUrl !== `${parsed.pathname}${parsed.search}`
+      ) invalidResponse();
+      return;
+    } catch {
+      invalidResponse();
+    }
+  }
+  if (/[\\\s\u0000-\u001f\u007f]/.test(uploadUrl)) invalidResponse();
   try {
-    const parsed = new URL(uploadUrl, 'https://pilot.invalid');
+    const parsed = new URL(uploadUrl);
     if (
-      parsed.origin !== 'https://pilot.invalid'
-      || uploadUrl !== `${parsed.pathname}${parsed.search}`
+      parsed.protocol !== 'https:'
+      || parsed.username !== ''
+      || parsed.password !== ''
+      || parsed.hash !== ''
+      || parsed.href !== uploadUrl
     ) invalidResponse();
   } catch {
     invalidResponse();
@@ -576,7 +589,7 @@ function assertLocalUploadUrl(uploadUrl: string): void {
 function parseEvidenceUpload(value: unknown): EvidenceUpload {
   const record = asRecord(value);
   const uploadUrl = asString(record, 'uploadUrl', 2048);
-  assertLocalUploadUrl(uploadUrl);
+  assertUploadUrl(uploadUrl);
   const expiresInSeconds = asInteger(record, 'expiresInSeconds', 3600);
   if (expiresInSeconds < 1) invalidResponse();
   return {
@@ -589,7 +602,7 @@ function parseEvidenceUpload(value: unknown): EvidenceUpload {
 function parseEvidenceRead(value: unknown): EvidenceRead {
   const record = asRecord(value);
   const url = asString(record, 'url', 2048);
-  assertLocalUploadUrl(url);
+  assertUploadUrl(url);
   const expiresInSeconds = asInteger(record, 'expiresInSeconds', 3600);
   if (expiresInSeconds < 1) invalidResponse();
   return { url, expiresInSeconds };
@@ -830,7 +843,7 @@ export function createPilotApi(fetcher: Fetcher = fetch): PilotApi {
       if (!IMAGE_MIME_TYPES.includes(mimeType as typeof IMAGE_MIME_TYPES[number])) {
         throw new PilotApiError(400, 'MEDIA_TYPE_NOT_ALLOWED');
       }
-      assertLocalUploadUrl(uploadUrl);
+      assertUploadUrl(uploadUrl);
       let response: Response;
       try {
         response = await fetcher(uploadUrl, {
@@ -841,7 +854,7 @@ export function createPilotApi(fetcher: Fetcher = fetch): PilotApi {
         throw new PilotApiError(503, 'SERVICE_UNAVAILABLE');
       }
       if (!response.ok) throw new PilotApiError(response.status, await safeErrorCode(response));
-      if (response.status !== 204) invalidResponse();
+      if (response.status !== 200 && response.status !== 204) invalidResponse();
     },
     attachEvidence: async (orderId, input) => {
       const record = asRecord(await request(

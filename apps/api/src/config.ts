@@ -60,6 +60,8 @@ const EnvironmentSchema = z.object({
   S3_BUCKET: z.string().optional(),
   S3_ACCESS_KEY_ID: z.string().optional(),
   S3_SECRET_ACCESS_KEY: z.string().optional(),
+  S3_REGION: z.string().trim().min(1).optional(),
+  S3_FORCE_PATH_STYLE: z.enum(['true', 'false']).optional(),
   WECHAT_APP_ID: z.string().optional(),
   WECHAT_APP_SECRET: z.string().optional(),
   PILOT_MODE: z.enum(['enabled']).optional(),
@@ -84,11 +86,11 @@ const EnvironmentSchema = z.object({
   if (environment.NODE_ENV !== 'production') return;
   const required = pilotEnabled ? [
     'PILOT_PUBLIC_ORIGIN', 'FIELD_ENCRYPTION_KEY_V1', 'S3_ENDPOINT', 'S3_BUCKET',
-    'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY',
+    'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'S3_REGION',
   ] as const : [
     'FIELD_ENCRYPTION_KEY_V1', 'WECHAT_PAY_MCH_ID', 'WECHAT_PAY_API_V3_KEY',
     'WECHAT_PAY_PRIVATE_KEY', 'WECHAT_PAY_PLATFORM_CERT', 'PAYMENT_WEBHOOK_BASE_URL',
-    'S3_ENDPOINT', 'S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY',
+    'S3_ENDPOINT', 'S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'S3_REGION',
     'WECHAT_APP_ID', 'WECHAT_APP_SECRET',
   ] as const;
   for (const key of required) if (!environment[key]) context.addIssue({
@@ -109,11 +111,13 @@ export type PilotConfig = {
   secureCookies: boolean;
 };
 
-type ObjectStorageConfig = {
+export type ObjectStorageConfig = {
   endpoint: string;
   bucket: string;
   accessKeyId: string;
   secretAccessKey: string;
+  region: string;
+  forcePathStyle: boolean;
 };
 
 type ProductionConfig = {
@@ -166,7 +170,8 @@ export function loadConfig(environment: Record<string, string | undefined>): App
     fieldEncryptionKey: parsed.FIELD_ENCRYPTION_KEY_V1!,
     objectStorage: {
       endpoint: parsed.S3_ENDPOINT!, bucket: parsed.S3_BUCKET!, accessKeyId: parsed.S3_ACCESS_KEY_ID!,
-      secretAccessKey: parsed.S3_SECRET_ACCESS_KEY!,
+      secretAccessKey: parsed.S3_SECRET_ACCESS_KEY!, region: parsed.S3_REGION!,
+      forcePathStyle: parsed.S3_FORCE_PATH_STYLE === 'true',
     },
   };
   if (pilot) return { ...base, production: productionBase };

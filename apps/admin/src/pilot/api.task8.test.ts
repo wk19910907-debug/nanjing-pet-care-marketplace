@@ -44,8 +44,8 @@ describe('pilot task 8 API transport', () => {
   it('keeps lifecycle timestamps server-owned and uploads through an uncredentialed signed capability', async () => {
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse({ id: 'report-1', orderId: 'order-1', checkedInAt: '2026-09-10T01:50:00.000Z' }, 201))
-      .mockResolvedValueOnce(jsonResponse({ objectKey: 'orders/order-1/evidence-1', uploadUrl: '/api/v1/pilot/local-evidence?token=signed', expiresInSeconds: 600 }))
-      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(jsonResponse({ objectKey: 'orders/order-1/evidence-1', uploadUrl: 'https://objects.example.com/private/orders/order-1/evidence-1?X-Amz-Signature=signed', expiresInSeconds: 600 }))
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
       .mockResolvedValueOnce(jsonResponse({ id: 'evidence-1' }, 201))
       .mockResolvedValueOnce(jsonResponse({ id: 'report-1', orderId: 'order-1', submittedAt: '2026-09-10T02:30:00.000Z' }));
     const api = createPilotApi(fetcher);
@@ -87,10 +87,13 @@ describe('pilot task 8 API transport', () => {
   it.each([
     '//evil.example/upload?token=exfiltrate',
     '/\\evil.example/upload?token=exfiltrate',
-    'https://evil.example/upload?token=exfiltrate',
+    'http://objects.example.com/upload?token=plaintext',
+    'https://user:password@objects.example.com/upload?token=signed',
+    'ftp://objects.example.com/upload?token=signed',
     '/%2f%2fevil.example/upload?token=exfiltrate',
     '/api/v1/pilot/local-evidence#token=exfiltrate',
-  ])('rejects unsafe local upload capability %s before any upload fetch', async (uploadUrl) => {
+    'https://objects.example.com/upload?token=signed#fragment',
+  ])('rejects unsafe upload capability %s before any upload fetch', async (uploadUrl) => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
       objectKey: 'orders/order-1/evidence-1', uploadUrl, expiresInSeconds: 600,
     }));
@@ -115,11 +118,21 @@ describe('pilot task 8 API transport', () => {
     })]);
   });
 
-  it('rejects a protocol-relative upload URL before a direct upload fetch', async () => {
+  it.each([
+    '/api/v1/pilot/local-evidence?token=signed',
+    'https://objects.example.com/private/evidence?X-Amz-Signature=signed',
+  ])('accepts the safe upload capability %s for an uncredentialed direct upload', async (uploadUrl) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
+    const api = createPilotApi(fetcher);
+    await api.uploadEvidence(uploadUrl, new Uint8Array([1, 2, 3, 4]), 'image/png');
+    expect(fetcher).toHaveBeenCalledWith(uploadUrl, expect.objectContaining({ credentials: 'omit' }));
+  });
+
+  it('rejects a plaintext upload URL before a direct upload fetch', async () => {
     const fetcher = vi.fn<typeof fetch>();
     const api = createPilotApi(fetcher);
     await expect(api.uploadEvidence(
-      '//evil.example/exfiltrate', new Uint8Array([1, 2, 3, 4]), 'image/png',
+      'http://objects.example.com/exfiltrate', new Uint8Array([1, 2, 3, 4]), 'image/png',
     )).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
     expect(fetcher).not.toHaveBeenCalled();
   });

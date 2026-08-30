@@ -67,6 +67,14 @@ directory created for that run. The validated PowerShell ownership and path chec
 in [`pilot-quickstart.md`](pilot-quickstart.md).
 
 Production pilot startup requires a separate reviewed authentication/deployment design,
-`NODE_ENV=production`, `PILOT_PUBLIC_ORIGIN`, the existing S3 configuration fields, and an
-application-provided `S3Signer`. The direct local session route is absent. Startup fails before
-listening when the signer is unavailable and never falls back to local disk.
+`NODE_ENV=production`, `PILOT_PUBLIC_ORIGIN`, and private S3-compatible storage. Configure
+`S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and `S3_REGION` only in the
+deployment secret store. `S3_FORCE_PATH_STYLE` accepts exactly `true` or `false` and defaults to
+`false`; enable it only when the selected S3-compatible provider requires path-style URLs.
+
+The bucket must remain private. Its CORS policy should allow `PUT` and `GET` only from the exact
+`PILOT_PUBLIC_ORIGIN`, allow the `Content-Type` request header, and use the shortest practical
+cache/preflight lifetime. The application creates short-lived signed URLs, signs the declared
+content type and SHA-256 metadata, and verifies type, length, and SHA-256 metadata with `HEAD`
+before accepting evidence. The direct local session and local upload routes are absent in
+production. Startup never falls back to local disk when S3 configuration or connectivity fails.

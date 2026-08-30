@@ -42,13 +42,13 @@ describe('pilot API transport', () => {
   it('validates safe owner confirmation and evidence-read responses', async () => {
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse({ orderId: 'order-1', status: 'COMPLETED', confirmedAt: '2026-08-28T00:00:00.000Z' }))
-      .mockResolvedValueOnce(jsonResponse({ url: '/api/v1/pilot/local-evidence?token=signed', expiresInSeconds: 300 }));
+      .mockResolvedValueOnce(jsonResponse({ url: 'https://objects.example.com/private/evidence?X-Amz-Signature=signed', expiresInSeconds: 300 }));
     const api = createPilotApi(fetcher);
     await expect(api.confirmOrder('order-1')).resolves.toEqual({
       orderId: 'order-1', status: 'COMPLETED', confirmedAt: '2026-08-28T00:00:00.000Z',
     });
     await expect(api.getEvidenceReadUrl('evidence-1')).resolves.toEqual({
-      url: '/api/v1/pilot/local-evidence?token=signed', expiresInSeconds: 300,
+      url: 'https://objects.example.com/private/evidence?X-Amz-Signature=signed', expiresInSeconds: 300,
     });
   });
 
