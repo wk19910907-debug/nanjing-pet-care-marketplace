@@ -1063,7 +1063,13 @@ export class LocalPilotObjectStorage implements ObjectStorage {
       if (this.isCode(error, 'ENOENT')) return false;
       throw error;
     }
-    await this.unlinkVerified(quarantinePath, movedIdentity);
+    try {
+      await this.unlinkVerified(quarantinePath, movedIdentity);
+    } catch (error) {
+      // Another legitimate root owner may scavenge this unique quarantine file
+      // after the identity check but before our unlink reaches the filesystem.
+      if (!this.isCode(error, 'ENOENT')) throw error;
+    }
     return true;
   }
 
