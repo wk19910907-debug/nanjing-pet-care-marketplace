@@ -9,11 +9,13 @@ if not exist "%PET_NODE%\node.exe" (
 )
 set "PATH=%PET_NODE%;%APPDATA%\npm;%PATH%"
 cd /d "%~dp0"
-if not exist "node_modules" call pnpm install --frozen-lockfile
-if errorlevel 1 pause & exit /b 1
-echo.
-echo Nanjing Pet Care is starting at http://127.0.0.1:43123
-echo Keep this window open while using the product.
-echo.
-call pnpm dev
-if errorlevel 1 pause
+where pwsh >nul 2>nul
+if errorlevel 1 (
+  echo PowerShell 7 was not found. Install PowerShell 7 first.
+  pause
+  exit /b 1
+)
+pwsh -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start-local-preview.ps1"
+set "PET_EXIT=%ERRORLEVEL%"
+if not "%PET_EXIT%"=="0" pause
+exit /b %PET_EXIT%
