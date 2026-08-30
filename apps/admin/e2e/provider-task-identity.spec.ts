@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { submitDemoOrder } from './demo-order.js';
 
 async function submitApplication(page: Page) {
   await page.getByRole('button', { name: '服务人员', exact: true }).click();
@@ -12,12 +13,7 @@ async function submitApplication(page: Page) {
 
 async function createOrder(page: Page) {
   await page.getByRole('button', { name: '宠主', exact: true }).click();
-  const orderForm = page.locator('.order-form');
-  await orderForm.getByLabel('服务类型').selectOption('DOG_WALKING');
-  await orderForm.getByLabel('宠物昵称').fill('线上团子');
-  await orderForm.getByLabel('服务区域').selectOption('秦淮区');
-  await orderForm.getByLabel('详细地址').fill('体验地址 1 号');
-  await orderForm.getByRole('button', { name: '提交订单' }).click();
+  await submitDemoOrder(page, { serviceType: 'DOG_WALKING', petName: '线上团子', district: '秦淮区' });
 }
 
 test('lets the matched approved provider complete only their own task after reload', async ({ page }) => {

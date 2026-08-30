@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { submitDemoOrder } from './demo-order.js';
 
 async function submitApplication(page: Page, name: string) {
   await page.getByRole('button', { name: '服务人员', exact: true }).click();
@@ -13,12 +14,7 @@ async function submitApplication(page: Page, name: string) {
 
 async function submitQinhuaiDogOrder(page: Page, petName: string) {
   await page.getByRole('button', { name: '宠主', exact: true }).click();
-  const orderForm = page.locator('.order-form');
-  await orderForm.getByLabel('服务类型').selectOption('DOG_WALKING');
-  await orderForm.getByLabel('宠物昵称').fill(petName);
-  await orderForm.getByLabel('服务区域').selectOption('秦淮区');
-  await orderForm.getByLabel('详细地址').fill('体验地址 1 号');
-  await orderForm.getByRole('button', { name: '提交订单' }).click();
+  await submitDemoOrder(page, { serviceType: 'DOG_WALKING', petName, district: '秦淮区' });
 }
 
 async function expectNoHorizontalOverflow(page: Page) {
@@ -177,12 +173,7 @@ test('approves an applicant before including them in eligible order matching', a
   await applicationPanel.getByRole('button', { name: '提交审核申请' }).click();
 
   await page.getByRole('button', { name: '宠主', exact: true }).click();
-  const orderForm = page.locator('.order-form');
-  await orderForm.getByLabel('服务类型').selectOption('DOG_WALKING');
-  await orderForm.getByLabel('宠物昵称').fill('团子');
-  await orderForm.getByLabel('服务区域').selectOption('秦淮区');
-  await orderForm.getByLabel('详细地址').fill('体验地址 1 号');
-  await orderForm.getByRole('button', { name: '提交订单' }).click();
+  await submitDemoOrder(page, { serviceType: 'DOG_WALKING', petName: '团子', district: '秦淮区' });
 
   await page.getByRole('button', { name: '平台运营', exact: true }).click();
   await expect(page.getByText('暂无符合区域和服务类型的已认证人员')).toBeVisible();
@@ -191,11 +182,7 @@ test('approves an applicant before including them in eligible order matching', a
   await expect(page.getByLabel('匹配服务人员')).toContainText('小林 · 秦淮区 · 已认证');
 
   await page.getByRole('button', { name: '宠主', exact: true }).click();
-  await orderForm.getByLabel('服务类型').selectOption('CAT_FEEDING');
-  await orderForm.getByLabel('宠物昵称').fill('奶糖');
-  await orderForm.getByLabel('服务区域').selectOption('建邺区');
-  await orderForm.getByLabel('详细地址').fill('体验地址 2 号');
-  await orderForm.getByRole('button', { name: '提交订单' }).click();
+  await submitDemoOrder(page, { petName: '奶糖', address: '体验地址 2 号' });
 
   await page.getByRole('button', { name: '平台运营', exact: true }).click();
   const matchers = page.getByLabel('匹配服务人员');

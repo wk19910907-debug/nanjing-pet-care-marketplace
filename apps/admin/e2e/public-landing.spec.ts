@@ -3,10 +3,10 @@ import { expect, test } from '@playwright/test';
 test('publishes truthful search and sharing metadata', async ({ page }) => {
   await page.goto('/?fixture=service-loop');
 
-  await expect(page).toHaveTitle('南京安心宠｜上门喂猫与遛狗平台体验');
+  await expect(page).toHaveTitle('南京安心宠｜南京上门喂猫与遛狗预约平台');
   await expect(page.locator('meta[name="description"]')).toHaveAttribute(
     'content',
-    '南京上门喂猫与遛狗平台安全体验版：宠主提交需求，平台匹配服务人员并跟进履约报告。',
+    '南京上门喂猫与遛狗预约平台，宠主提交需求后由平台匹配服务人员，并可查看订单进度与服务记录。',
   );
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
     'href',
@@ -14,7 +14,7 @@ test('publishes truthful search and sharing metadata', async ({ page }) => {
   );
   await expect(page.locator('meta[property="og:title"]')).toHaveAttribute(
     'content',
-    '南京安心宠｜上门喂猫与遛狗平台体验',
+    '南京安心宠｜南京上门喂猫与遛狗预约平台',
   );
   await expect(page.locator('meta[property="og:url"]')).toHaveAttribute(
     'content',
@@ -25,16 +25,16 @@ test('publishes truthful search and sharing metadata', async ({ page }) => {
 test('explains the offer and moves visitors into owner ordering', async ({ page }) => {
   await page.goto('/?fixture=service-loop');
 
-  await expect(page.getByRole('heading', { name: '两项核心服务，价格先说清楚' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '只做两件事，把每次上门做好' })).toBeVisible();
   const catCard = page.locator('.price-card').filter({ hasText: '上门喂猫' });
   const dogCard = page.locator('.price-card').filter({ hasText: '上门遛狗' });
-  await expect(catCard.getByText('¥32', { exact: true })).toBeVisible();
-  await expect(dogCard.getByText('¥37', { exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '平台把匹配和履约过程管起来' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '常见问题' })).toBeVisible();
+  await expect(catCard.getByText('¥32 起', { exact: true })).toBeVisible();
+  await expect(dogCard.getByText('¥37 起', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '匹配和服务过程都有交代' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '预约前想了解的事' })).toBeVisible();
 
   await page.getByRole('button', { name: '平台运营', exact: true }).click();
-  await page.getByRole('button', { name: '立即体验下单' }).click();
+  await page.locator('.public-nav').getByRole('button', { name: '立即预约' }).click();
 
   await expect(page.getByRole('button', { name: '宠主', exact: true })).toHaveClass(/active/);
   await expect(page.getByRole('heading', { name: '预约上门服务' })).toBeVisible();
@@ -56,7 +56,7 @@ test('lays out pricing side by side on desktop', async ({ page }) => {
   expect(first).not.toBeNull();
   expect(second).not.toBeNull();
   expect(Math.abs(first!.y - second!.y)).toBeLessThan(2);
-  await expect(page.getByRole('button', { name: '立即体验下单' })).toHaveCSS('min-height', '44px');
+  await expect(page.locator('.hero-cta')).toHaveCSS('min-height', '44px');
 });
 
 test('keeps the landing page usable at phone width', async ({ page }) => {
@@ -76,11 +76,11 @@ test('keeps the landing page usable at phone width', async ({ page }) => {
   expect(second).not.toBeNull();
   expect(second!.y).toBeGreaterThan(first!.y + first!.height);
 
-  const quote = page.getByRole('region', { name: '体验报价' });
+  const quote = page.getByRole('region', { name: '预约参考' });
   const serviceControl = await quote.getByLabel('服务类型').boundingBox();
   const districtControl = await quote.getByLabel('服务区域').boundingBox();
   const summary = await quote.locator('.quote-summary').boundingBox();
-  const action = await quote.getByRole('button', { name: '按此方案体验下单' }).boundingBox();
+  const action = await quote.getByRole('button', { name: '按此服务立即预约' }).boundingBox();
 
   expect(serviceControl).not.toBeNull();
   expect(districtControl).not.toBeNull();
@@ -94,53 +94,64 @@ test('keeps the landing page usable at phone width', async ({ page }) => {
 
 test('shows a transparent quote and updates the service price', async ({ page }) => {
   await page.goto('/?fixture=service-loop');
-  const quote = page.getByRole('region', { name: '体验报价' });
+  const quote = page.getByRole('region', { name: '预约参考' });
   const summary = quote.locator('.quote-summary');
   await expect(summary).toHaveAttribute('role', 'status');
   await expect(summary).toHaveAttribute('aria-live', 'polite');
   await expect(quote.getByText('¥32', { exact: true })).toBeVisible();
   await quote.getByLabel('服务类型').selectOption('DOG_WALKING');
   await expect(quote.getByText('¥37', { exact: true })).toBeVisible();
-  await expect(quote.getByText('体验参考价，不会产生真实费用')).toBeVisible();
+  await expect(quote.getByText('最终价格以预约确认页的服务器报价为准')).toBeVisible();
 });
 
 test('carries the public quote into the owner order form', async ({ page }) => {
   await page.goto('/?fixture=service-loop');
-  const quote = page.getByRole('region', { name: '体验报价' });
+  const quote = page.getByRole('region', { name: '预约参考' });
   await quote.getByLabel('服务类型').selectOption('DOG_WALKING');
   await quote.getByLabel('服务区域').selectOption('秦淮区');
-  await quote.getByRole('button', { name: '按此方案体验下单' }).click();
+  await quote.getByRole('button', { name: '按此服务立即预约' }).click();
   const form = page.locator('.order-form');
   await expect(form.getByLabel('服务类型')).toHaveValue('DOG_WALKING');
+  await form.getByLabel('上门时间').fill('2026-09-01T19:00');
+  await form.getByRole('button', { name: '下一步：填写上门信息' }).click();
   await expect(form.getByLabel('服务区域')).toHaveValue('秦淮区');
   await expect(page.getByRole('button', { name: '宠主', exact: true })).toHaveClass(/active/);
 });
 
 test('consumes quote prefills without blocking a repeated quote', async ({ page }) => {
   await page.goto('/?fixture=service-loop');
-  const quote = page.getByRole('region', { name: '体验报价' });
+  const quote = page.getByRole('region', { name: '预约参考' });
   const form = page.locator('.order-form');
   await quote.getByLabel('服务类型').selectOption('DOG_WALKING');
   await quote.getByLabel('服务区域').selectOption('秦淮区');
-  await quote.getByRole('button', { name: '按此方案体验下单' }).click();
+  await quote.getByRole('button', { name: '按此服务立即预约' }).click();
   await expect(form.getByLabel('服务类型')).toHaveValue('DOG_WALKING');
 
   await page.getByRole('button', { name: '平台运营', exact: true }).click();
   await page.getByRole('button', { name: '恢复体验数据' }).click();
   await expect(form.getByLabel('服务类型')).toHaveValue('CAT_FEEDING');
+  await form.getByLabel('上门时间').fill('2026-09-01T19:00');
+  await form.getByRole('button', { name: '下一步：填写上门信息' }).click();
   await expect(form.getByLabel('服务区域')).toHaveValue('建邺区');
 
-  await quote.getByRole('button', { name: '按此方案体验下单' }).click();
+  await quote.getByRole('button', { name: '按此服务立即预约' }).click();
   await expect(form.getByLabel('服务类型')).toHaveValue('DOG_WALKING');
+  await form.getByLabel('上门时间').fill('2026-09-01T19:00');
+  await form.getByRole('button', { name: '下一步：填写上门信息' }).click();
   await expect(form.getByLabel('服务区域')).toHaveValue('秦淮区');
+  await form.getByRole('button', { name: '返回' }).click();
   await form.getByLabel('服务类型').selectOption('CAT_FEEDING');
+  await form.getByRole('button', { name: '下一步：填写上门信息' }).click();
   await form.getByLabel('服务区域').selectOption('建邺区');
-  await quote.getByRole('button', { name: '按此方案体验下单' }).click();
+  await quote.getByRole('button', { name: '按此服务立即预约' }).click();
   await expect(form.getByLabel('服务类型')).toHaveValue('DOG_WALKING');
+  await form.getByRole('button', { name: '下一步：填写上门信息' }).click();
   await expect(form.getByLabel('服务区域')).toHaveValue('秦淮区');
 
   await page.getByRole('button', { name: '平台运营', exact: true }).click();
-  await page.getByRole('button', { name: '立即体验下单' }).click();
+  await page.locator('.public-nav').getByRole('button', { name: '立即预约' }).click();
   await expect(form.getByLabel('服务类型')).toHaveValue('CAT_FEEDING');
+  await form.getByLabel('上门时间').fill('2026-09-01T19:00');
+  await form.getByRole('button', { name: '下一步：填写上门信息' }).click();
   await expect(form.getByLabel('服务区域')).toHaveValue('建邺区');
 });
