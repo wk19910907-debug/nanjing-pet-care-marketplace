@@ -175,6 +175,7 @@ model ProviderAvailability {
 model Pet {
   id             String      @id @default(uuid()) @db.Uuid
   ownerId        String      @db.Uuid
+  clientRequestId String?    @db.VarChar(100)
   name           String
   species        ServiceType
   birthYear      Int?
@@ -188,11 +189,13 @@ model Pet {
   orders         OrderPet[]
 
   @@index([ownerId])
+  @@unique([ownerId, clientRequestId])
 }
 
 model ServiceAddress {
   id                   String   @id @default(uuid()) @db.Uuid
   ownerId              String   @db.Uuid
+  clientRequestId      String?  @db.VarChar(100)
   city                 String
   district             String
   serviceZone          String
@@ -212,6 +215,7 @@ model ServiceAddress {
 
   @@index([ownerId])
   @@index([city, district, serviceZone])
+  @@unique([ownerId, clientRequestId])
 }
 
 model Order {

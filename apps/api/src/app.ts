@@ -90,6 +90,9 @@ export function createApp(dependencies: AppDependencies, options: AppOptions = {
     if (error instanceof Error && ['MANUAL_FEE_CONFLICT'].includes(error.message)) {
       return reply.code(409).send({ code: error.message });
     }
+    if (error instanceof Error && error.message === 'PROFILE_REQUEST_CONFLICT') {
+      return reply.code(409).send({ code: 'PROFILE_REQUEST_CONFLICT' });
+    }
     if (error instanceof Error && error.message === 'OPERATIONS_CATALOG_CONFLICT') {
       return reply.code(409).send({ code: error.message });
     }

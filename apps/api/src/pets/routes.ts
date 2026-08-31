@@ -8,6 +8,7 @@ const PetInputSchema = z.object({
   name: z.string().trim().min(1).max(50),
   species: z.enum(['CAT', 'DOG']),
   sensitiveNotes: z.string().max(1000),
+  clientRequestId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/).optional(),
 });
 
 const AddressInputSchema = z.object({
@@ -18,6 +19,7 @@ const AddressInputSchema = z.object({
   longitude: z.number().min(-180).max(180),
   detail: z.string().trim().min(1).max(300),
   accessInstructions: z.string().max(500),
+  clientRequestId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/).optional(),
 });
 
 export type PetRoutesDependencies = {
@@ -43,15 +45,13 @@ export async function registerPetRoutes(
     const result = await dependencies.addresses.create(
       await actor(request), AddressInputSchema.parse(request.body),
     );
-    return reply.code(201).send({
-      id: result.id,
-      city: result.city,
-      district: result.district,
-      serviceZone: result.serviceZone,
-    });
+    return reply.code(201).send(result);
   });
 
-  app.get('/v1/addresses', async (request) => dependencies.addresses.list(await actor(request)));
+  app.get('/v1/addresses', async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    return dependencies.addresses.list(await actor(request));
+  });
 
   app.get<{ Params: { orderId: string } }>(
     '/v1/orders/:orderId/address/candidate',
