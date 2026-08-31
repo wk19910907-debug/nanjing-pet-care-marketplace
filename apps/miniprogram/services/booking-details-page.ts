@@ -7,8 +7,10 @@ export function canEditBooking(page: any): boolean {
   return !page.disposed && !page.data.busy && !page.data.detailPending && !page.data.pendingAttempt
     && !page.data.submitted && !page.data.needsProfile && page.data.status === 'ready';
 }
-export function definitelyRejected(error: unknown): boolean {
-  return error instanceof ApiError && [400, 401, 403, 422, 429].includes(error.status);
+export function definitelyRejected(error: unknown, hasPriorAmbiguity = false): boolean {
+  if (hasPriorAmbiguity || !(error instanceof ApiError)) return false;
+  return [400, 401, 403, 422, 429].includes(error.status)
+    || (error.status === 409 && ['SERVICE_NOT_AVAILABLE', 'AREA_NOT_AVAILABLE'].includes(error.message));
 }
 const newKey = (kind: string) => `${kind}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -18,6 +20,8 @@ async function save(page: any, kind: 'pet' | 'address') {
     || page.data[kind === 'pet' ? 'petMode' : 'addressMode'] !== 'NEW') return;
   const api = getApp<any>().globalData.api;
   const field = kind === 'pet' ? 'petSaveAttempt' : 'addressSaveAttempt';
+  const ambiguityField = `${field}Ambiguous`;
+  let requestSent = false;
   page.setData({ busy: true, detailError: '', ...clearedQuote });
   try {
     if (!page[field]) {
@@ -27,6 +31,7 @@ async function save(page: any, kind: 'pet' | 'address') {
       page[field] = payload;
     }
     page.setData({ detailPending: kind });
+    requestSent = true;
     const result = kind === 'pet' ? await api.createPet(page[field]) : await api.createAddress(page[field]);
     if (page.disposed) return;
     if (kind === 'pet') {
@@ -43,10 +48,13 @@ async function save(page: any, kind: 'pet' | 'address') {
       page.setData({ addresses, addressIndex: addresses.length - 1, addressMode: 'EXISTING', newAddressDetail: '' });
     }
     page[field] = null;
+    page[ambiguityField] = false;
     page.setData({ detailPending: '', detailError: '' });
   } catch (error) {
     if (page.disposed) return;
-    if (definitelyRejected(error)) { page[field] = null; page.setData({ detailPending: '' }); }
+    if (definitelyRejected(error, page[ambiguityField] === true)) {
+      page[field] = null; page[ambiguityField] = false; page.setData({ detailPending: '' });
+    } else if (requestSent) page[ambiguityField] = true;
     page.setData({ detailError: bookingErrorMessage(error) });
   } finally { if (!page.disposed) page.setData({ busy: false }); }
 }

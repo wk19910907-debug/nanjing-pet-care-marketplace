@@ -87,6 +87,7 @@ Page({
     if (this.disposed || this.data.needsProfile || this.data.status !== 'ready' || this.data.detailPending
       || this.data.submitted || !this.data.quote || !this.data.quotedInput || this.data.busy) return;
     this.setData({ busy: true, detailError: '' });
+    let requestSent = false;
     try {
       if (!this.data.pendingAttempt && JSON.stringify({ ...this.requestInput(), notes: '' }) !== JSON.stringify(this.data.quotedInput)) {
         this.setData({ ...clearedQuote }); throw new Error('DETAILS_REQUIRED');
@@ -95,6 +96,7 @@ Page({
         this.data.quotedInput, () => `${Date.now()}-${Math.random()}`,
       );
       if (!this.data.pendingAttempt) this.setData({ pendingAttempt: attempt });
+      requestSent = true;
       const order = await getApp<any>().globalData.api.createOrder(attempt.input, attempt.idempotencyKey);
       if (this.disposed) return;
       if (!order || typeof order.id !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(order.id)) throw new Error('INVALID_ORDER_RESPONSE');
@@ -103,7 +105,10 @@ Page({
       this.openCreatedOrder();
     } catch (error) {
       if (!this.disposed) {
-        if (definitelyRejected(error)) this.setData({ pendingAttempt: null, ...clearedQuote });
+        if (definitelyRejected(error, this.orderAttemptAmbiguous === true)) {
+          this.orderAttemptAmbiguous = false;
+          this.setData({ pendingAttempt: null, ...clearedQuote });
+        } else if (requestSent) this.orderAttemptAmbiguous = true;
         this.setData({ detailError: bookingErrorMessage(error) });
       }
     }

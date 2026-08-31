@@ -55,6 +55,26 @@ it.each(['pet', 'address'] as const)('retries an uncertain %s save with the same
   expect(create.mock.calls[0]![0].clientRequestId).toMatch(/^[A-Za-z0-9_-]{1,100}$/);
 });
 
+it.each(['pet', 'address', 'order'] as const)('keeps an ambiguous %s attempt frozen through a later definite rejection', async (kind) => {
+  const { page, api } = await setup();
+  const { ApiError } = await import('../services/api.js');
+  if (kind === 'pet') page.changePetName(input('原始宠物'));
+  if (kind === 'address') page.changeAddressDetail(input('原始地址'));
+  if (kind === 'order') { await ready(page); await page.refreshQuote(); }
+  const method = kind === 'pet' ? 'savePet' : kind === 'address' ? 'saveAddress' : 'submit';
+  const create = kind === 'pet' ? api.createPet : kind === 'address' ? api.createAddress : api.createOrder;
+  create.mockRejectedValueOnce(new Error('NETWORK_UNAVAILABLE')).mockRejectedValueOnce(new ApiError(401, 'UNAUTHENTICATED'));
+  await page[method]();
+  if (kind === 'pet') page.changePetName(input('修改后的宠物'));
+  if (kind === 'address') page.changeAddressDetail(input('修改后的地址'));
+  if (kind === 'order') page.changeVisitTime(input('12:00'));
+  await page[method]();
+  expect(create.mock.calls[1]).toEqual(create.mock.calls[0]);
+  expect(page.data.detailPending || page.data.pendingAttempt).toBeTruthy();
+  await page[method]();
+  expect(create.mock.calls[2]).toEqual(create.mock.calls[0]);
+});
+
 it.each(['pet', 'address'] as const)('blocks duplicate %s saves and suppresses completion after unloading', async (kind) => {
   const { page, api } = await setup();
   const method = kind === 'pet' ? 'savePet' : 'saveAddress';
@@ -105,12 +125,57 @@ it('keeps ambiguous order retry on the original quote snapshot and idempotency k
   expect(api.quote).toHaveBeenCalledOnce();
 });
 
+it.each([
+  ['SERVICE_NOT_AVAILABLE', (page: any) => {
+    page.setData({ allPets: [...page.data.allPets, { id: 'pet-dog', name: '旺财', species: 'DOG' }] });
+    page.chooseService({ currentTarget: { dataset: { value: 'DOG_WALKING' } } });
+  }],
+  ['AREA_NOT_AVAILABLE', (page: any) => {
+    page.setData({ addresses: [...page.data.addresses, { id: 'address-2', city: '南京市', district: '建邺区', serviceZone: '建邺区', detail: '另一处地址', label: '建邺区 · 另一处地址' }] });
+    page.chooseAddress({ detail: { value: 1 } });
+  }],
+] as const)('releases a first-attempt %s conflict so the owner can select and requote', async (code, selectAvailable) => {
+  const { page, api } = await setup(); await ready(page); await page.refreshQuote();
+  const { ApiError } = await import('../services/api.js');
+  api.createOrder.mockRejectedValueOnce(new ApiError(409, code));
+  await page.submit();
+  expect(page.data.pendingAttempt).toBeNull(); expect(page.data.quote).toBeNull();
+  selectAvailable(page); await page.refreshQuote();
+  expect(page.data.quote).not.toBeNull();
+});
+
+it.each(['SERVICE_NOT_AVAILABLE', 'AREA_NOT_AVAILABLE', 'REQUEST_CONFLICT'] as const)('does not discard an ambiguous order after a %s conflict', async (code) => {
+  const { page, api } = await setup(); await ready(page); await page.refreshQuote();
+  const { ApiError } = await import('../services/api.js');
+  api.createOrder.mockRejectedValueOnce(new Error('NETWORK_UNAVAILABLE')).mockRejectedValueOnce(new ApiError(409, code));
+  await page.submit(); const original = api.createOrder.mock.calls[0]; await page.submit();
+  expect(page.data.pendingAttempt).not.toBeNull(); expect(api.createOrder.mock.calls[1]).toEqual(original);
+  page.changeVisitTime(input('12:00')); expect(page.data.visitTime).toBe('10:00');
+});
+
 it('allows editing after a definitive validation rejection and retains the typed draft', async () => {
   const { page, api } = await setup(); page.changePetName(input('团子'));
   const { ApiError } = await import('../services/api.js');
   api.createPet.mockRejectedValueOnce(new ApiError(400, 'VALIDATION_ERROR'));
   await page.savePet(); page.changePetName(input('小白'));
   expect(page.data.newPetName).toBe('小白');
+});
+
+it('does not treat client-side validation as an ambiguous pet write', async () => {
+  const { page, api } = await setup(); const { ApiError } = await import('../services/api.js');
+  await page.savePet();
+  page.changePetName(input('团子')); api.createPet.mockRejectedValueOnce(new ApiError(400, 'VALIDATION_ERROR'));
+  await page.savePet(); page.changePetName(input('小白'));
+  expect(page.data.newPetName).toBe('小白');
+});
+
+it('does not treat submit preflight validation as an ambiguous order write', async () => {
+  const { page, api } = await setup(); const { ApiError } = await import('../services/api.js');
+  await ready(page); await page.refreshQuote(); page.setData({ visitDate: '' });
+  await page.submit(); page.setData({ visitDate: '2099-09-01' });
+  api.createOrder.mockRejectedValueOnce(new ApiError(400, 'VALIDATION_ERROR'));
+  await page.submit(); page.changeVisitTime(input('12:00'));
+  expect(api.createOrder).toHaveBeenCalledOnce(); expect(page.data.visitTime).toBe('12:00');
 });
 
 it('uses date/time pickers and has no raw ISO-format or coordinate input', () => {
