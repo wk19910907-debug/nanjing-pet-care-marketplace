@@ -34,7 +34,7 @@ test('explains the offer and moves visitors into owner ordering', async ({ page 
   await expect(page.getByRole('heading', { name: '预约前想了解的事' })).toBeVisible();
 
   await page.getByRole('button', { name: '平台运营', exact: true }).click();
-  await page.locator('.public-nav').getByRole('button', { name: '立即预约' }).click();
+  await page.locator('.hero-cta').click();
 
   await expect(page.getByRole('button', { name: '宠主', exact: true })).toHaveClass(/active/);
   await expect(page.getByRole('heading', { name: '预约上门服务' })).toBeVisible();
@@ -76,6 +76,7 @@ test('keeps the landing page usable at phone width', async ({ page }) => {
   expect(second).not.toBeNull();
   expect(second!.y).toBeGreaterThan(first!.y + first!.height);
 
+  await page.getByText('查看区域与参考价格', { exact: true }).click();
   const quote = page.getByRole('region', { name: '预约参考' });
   const serviceControl = await quote.getByLabel('服务类型').boundingBox();
   const districtControl = await quote.getByLabel('服务区域').boundingBox();
@@ -94,6 +95,7 @@ test('keeps the landing page usable at phone width', async ({ page }) => {
 
 test('shows a transparent quote and updates the service price', async ({ page }) => {
   await page.goto('/?fixture=service-loop');
+  await page.getByText('查看区域与参考价格', { exact: true }).click();
   const quote = page.getByRole('region', { name: '预约参考' });
   const summary = quote.locator('.quote-summary');
   await expect(summary).toHaveAttribute('role', 'status');
@@ -106,6 +108,7 @@ test('shows a transparent quote and updates the service price', async ({ page })
 
 test('carries the public quote into the owner order form', async ({ page }) => {
   await page.goto('/?fixture=service-loop');
+  await page.getByText('查看区域与参考价格', { exact: true }).click();
   const quote = page.getByRole('region', { name: '预约参考' });
   await quote.getByLabel('服务类型').selectOption('DOG_WALKING');
   await quote.getByLabel('服务区域').selectOption('秦淮区');
@@ -120,6 +123,7 @@ test('carries the public quote into the owner order form', async ({ page }) => {
 
 test('consumes quote prefills without blocking a repeated quote', async ({ page }) => {
   await page.goto('/?fixture=service-loop');
+  await page.getByText('查看区域与参考价格', { exact: true }).click();
   const quote = page.getByRole('region', { name: '预约参考' });
   const form = page.locator('.order-form');
   await quote.getByLabel('服务类型').selectOption('DOG_WALKING');
@@ -145,11 +149,12 @@ test('consumes quote prefills without blocking a repeated quote', async ({ page 
   await form.getByLabel('服务区域').selectOption('建邺区');
   await quote.getByRole('button', { name: '按此服务立即预约' }).click();
   await expect(form.getByLabel('服务类型')).toHaveValue('DOG_WALKING');
+  await form.getByLabel('上门时间').fill('2026-09-01T19:00');
   await form.getByRole('button', { name: '下一步：填写上门信息' }).click();
   await expect(form.getByLabel('服务区域')).toHaveValue('秦淮区');
 
   await page.getByRole('button', { name: '平台运营', exact: true }).click();
-  await page.locator('.public-nav').getByRole('button', { name: '立即预约' }).click();
+  await page.locator('.hero-cta').click();
   await expect(form.getByLabel('服务类型')).toHaveValue('CAT_FEEDING');
   await form.getByLabel('上门时间').fill('2026-09-01T19:00');
   await form.getByRole('button', { name: '下一步：填写上门信息' }).click();

@@ -49,5 +49,30 @@ describe('OwnerWorkspace', () => {
       scheduledAt: '2026-09-01T19:00',
       notes: '出门前检查牵引绳',
     });
+    expect(screen.getByRole('heading', { name: '演示预约已提交' })).toBeTruthy();
+    expect(screen.getByText('仅保存在当前浏览器，不会形成真实订单或费用。')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '提交订单' })).toBeNull();
+    expect(screen.getByRole('link', { name: '查看我的订单' }).getAttribute('href')).toBe('#demo-owner-orders');
+    await user.click(screen.getByRole('button', { name: '再预约一次' }));
+    expect((screen.getByLabelText('上门时间') as HTMLInputElement).value).toBe('');
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the complete draft on failure and starts a new form from an incoming service', async () => {
+    const user = userEvent.setup();
+    const props = { state: createInitialState(), consumePrefill: vi.fn(), create: vi.fn(() => false), confirm: vi.fn() };
+    const view = render(<OwnerWorkspace {...props}/>);
+    await user.type(screen.getByLabelText('上门时间'), '2026-09-01T19:00');
+    await user.click(screen.getByRole('button', { name: '下一步：填写上门信息' }));
+    await user.type(screen.getByLabelText('宠物昵称'), '团子');
+    await user.type(screen.getByLabelText('详细地址'), '测试路');
+    await user.click(screen.getByRole('button', { name: '下一步：确认预约' }));
+    await user.click(screen.getByRole('button', { name: '提交订单' }));
+    expect(screen.queryByRole('heading', { name: '演示预约已提交' })).toBeNull();
+    expect(screen.getByText('团子')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '提交订单' })).toBeTruthy();
+    view.rerender(<OwnerWorkspace {...props} prefill={{ serviceType: 'DOG_WALKING', district: '鼓楼区', requestKey: 1 }}/>);
+    expect((screen.getByLabelText('服务类型') as HTMLSelectElement).value).toBe('DOG_WALKING');
+    expect((screen.getByLabelText('上门时间') as HTMLInputElement).value).toBe('');
   });
 });

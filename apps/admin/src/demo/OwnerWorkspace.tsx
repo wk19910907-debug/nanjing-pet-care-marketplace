@@ -32,9 +32,12 @@ export function OwnerWorkspace(props: { state: DemoState; prefill?: OrderPrefill
   const [draft, setDraft] = useState<OrderDraft>(emptyDraft);
   const [step, setStep] = useState<BookingStep>(1);
   const [showNotes, setShowNotes] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
   useEffect(() => {
     if (!props.prefill) return;
-    setDraft((item) => ({ ...item, serviceType: props.prefill!.serviceType, district: props.prefill!.district }));
+    setDraft({ ...emptyDraft(), serviceType: props.prefill.serviceType, district: props.prefill.district });
+    setSubmitted(false);
+    setShowNotes(false);
     setStep(1);
     props.consumePrefill();
   }, [props.prefill?.requestKey]);
@@ -42,14 +45,12 @@ export function OwnerWorkspace(props: { state: DemoState; prefill?: OrderPrefill
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!props.create(draft)) return;
-    setDraft(emptyDraft());
-    setShowNotes(false);
-    setStep(1);
+    setSubmitted(true);
   };
   const serviceStepComplete = Boolean(draft.scheduledAt);
   const visitStepComplete = Boolean(draft.petName.trim() && draft.address.trim() && draft.district);
-  return <section className="workspace"><div className="section-title"><div><span className="eyebrow">OWNER</span><h2>预约上门服务</h2></div><p>提交需求后，由平台匹配已认证服务人员。</p></div>
-    <form className="order-form demo-booking-form" onSubmit={submit}>
+  return <section className="workspace customer-owner"><div className="section-title"><div><span className="eyebrow">轻松预约</span><h2>预约上门服务</h2></div><p>提交需求后，由平台匹配已认证服务人员。</p></div>
+    {submitted ? <section className="booking-receipt" aria-labelledby="receipt-title" role="status"><span className="receipt-mark" aria-hidden="true">✓</span><h3 id="receipt-title">演示预约已提交</h3><p>{draft.petName}的{draft.serviceType === 'CAT_FEEDING' ? '喂猫' : '遛狗'}需求已记录，接下来由平台匹配服务人员。</p><p>仅保存在当前浏览器，不会形成真实订单或费用。</p><div className="demo-booking-actions"><a href="#demo-owner-orders">查看我的订单</a><button type="button" onClick={() => { setDraft(emptyDraft()); setShowNotes(false); setStep(1); setSubmitted(false); }}>再预约一次</button></div></section> : <form className="order-form demo-booking-form" onSubmit={submit}>
       <ol className="owner-booking-progress wide" aria-label="预约进度">
         {([1, 2, 3] as const).map((item) => <li key={item} aria-current={step === item ? 'step' : undefined}>{stepLabels[item]}</li>)}
       </ol>
@@ -82,6 +83,6 @@ export function OwnerWorkspace(props: { state: DemoState; prefill?: OrderPrefill
         <p className="pilot-privacy-hint">提交后由平台匹配已认证服务人员；此处为功能演示，不会形成真实订单或费用。</p>
         <div className="demo-booking-actions"><button type="button" onClick={() => setStep(2)}>返回修改</button><button className="primary" type="submit">提交订单</button></div>
       </div>}
-    </form><h3>我的订单</h3><div className="orders">{props.state.orders.length === 0 ? <div className="empty">还没有订单，请先提交一次服务需求。</div> : [...props.state.orders].reverse().map((order) => <OrderCard key={order.id} order={order} providerName={props.state.providers.find((item) => item.id === order.providerId)?.name} confirm={() => props.confirm(order.id)}/>)}</div>
+    </form>}<h3 id="demo-owner-orders" tabIndex={-1}>我的订单</h3><p className="orders-demo-note">本机演示记录 · 匹配、报告和完成操作均为模拟，不会安排真实服务。</p><div className="orders" aria-labelledby="demo-owner-orders">{props.state.orders.length === 0 ? <div className="empty">还没有订单，请先提交一次服务需求。</div> : [...props.state.orders].reverse().map((order) => <OrderCard key={order.id} order={order} providerName={props.state.providers.find((item) => item.id === order.providerId)?.name} confirm={() => props.confirm(order.id)}/>)}</div>
   </section>;
 }

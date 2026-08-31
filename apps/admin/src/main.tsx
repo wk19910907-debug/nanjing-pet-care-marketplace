@@ -5,6 +5,7 @@ import { OperatorView } from './routes.js';
 import { DemoApp } from './demo/DemoApp.js';
 import { PilotApp } from './pilot/PilotApp.js';
 import './styles.css';
+import './demo/customer-web.css';
 
 function Console() {
   const [role, setRole] = useState<OperatorRole>('REVIEWER');

@@ -1,0 +1,91 @@
+/* Shared public landing only; booking rules are restricted to the local demo. */
+.customer-web { color: #463831; background: #fffaf4; }
+.customer-web :is(button, a, summary, input, select, textarea):focus-visible { outline: 3px solid #925044; outline-offset: 4px; }
+.customer-web :is(button, summary) { min-height: 44px; }
+.customer-web .public-nav { border-bottom: 1px solid #efdfd5; }
+.customer-web .public-brand svg { width: 32px; height: 32px; }
+.customer-web .public-nav .header-orders { color: #87483d; background: #fff4eb; box-shadow: none; }
+.customer-web .public-hero { min-height: 0; grid-template-columns: minmax(0,1.6fr) minmax(0,.7fr); gap: 40px; padding-block: 36px 24px; }
+.customer-web .public-hero h1 { font-size: clamp(30px,3.4vw,46px); max-width: 650px; line-height: 1.24; margin: 10px 0 12px; letter-spacing: -.04em; }
+.customer-web .public-hero p { font-size: 16px; line-height: 1.7; margin-block: 10px; }
+.customer-web .public-hero-actions { margin-top: 14px; }
+.customer-web .hero-cta { margin-top: 0; }
+.customer-web .public-trust-line { margin-top: 14px; font-size: 13px; }
+.customer-web .pet-companions { display: flex; gap: 12px; align-items: center; justify-content: center; }
+.customer-web .pet-companions > div { width: 125px; padding: 22px 12px; border: 1px solid #efd9cd; border-radius: 70px 70px 28px 28px; text-align: center; background: #f9e4d6; color: #855b47; transform: rotate(-6deg); }
+.customer-web .pet-companions > div + div { margin-top: 38px; transform: rotate(7deg); background: #f6eddb; }
+.customer-web .pet-companions svg { display: block; width: 100%; }
+.customer-web .pet-companions span { display: block; font-size: 13px; margin-top: 12px; }
+.customer-web .public-services { padding-top: 22px; padding-bottom: 12px; }
+.customer-web .public-services h2 { margin: 8px 0; font-size: clamp(22px,2.5vw,30px); }
+.customer-web .section-lead { font-size: 14px; margin: 8px 0 20px; }
+.customer-web .price-grid { gap: 16px; }
+.customer-web .price-card { padding: 22px; gap: 14px; background: #fff; box-shadow: 0 6px 22px #805b4e08; }
+.customer-web .price-card:nth-child(2) { background: #fffdf7; }
+.customer-web .price-card .service-icon { background: #f9e4d6; color: #875541; }
+.customer-web .price-card:nth-child(2) .service-icon { background: #f4e7cd; }
+.customer-web .service-icon svg { width: 48px; height: 48px; }
+.customer-web .price-card h3 { font-size: 20px; }
+.customer-web .price-card p { font-size: 14px; line-height: 1.6; }
+.customer-web .price-card button { margin-top: 2px; }
+.customer-web .optional-pricing { margin-top: 18px; border: 1px solid #efdfd5; border-radius: 16px; background: #fffdf9; }
+.customer-web .optional-pricing summary { cursor: pointer; padding: 14px 18px; font-weight: 700; color: #805345; }
+.customer-web .optional-pricing .public-quote { margin: 0; border: 0; border-radius: 0 0 16px 16px; }
+.customer-web .customer-quick-nav { display: none; }
+.customer-web .demo-intro { margin-top: 24px; padding: 18px 24px; border-radius: 18px 18px 0 0; background: #fff5eb; }
+.customer-web .demo-intro h2 { font-size: 19px; margin: 4px 0 6px; }
+.customer-web .demo-intro .eyebrow { font-size: 10px; }
+.customer-web .demo-intro p { font-size: 14px; }
+.customer-web .role-tabs { margin-top: 0; padding-top: 14px; }
+.customer-web .role-tabs button { font-size: 13px; }
+.customer-web .notice { font-size: 14px; }
+.customer-web .demo-main { padding-top: 14px; padding-bottom: 24px; }
+.customer-owner .section-title { align-items: start; gap: 16px; }
+.customer-owner .section-title h2 { font-size: 26px; }
+.customer-owner .section-title p { font-size: 14px; }
+.customer-owner #demo-owner-orders { scroll-margin-top: 100px; margin: 34px 0 8px; font-size: 22px; }
+.customer-owner .orders-demo-note { color: #78665b; font-size: 13px; line-height: 1.6; }
+.customer-owner .order-card { padding: 20px; border: 1px solid #efdfd5; border-radius: 18px; box-shadow: none; overflow-wrap: anywhere; }
+.customer-owner .order-head { gap: 12px; flex-wrap: wrap; }
+.customer-owner .order-head strong { font-size: 17px; }
+.customer-owner .order-card p { line-height: 1.65; }
+.customer-owner .status { white-space: normal; line-height: 1.5; }
+.customer-owner .booking-receipt { max-width: 680px; margin: auto; padding: 28px; border-radius: 22px; background: #fff5eb; border: 1px solid #efd4c7; }
+.customer-owner .booking-receipt h3 { font-size: 25px; margin: 14px 0 10px; }
+.customer-owner .booking-receipt p { line-height: 1.8; overflow-wrap: anywhere; }
+.customer-owner .receipt-mark { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: #dfeade; color: #365d42; font-size: 25px; }
+.customer-owner .booking-receipt a { min-height: 48px; display: flex; align-items: center; justify-content: center; color: #8b4639; font-weight: 700; }
+.customer-web #order-experience { scroll-margin-top: 88px; }
+.customer-web #top { scroll-margin-top: 88px; }
+@media (max-width: 760px) {
+  .customer-web { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+  .customer-web .public-nav { gap: 10px; min-height: 64px; }
+  .customer-web .header-booking { display: none; }
+  .customer-web .public-hero { display: block; padding: 24px 16px 14px; }
+  .customer-web .public-hero h1 { max-width: 360px; font-size: 30px; }
+  .customer-web .public-hero p { font-size: 14px; }
+  .customer-web .public-hero-actions { flex-direction: row; gap: 16px; align-items: center; }
+  .customer-web .public-hero-actions button { width: auto; }
+  .customer-web .public-hero-actions a { font-size: 13px; }
+  .customer-web .pet-companions { display: none; }
+  .customer-web .public-trust-line { gap: 8px 14px; font-size: 12px; }
+  .customer-web .public-services { padding-top: 16px; }
+  .customer-web .section-lead { margin-bottom: 14px; font-size: 12px; }
+  .customer-web .price-card { grid-template-columns: 48px minmax(0,1fr); gap: 10px 12px; padding: 18px; }
+  .customer-web .price-card strong { grid-column: 2; font-size: 23px; }
+  .customer-web .price-card button { grid-column: 1/-1; }
+  .customer-web .customer-quick-nav { position: fixed; z-index: 30; bottom: 0; left: 0; right: 0; display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid #efdfd5; background: #fffdf9f5; backdrop-filter: blur(12px); }
+  .customer-web .customer-quick-nav :is(a,button) { display: flex; align-items: center; justify-content: center; min-height: 48px; border: 0; border-radius: 14px; background: transparent; color: #77564a; text-decoration: none; font-size: 14px; font-weight: 700; padding: 8px; }
+  .customer-web .customer-quick-nav button:first-of-type { background: #b94f43; color: white; }
+  .customer-web .demo-intro { padding: 16px; }
+  .customer-web .demo-main { padding-inline: 14px; }
+  .customer-owner.workspace { padding: 18px 14px; }
+  .customer-owner .section-title { display: block; }
+  .customer-owner .demo-booking-form { padding: 16px; }
+  .customer-owner :is(input,select,textarea) { min-width: 0; max-width: 100%; }
+  .customer-owner .demo-booking-actions { grid-template-columns: minmax(0,1fr) minmax(0,1.5fr); }
+  .customer-owner .booking-receipt { padding: 20px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .customer-web *, .customer-web *::before, .customer-web *::after { scroll-behavior: auto; transition: none; animation: none; }
+}
