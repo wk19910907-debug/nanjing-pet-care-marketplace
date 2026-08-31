@@ -11,6 +11,7 @@ import {
   type PilotAuthRoutesDependencies,
 } from './auth/pilot-routes.js';
 import { requirePilotOrigin } from './auth/pilot-origin-guard.js';
+import { WECHAT_SESSION_PATH } from './auth/wechat-login-routes.js';
 import { registerPilotRoutes, type PilotRoutesDependencies } from './pilot/pilot-routes.js';
 import {
   registerOperationsCatalogRoutes,
@@ -117,7 +118,7 @@ export function createApp(dependencies: AppDependencies, options: AppOptions = {
     ].includes(error.message)) {
       return reply.code(409).send({ code: error.message });
     }
-    if (request.url.startsWith('/api/v1/pilot/')) {
+    if (request.url.startsWith('/api/v1/pilot/') || request.url.split('?', 1)[0] === WECHAT_SESSION_PATH) {
       const frameworkCode = typeof error === 'object' && error !== null
         && 'code' in error && typeof error.code === 'string'
         ? error.code

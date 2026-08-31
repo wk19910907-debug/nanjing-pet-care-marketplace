@@ -105,6 +105,50 @@ afterAll(async () => {
 });
 
 describe('pilot application composition', () => {
+  it('wires WeChat exchange to persisted owner sessions, nickname onboarding and restart recovery', async () => {
+    const config = developmentConfig();
+    config.wechatLogin = { appId: 'wx1234567890abcdef', appSecret: 'a'.repeat(32) };
+    const consumed = new Set<string>();
+    const wechatTransport: typeof fetch = async (input) => {
+      const code = new URL(String(input)).searchParams.get('js_code')!;
+      if (consumed.has(code)) return Response.json({ errcode: 40163 });
+      consumed.add(code);
+      return Response.json({ openid: 'composition-wechat-openid', session_key: 'private-session-key' });
+    };
+    const first = await createPilotApplication(config, { staticDir, wechatTransport });
+    let userId: string;
+    let token: string;
+    try {
+      const login = await first.app.inject({ method: 'POST', url: '/api/v1/auth/wechat/session', payload: { code: 'first-code' } });
+      expect(login.statusCode).toBe(201);
+      token = login.json().token;
+      const headers = { authorization: `Bearer ${token}` };
+      const session = await first.app.inject({ method: 'GET', url: '/api/v1/pilot/session', headers });
+      expect(session.json()).toMatchObject({ role: 'OWNER', displayName: null });
+      userId = session.json().userId;
+      expect((await first.app.inject({ method: 'GET', url: '/api/v1/pets', headers })).json())
+        .toEqual({ code: 'ONBOARDING_REQUIRED' });
+      expect((await first.app.inject({ method: 'POST', url: '/api/v1/pilot/me', headers,
+        payload: { displayName: '南京宠主' } })).statusCode).toBe(200);
+      expect((await first.app.inject({ method: 'GET', url: '/api/v1/pets', headers })).json()).toEqual([]);
+      const repeated = await first.app.inject({ method: 'POST', url: '/api/v1/auth/wechat/session', payload: { code: 'first-code' } });
+      expect(repeated.statusCode).toBe(401);
+      expect(await first.prisma.pilotSession.count({ where: { userId } })).toBe(1);
+    } finally { await first.app.close(); }
+    const second = await createPilotApplication(config, { staticDir, wechatTransport });
+    try {
+      const previous = await second.app.inject({ method: 'GET', url: '/api/v1/pilot/session',
+        headers: { authorization: `Bearer ${token}` } });
+      expect(previous.json()).toMatchObject({ userId, displayName: '南京宠主' });
+      const login = await second.app.inject({ method: 'POST', url: '/api/v1/auth/wechat/session', payload: { code: 'second-code' } });
+      expect(login.statusCode).toBe(201);
+      const session = await second.app.inject({ method: 'GET', url: '/api/v1/pilot/session',
+        headers: { authorization: `Bearer ${login.json().token}` } });
+      expect(session.json()).toMatchObject({ userId, role: 'OWNER', displayName: '南京宠主' });
+      expect(JSON.stringify(session.json())).not.toMatch(/openid|session_key|unionid/);
+    } finally { await second.app.close(); }
+  });
+
   it('persists an invitation session and user across application restarts', async () => {
     const config = developmentConfig();
     const first = await createPilotApplication(config, { staticDir });

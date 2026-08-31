@@ -1,10 +1,11 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import type { ActorRole } from '@pet/contracts';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import type { ActorContext, AuthService } from './auth-service.js';
 import { authorizeRole } from './authorize.js';
 import { digestPilotCredential } from './pilot-credential.js';
+import { WechatIdentitySchema, type WechatIdentity } from './wechat-login-gateway.js';
 
 const DisplayNameSchema = z.string().trim().min(1).max(30).refine(
   (value) => !/(?:1\d{10}|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|(?:微信|vx|wx)\s*[:：_\-]?[A-Za-z0-9_-]{4,}|\d{6,})/i.test(value),
@@ -218,6 +219,40 @@ export class PilotSessionService implements AuthService {
       displayName: session.user.displayName,
       expiresAt: session.expiresAt,
     };
+  }
+
+  /** Identity must come from the server-side WeChat exchange, never from client input. */
+  async createWechatSession(identity: WechatIdentity): Promise<RedeemResult> {
+    const parsed = WechatIdentitySchema.safeParse(identity);
+    if (!parsed.success) throw new Error('WECHAT_LOGIN_UNAVAILABLE');
+    // Existing nullable unique field now holds an app-scoped keyed digest, not raw OpenID.
+    const marker = `wx1:${createHmac('sha256', this.pepper)
+      .update(`wechat-identity-v1\0${parsed.data.appId}\0${parsed.data.openId}`, 'utf8').digest('hex')}`;
+    const now = this.now();
+    const expiresAt = addDays(now, this.sessionDays);
+    const token = this.token();
+    const tokenHash = digestPilotCredential(this.pepper, 'session', token);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          const user = await tx.user.upsert({
+            where: { wechatOpenId: marker }, update: {},
+            create: { wechatOpenId: marker, role: 'OWNER' },
+            select: { id: true, role: true },
+          });
+          if (user.role !== 'OWNER' && user.role !== 'PROVIDER') throw new Error('FORBIDDEN');
+          await tx.pilotSession.create({
+            data: { tokenHash, userId: user.id, expiresAt, createdAt: now, lastSeenAt: now },
+          });
+          return { token, expiresAt };
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError
+          && ['P2034', 'P2002'].includes(error.code)) continue;
+        throw error;
+      }
+    }
+    throw new Error('WECHAT_LOGIN_UNAVAILABLE');
   }
 
   async revoke(authorizationHeader: string | undefined): Promise<void> {

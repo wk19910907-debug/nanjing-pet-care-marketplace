@@ -2,6 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config.js';
 
 describe('loadConfig', () => {
+  it('enables WeChat login only explicitly, with complete server credentials and pilot sessions', () => {
+    const environment = {
+      DATABASE_URL: 'postgresql://localhost/test', PILOT_MODE: 'enabled',
+      PILOT_AUTH_PEPPER: Buffer.alloc(32, 1).toString('base64'),
+      WECHAT_APP_ID: 'wx1234567890abcdef', WECHAT_APP_SECRET: 'a'.repeat(32),
+    };
+    expect(loadConfig(environment)).not.toHaveProperty('wechatLogin');
+    expect(loadConfig({ ...environment, WECHAT_LOGIN_ENABLED: 'true' }).wechatLogin)
+      .toEqual({ appId: environment.WECHAT_APP_ID, appSecret: environment.WECHAT_APP_SECRET });
+    for (const field of ['WECHAT_APP_ID', 'WECHAT_APP_SECRET', 'PILOT_MODE']) {
+      expect(() => loadConfig({ ...environment, WECHAT_LOGIN_ENABLED: 'true', [field]: undefined }))
+        .toThrow(field);
+    }
+    expect(() => loadConfig({ ...environment, WECHAT_LOGIN_ENABLED: 'yes' })).toThrow();
+  });
+
   it('requires a PostgreSQL database URL', () => {
     expect(() => loadConfig({})).toThrow('DATABASE_URL');
     expect(() => loadConfig({ DATABASE_URL: 'sqlite:file.db' })).toThrow('DATABASE_URL');

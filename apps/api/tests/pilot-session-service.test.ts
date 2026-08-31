@@ -138,6 +138,45 @@ describe('PilotSessionService', () => {
     }]);
   });
 
+  it('creates a private app-scoped WeChat owner identity with a usable, revocable session', async () => {
+    await resetTables();
+    const service = new PilotSessionService(prisma, {
+      pepper: Buffer.alloc(32, 7), inviteHours: 24, sessionDays: 7,
+    });
+    const identity = { appId: 'wx1234567890abcdef', openId: 'verified-wechat-openid' };
+    const first = await service.createWechatSession(identity);
+    const actor = await service.authenticate(`Bearer ${first.token}`);
+    const second = await service.createWechatSession(identity);
+    expect(await service.authenticate(`Bearer ${second.token}`))
+      .toMatchObject({ userId: actor.userId, role: 'OWNER', displayName: null });
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: actor.userId } });
+    expect(user.wechatOpenId).toMatch(/^wx1:[a-f0-9]{64}$/);
+    expect(user.wechatOpenId).not.toContain(identity.openId);
+    const other = await service.createWechatSession({ ...identity, appId: 'wxabcdef1234567890' });
+    expect((await service.authenticate(`Bearer ${other.token}`)).userId).not.toBe(actor.userId);
+    expect(await prisma.pilotInvite.count()).toBe(0);
+    expect(await prisma.pilotSession.findFirstOrThrow()).not.toHaveProperty('token');
+    await service.revoke(`Bearer ${first.token}`);
+    await expect(service.authenticate(`Bearer ${first.token}`)).rejects.toThrow('UNAUTHENTICATED');
+  });
+
+  it('converges simultaneous WeChat signups and never resets an existing provider or elevates to staff', async () => {
+    await resetTables();
+    const options = { pepper: Buffer.alloc(32, 7), inviteHours: 24, sessionDays: 7 };
+    const identity = { appId: 'wx1234567890abcdef', openId: 'concurrent-wechat-openid' };
+    const services = [new PilotSessionService(prisma, options), new PilotSessionService(prisma, options)];
+    const logins = await Promise.all(services.map((service) => service.createWechatSession(identity)));
+    const actors = await Promise.all(logins.map((login) => services[0]!.authenticate(`Bearer ${login.token}`)));
+    expect(new Set(actors.map((actor) => actor.userId))).toHaveLength(1);
+    expect(await prisma.user.count()).toBe(1);
+    await prisma.user.update({ where: { id: actors[0]!.userId }, data: { role: 'PROVIDER' } });
+    const provider = await services[0]!.createWechatSession(identity);
+    expect((await services[0]!.authenticate(`Bearer ${provider.token}`)).role).toBe('PROVIDER');
+    await prisma.user.update({ where: { id: actors[0]!.userId }, data: { role: 'ADMIN' } });
+    await expect(services[0]!.createWechatSession(identity)).rejects.toThrow('FORBIDDEN');
+    expect(await prisma.pilotSession.count()).toBe(3);
+  });
+
   it('creates distinct stable users for every allowed local role', async () => {
     await resetTables();
     const roles = ['OWNER', 'PROVIDER', 'ADMIN'] as const;

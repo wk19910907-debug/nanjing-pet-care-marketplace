@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { AppConfig } from '../config.js';
 import { FailedLoginLimiter } from './failed-login-limiter.js';
+import { registerWechatLoginRoutes, type WechatLoginService } from './wechat-login-routes.js';
 import {
   LOCAL_PILOT_ROLES,
   type PilotSessionService,
@@ -39,6 +40,7 @@ type PilotRouteSessions = Pick<
 export type PilotAuthRoutesDependencies = {
   config: AppConfig;
   sessions: PilotRouteSessions;
+  wechatLogin?: WechatLoginService;
 };
 
 function cookieOptions(secure: boolean): FastifyCookieOptions['parseOptions'] {
@@ -70,6 +72,10 @@ export async function registerPilotAuthRoutes(
   const authorization = (request: FastifyRequest) => request.headers.authorization;
   const secureCookies = dependencies.config.pilot?.secureCookies ?? false;
   const failedLogins = new FailedLoginLimiter(5, 10 * 60 * 1_000);
+  await app.register(registerWechatLoginRoutes, {
+    ...(dependencies.wechatLogin ? { wechatLogin: dependencies.wechatLogin } : {}),
+    ...(dependencies.config.pilot?.publicOrigin ? { publicOrigin: dependencies.config.pilot.publicOrigin } : {}),
+  });
 
   app.post('/api/v1/pilot/sessions', async (request, reply) => {
     const { inviteCode } = LoginSchema.parse(request.body);

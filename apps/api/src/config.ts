@@ -64,6 +64,7 @@ const EnvironmentSchema = z.object({
   S3_FORCE_PATH_STYLE: z.enum(['true', 'false']).optional(),
   WECHAT_APP_ID: z.string().optional(),
   WECHAT_APP_SECRET: z.string().optional(),
+  WECHAT_LOGIN_ENABLED: z.enum(['true', 'false']).optional(),
   PILOT_MODE: z.enum(['enabled']).optional(),
   PILOT_HOST: z.string().trim().min(1).default(PILOT_DEFAULT_HOST),
   PILOT_PORT: z.coerce.number().int().min(1).max(65_535).default(PILOT_DEFAULT_PORT),
@@ -75,6 +76,17 @@ const EnvironmentSchema = z.object({
   PILOT_TRUST_PROXY: TrustedProxiesSchema.optional(),
 }).superRefine((environment, context) => {
   const pilotEnabled = environment.PILOT_MODE === 'enabled';
+  if (environment.WECHAT_LOGIN_ENABLED === 'true') {
+    if (!pilotEnabled) context.addIssue({
+      code: 'custom', path: ['PILOT_MODE'], message: 'PILOT_MODE is required for WeChat sessions',
+    });
+    for (const [key, valid] of [
+      ['WECHAT_APP_ID', /^wx[a-fA-F0-9]{16}$/.test(environment.WECHAT_APP_ID ?? '')],
+      ['WECHAT_APP_SECRET', /^[a-fA-F0-9]{32}$/.test(environment.WECHAT_APP_SECRET ?? '')],
+    ] as const) {
+      if (!valid) context.addIssue({ code: 'custom', path: [key], message: `${key} is invalid or missing` });
+    }
+  }
   if (pilotEnabled) {
     const pepper = decodeCanonicalBase64(environment.PILOT_AUTH_PEPPER);
     if (!pepper || pepper.byteLength < 32) context.addIssue({
@@ -139,6 +151,7 @@ export type AppConfig = {
   fieldEncryptionKey?: string;
   pilot?: PilotConfig;
   production?: ProductionConfig;
+  wechatLogin?: { appId: string; appSecret: string };
 };
 
 export function loadConfig(environment: Record<string, string | undefined>): AppConfig {
@@ -163,6 +176,9 @@ export function loadConfig(environment: Record<string, string | undefined>): App
       ? { fieldEncryptionKey: parsed.FIELD_ENCRYPTION_KEY_V1 }
       : {}),
     ...(pilot ? { pilot } : {}),
+    ...(parsed.WECHAT_LOGIN_ENABLED === 'true' ? {
+      wechatLogin: { appId: parsed.WECHAT_APP_ID!, appSecret: parsed.WECHAT_APP_SECRET! },
+    } : {}),
   };
   if (parsed.NODE_ENV !== 'production') return base;
 

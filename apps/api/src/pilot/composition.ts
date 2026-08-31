@@ -12,6 +12,7 @@ import { createApp } from '../app.js';
 import { PrismaAuditRepository } from '../audit/audit-repository.js';
 import type { AuthService } from '../auth/auth-service.js';
 import { PilotSessionService } from '../auth/pilot-session-service.js';
+import { WechatLoginGateway } from '../auth/wechat-login-gateway.js';
 import { QuoteService } from '../catalog/quote-service.js';
 import { PrismaOperationsCatalogRepository } from '../catalog/operations-catalog-repository.js';
 import { OperationsCatalogService } from '../catalog/operations-catalog-service.js';
@@ -56,6 +57,7 @@ export type PilotCompositionOverrides = {
   s3Signer?: S3Signer;
   databaseProbe?: () => Promise<boolean>;
   alerts?: DispatchAlertSink;
+  wechatTransport?: typeof fetch;
 };
 
 function fieldEncryptionKey(config: AppConfig): string {
@@ -122,6 +124,9 @@ export async function createPilotApplication(
         return actor;
       },
     };
+    const wechatGateway = config.wechatLogin
+      ? new WechatLoginGateway(config.wechatLogin, overrides.wechatTransport)
+      : undefined;
     const gateway = new PilotManualPaymentGateway();
     const quotes = new QuoteService(
       prisma,
@@ -184,7 +189,9 @@ export async function createPilotApplication(
       settlements,
       refunds,
       disputes,
-      pilot: { config, sessions },
+      pilot: { config, sessions, ...(wechatGateway ? {
+        wechatLogin: { login: async (code: string) => sessions.createWechatSession(await wechatGateway.exchange(code)) },
+      } : {}) },
       pilotBusiness: {
         fees: new ManualFeeService(prisma, audit),
         read: new PilotReadModel(prisma),
