@@ -19,6 +19,10 @@ export interface AddressLocationPolicy {
   assertSupported(location: CreateAddressInput): void;
 }
 
+function normalizeCoordinate(value: number): number {
+  return Number(value.toFixed(6));
+}
+
 function distanceKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
   const toRadians = (degrees: number) => degrees * Math.PI / 180;
   const earthKm = 6371;
@@ -41,16 +45,19 @@ export class AddressService {
     authorizeRole(actor, ['OWNER']);
     const normalized = {
       city: input.city.trim(), district: input.district.trim(), serviceZone: input.serviceZone.trim(),
-      latitude: input.latitude, longitude: input.longitude, detail: input.detail.trim(),
+      latitude: normalizeCoordinate(input.latitude), longitude: normalizeCoordinate(input.longitude),
+      detail: input.detail.trim(),
       accessInstructions: input.accessInstructions,
     };
-    this.locationPolicy?.assertSupported(normalized);
     const existing = input.clientRequestId
       ? await this.prisma.serviceAddress.findUnique({
         where: { ownerId_clientRequestId: { ownerId: actor.userId, clientRequestId: input.clientRequestId } },
       })
       : null;
     if (existing) return this.resolveExisting(existing, normalized);
+    this.locationPolicy?.assertSupported({
+      ...normalized, latitude: input.latitude, longitude: input.longitude,
+    });
     const detail = this.fieldCrypto.encrypt(normalized.detail);
     const access = normalized.accessInstructions
       ? this.fieldCrypto.encrypt(normalized.accessInstructions)

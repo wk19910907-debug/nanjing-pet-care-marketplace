@@ -15,11 +15,17 @@ Created `apps/api/tests/booking-details-idempotency.test.ts` against a uniquely 
 
 ## GREEN / verification
 
-- `pnpm --filter @pet/api test tests/booking-details-idempotency.test.ts` — 8 passed, using a database created and dropped by the test.
+- `pnpm --filter @pet/api test tests/booking-details-idempotency.test.ts` — 10 passed, using a database created and dropped by the test.
 - `pnpm --filter @pet/api lint` — passed.
-- `pnpm --filter @pet/api typecheck` — passed.
+- `pnpm --filter @pet/api typecheck` — currently blocked by an unrelated, pre-existing/miniprogram-side missing declaration for `core-js-pure/actual/url/index.js` in `apps/miniprogram/services/fulfillment-models.ts`.
 
 The dedicated test covers concurrent same-key convergence, conflicting replay preservation, owner isolation, no-key compatibility, encryption and owner-only decrypted detail, role gates, strict request-key validation, 409 mapping, POST safe detail output, and no-store address lists.
+
+## Review follow-up
+
+- Coordinates are normalized to PostgreSQL `Decimal(9,6)` precision before persistence and replay comparison. The strict location policy still receives the original submitted coordinates, so precision normalization cannot expand the accepted service area.
+- Existing owner/key records are loaded and compared before applying the current location policy. This preserves an original request's safe replay when operating-area policy changes, while a same-key payload change still returns a conflict.
+- Address-route invalid request identifiers now have explicit coverage alongside pet-route validation.
 
 ## Concerns / handoff
 

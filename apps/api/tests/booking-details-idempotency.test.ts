@@ -161,6 +161,54 @@ describe('booking profile idempotency', () => {
     ]);
   });
 
+  it('replays a high-precision address request after Decimal(9,6) storage without bypassing policy', async () => {
+    const owner = await createUser();
+    const checkedLocations: Array<{ latitude: number; longitude: number }> = [];
+    const service = new AddressService(prisma, fieldCrypto, new PrismaAuditRepository(prisma), {
+      assertSupported(location) {
+        checkedLocations.push({ latitude: location.latitude, longitude: location.longitude });
+        if (location.latitude !== 32.01234567 || location.longitude !== 118.73561234) {
+          throw new Error('AREA_NOT_AVAILABLE');
+        }
+      },
+    });
+    const input = {
+      ...addressInput('high-precision-address-1'), latitude: 32.01234567, longitude: 118.73561234,
+    };
+    const original = await service.create({ userId: owner.id, role: 'OWNER' }, input);
+    const replay = await service.create({ userId: owner.id, role: 'OWNER' }, input);
+    expect(replay.id).toBe(original.id);
+    expect(checkedLocations).toEqual([{ latitude: 32.01234567, longitude: 118.73561234 }]);
+    const stored = await prisma.serviceAddress.findUniqueOrThrow({ where: { id: original.id } });
+    expect(Number(stored.latitude)).toBe(32.012346);
+    expect(Number(stored.longitude)).toBe(118.735612);
+  });
+
+  it('replays before a changed location policy and conflicts on changed legal fields', async () => {
+    const owner = await createUser();
+    const key = 'policy-change-address-1';
+    const initial = new AddressService(prisma, fieldCrypto, new PrismaAuditRepository(prisma), {
+      assertSupported() {},
+    });
+    const original = await initial.create(
+      { userId: owner.id, role: 'OWNER' }, addressInput(key),
+    );
+    let policyCalls = 0;
+    const changedPolicy = new AddressService(prisma, fieldCrypto, new PrismaAuditRepository(prisma), {
+      assertSupported() {
+        policyCalls += 1;
+        throw new Error('AREA_NOT_AVAILABLE');
+      },
+    });
+    await expect(changedPolicy.create(
+      { userId: owner.id, role: 'OWNER' }, addressInput(key),
+    )).resolves.toMatchObject({ id: original.id });
+    await expect(changedPolicy.create({ userId: owner.id, role: 'OWNER' }, {
+      ...addressInput(key), detail: '江东中路100号8栋1202',
+    })).rejects.toThrow('PROFILE_REQUEST_CONFLICT');
+    expect(policyCalls).toBe(0);
+  });
+
   it('keeps OWNER role gates on profile create and list', async () => {
     const owner = await createUser();
     const staff = await createUser('PROVIDER');
@@ -189,6 +237,11 @@ describe('booking profile idempotency', () => {
           payload: petInput(clientRequestId),
         });
         expect(response.statusCode).toBe(400);
+        const addressResponse = await app.inject({
+          method: 'POST', url: '/v1/addresses', headers: { authorization },
+          payload: addressInput(clientRequestId),
+        });
+        expect(addressResponse.statusCode).toBe(400);
       }
       const created = await app.inject({
         method: 'POST', url: '/v1/addresses', headers: { authorization },
