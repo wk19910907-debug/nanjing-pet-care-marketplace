@@ -24,10 +24,14 @@ export function toReportResponse(record: {
 
 export function toUploadResponse(record: {
   objectKey: string; uploadUrl: string; expiresInSeconds: number;
+  uploadHeaders?: { 'x-amz-checksum-sha256': string };
 }) {
   return {
     objectKey: record.objectKey,
     uploadUrl: record.uploadUrl,
     expiresInSeconds: record.expiresInSeconds,
+    ...(record.uploadHeaders ? { uploadHeaders: {
+      'x-amz-checksum-sha256': record.uploadHeaders['x-amz-checksum-sha256'],
+    } } : {}),
   };
 }

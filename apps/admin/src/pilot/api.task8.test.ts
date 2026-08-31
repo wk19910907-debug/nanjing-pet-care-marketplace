@@ -6,6 +6,36 @@ const jsonResponse = (body: unknown, status = 200) => new Response(JSON.stringif
 });
 
 describe('pilot task 8 API transport', () => {
+  it('carries only the required checksum upload header without credentials', async () => {
+    const uploadHeaders = { 'x-amz-checksum-sha256': btoa('a'.repeat(32)) };
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ objectKey: 'orders/1/photo',
+        uploadUrl: 'https://objects.example.com/photo?signed=1', expiresInSeconds: 60, uploadHeaders }))
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    const api = createPilotApi(fetcher);
+    const issued = await api.issueEvidenceUpload('order-1', { mimeType: 'image/png', sizeBytes: 4, sha256: 'a'.repeat(64) });
+    expect(issued).toHaveProperty('uploadHeaders', uploadHeaders);
+    await api.uploadEvidence(issued.uploadUrl, new Uint8Array([1, 2, 3, 4]), 'image/png', uploadHeaders);
+    expect(fetcher).toHaveBeenLastCalledWith(issued.uploadUrl, expect.objectContaining({
+      credentials: 'omit', headers: { 'Content-Type': 'image/png', ...uploadHeaders },
+    }));
+  });
+
+  it.each([
+    { Authorization: 'must-not-forward' },
+    { 'x-amz-checksum-sha256': 'invalid' },
+    { 'x-amz-checksum-sha256': btoa('a'.repeat(32)), Cookie: 'must-not-forward' },
+    null,
+  ])('rejects unsafe upload headers: %j', async (uploadHeaders) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      objectKey: 'orders/1/photo', uploadUrl: 'https://objects.example.com/photo?signed=1', expiresInSeconds: 60, uploadHeaders,
+    }));
+    await expect(createPilotApi(fetcher).issueEvidenceUpload('order-1', {
+      mimeType: 'image/png', sizeBytes: 4, sha256: 'a'.repeat(64),
+    })).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it('uses real same-origin admin routes and the caller fee idempotency key', async () => {
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse([{

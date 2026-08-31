@@ -109,7 +109,8 @@ describe('ProviderPilotWorkspace', () => {
   });
 
   it('uploads image evidence through the signed capability and requires dog duration before report', async () => {
-    const issueEvidenceUpload = vi.fn().mockResolvedValue({ objectKey: `orders/${inServiceDog.id}/evidence`, uploadUrl: '/api/v1/pilot/local-evidence?token=signed-capability', expiresInSeconds: 600 });
+    const uploadHeaders = { 'x-amz-checksum-sha256': btoa('a'.repeat(32)) };
+    const issueEvidenceUpload = vi.fn().mockResolvedValue({ objectKey: `orders/${inServiceDog.id}/evidence`, uploadUrl: 'https://objects.example.com/evidence?signed=1', expiresInSeconds: 600, uploadHeaders });
     const submitReport = vi.fn().mockResolvedValue({ id: 'report-2', orderId: inServiceDog.id, submittedAt: '2026-09-10T03:00:00.000Z' });
     const api = fakeApi({ issueEvidenceUpload, submitReport });
     const user = userEvent.setup();
@@ -122,7 +123,7 @@ describe('ProviderPilotWorkspace', () => {
       mimeType: 'image/png', sizeBytes: 4, sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
     })));
     const media = issueEvidenceUpload.mock.calls[0]![1];
-    expect(api.uploadEvidence).toHaveBeenCalledWith('/api/v1/pilot/local-evidence?token=signed-capability', expect.any(Uint8Array), 'image/png');
+    expect(api.uploadEvidence).toHaveBeenCalledWith('https://objects.example.com/evidence?signed=1', expect.any(Uint8Array), 'image/png', uploadHeaders);
     expect(api.attachEvidence).toHaveBeenCalledWith(inServiceDog.id, expect.objectContaining({ objectKey: `orders/${inServiceDog.id}/evidence`, ...media }));
 
     await user.click(within(card).getByRole('checkbox', { name: '牵引装备已固定' }));

@@ -11,11 +11,16 @@ export class S3ObjectStorage implements ObjectStorage {
   public async issueUpload(input: {
     objectKey: string; mimeType: string; sizeBytes: number; sha256: string; expiresInSeconds: number;
   }) {
-    return { objectKey: input.objectKey, uploadUrl: await this.signer.presignPut(input), expiresInSeconds: input.expiresInSeconds };
+    return {
+      objectKey: input.objectKey, uploadUrl: await this.signer.presignPut(input),
+      expiresInSeconds: input.expiresInSeconds,
+      uploadHeaders: { 'x-amz-checksum-sha256': Buffer.from(input.sha256, 'hex').toString('base64') },
+    };
   }
   public async verifyUpload(objectKey: string, expected: { mimeType: string; sizeBytes: number; sha256: string }) {
     const actual = await this.signer.head(objectKey);
-    return actual?.mimeType === expected.mimeType && actual.sizeBytes === expected.sizeBytes && actual.sha256 === expected.sha256;
+    return actual?.mimeType === expected.mimeType && actual.sizeBytes === expected.sizeBytes
+      && actual.sha256.toLowerCase() === expected.sha256.toLowerCase();
   }
   public issueReadUrl(objectKey: string, expiresInSeconds: number) {
     return this.signer.presignGet({ objectKey, expiresInSeconds });

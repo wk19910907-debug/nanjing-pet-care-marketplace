@@ -116,7 +116,7 @@ export interface PilotApi {
   getAssignedAddress(orderId: string): Promise<AssignedAddress>;
   checkIn(orderId: string, beforeState: PilotChecklist): Promise<{ id: string; orderId: string; checkedInAt: string }>;
   issueEvidenceUpload(orderId: string, media: EvidenceMedia): Promise<EvidenceUpload>;
-  uploadEvidence(uploadUrl: string, bytes: Uint8Array, mimeType: string): Promise<void>;
+  uploadEvidence(uploadUrl: string, bytes: Uint8Array, mimeType: string, uploadHeaders?: EvidenceUpload['uploadHeaders']): Promise<void>;
   attachEvidence(orderId: string, input: AttachEvidenceInput): Promise<{ id: string }>;
   submitReport(orderId: string, input: SubmitReportInput): Promise<{ id: string; orderId: string; submittedAt: string }>;
   getCatalog(): Promise<PublicOperationsCatalog>;
@@ -586,6 +586,13 @@ function assertUploadUrl(uploadUrl: string): void {
   }
 }
 
+function parseUploadHeaders(value: unknown): NonNullable<EvidenceUpload['uploadHeaders']> {
+  const record = asRecord(value);
+  const checksum = asString(record, 'x-amz-checksum-sha256', 44);
+  if (Object.keys(record).length !== 1 || !/^[A-Za-z0-9+/]{43}=$/.test(checksum)) invalidResponse();
+  return { 'x-amz-checksum-sha256': checksum };
+}
+
 function parseEvidenceUpload(value: unknown): EvidenceUpload {
   const record = asRecord(value);
   const uploadUrl = asString(record, 'uploadUrl', 2048);
@@ -596,6 +603,7 @@ function parseEvidenceUpload(value: unknown): EvidenceUpload {
     objectKey: asString(record, 'objectKey', 500),
     uploadUrl,
     expiresInSeconds,
+    ...(record.uploadHeaders !== undefined ? { uploadHeaders: parseUploadHeaders(record.uploadHeaders) } : {}),
   };
 }
 
@@ -839,15 +847,16 @@ export function createPilotApi(fetcher: Fetcher = fetch): PilotApi {
       `/v1/orders/${encodeURIComponent(orderId)}/evidence/uploads`,
       { method: 'POST', body: JSON.stringify(media) },
     )),
-    uploadEvidence: async (uploadUrl, bytes, mimeType) => {
+    uploadEvidence: async (uploadUrl, bytes, mimeType, uploadHeaders) => {
       if (!IMAGE_MIME_TYPES.includes(mimeType as typeof IMAGE_MIME_TYPES[number])) {
         throw new PilotApiError(400, 'MEDIA_TYPE_NOT_ALLOWED');
       }
       assertUploadUrl(uploadUrl);
+      const headers = uploadHeaders === undefined ? {} : parseUploadHeaders(uploadHeaders);
       let response: Response;
       try {
         response = await fetcher(uploadUrl, {
-          method: 'PUT', credentials: 'omit', headers: { 'Content-Type': mimeType },
+          method: 'PUT', credentials: 'omit', headers: { 'Content-Type': mimeType, ...headers },
           body: bytes as unknown as BodyInit,
         });
       } catch {

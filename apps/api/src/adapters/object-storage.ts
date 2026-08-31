@@ -2,6 +2,7 @@ export type UploadDescriptor = {
   objectKey: string;
   uploadUrl: string;
   expiresInSeconds: number;
+  uploadHeaders?: { 'x-amz-checksum-sha256': string };
 };
 
 export type EvidenceQuotaScope = {

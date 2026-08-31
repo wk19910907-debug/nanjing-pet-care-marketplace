@@ -201,7 +201,7 @@ export function ProviderPilotWorkspace({ api, displayName, onError }: Props) {
     void mutate(`upload:${orderId}`, async () => {
       const { bytes, media } = await mediaFor(file);
       const issued = await api.issueEvidenceUpload(orderId, media);
-      await api.uploadEvidence(issued.uploadUrl, bytes, media.mimeType);
+      await api.uploadEvidence(issued.uploadUrl, bytes, media.mimeType, issued.uploadHeaders);
       await api.attachEvidence(orderId, {
         ...media, objectKey: issued.objectKey, capturedAt: new Date().toISOString(),
       });

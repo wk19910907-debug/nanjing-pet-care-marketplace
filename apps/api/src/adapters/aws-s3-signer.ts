@@ -13,7 +13,7 @@ type SignedCommand = PutObjectCommand | GetObjectCommand;
 type PresignOptions = {
   expiresIn: number;
   signableHeaders?: Set<string>;
-  hoistableHeaders?: Set<string>;
+  unhoistableHeaders?: Set<string>;
 };
 
 type AwsS3SignerDependencies = {
@@ -49,22 +49,28 @@ export function createAwsS3Signer(
       Key: input.objectKey,
       ContentType: input.mimeType,
       ContentLength: input.sizeBytes,
-      Metadata: { sha256: input.sha256 },
+      ChecksumSHA256: Buffer.from(input.sha256, 'hex').toString('base64'),
     }), {
       expiresIn: input.expiresInSeconds,
       signableHeaders: new Set(['content-type']),
-      hoistableHeaders: new Set(['x-amz-meta-sha256']),
+      unhoistableHeaders: new Set(['x-amz-checksum-sha256']),
     }),
     presignGet: (input) => presign(new GetObjectCommand({
       Bucket: config.bucket, Key: input.objectKey,
     }), { expiresIn: input.expiresInSeconds }),
     head: async (objectKey) => {
       try {
-        const output = await sendHead(new HeadObjectCommand({ Bucket: config.bucket, Key: objectKey }));
+        const output = await sendHead(new HeadObjectCommand({
+          Bucket: config.bucket, Key: objectKey, ChecksumMode: 'ENABLED',
+        }));
+        // Only storage-verified full-object checksums count. User metadata is not proof.
+        const checksum = output.ChecksumSHA256 ?? '';
+        const sha256 = output.ChecksumType !== 'COMPOSITE' && /^[A-Za-z0-9+/]{43}=$/.test(checksum)
+          ? Buffer.from(checksum, 'base64').toString('hex') : '';
         return {
           mimeType: output.ContentType ?? '',
           sizeBytes: output.ContentLength ?? -1,
-          sha256: output.Metadata?.sha256 ?? '',
+          sha256,
         };
       } catch (error) {
         if (isMissingObject(error)) return null;

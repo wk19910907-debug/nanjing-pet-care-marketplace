@@ -73,8 +73,33 @@ deployment secret store. `S3_FORCE_PATH_STYLE` accepts exactly `true` or `false`
 `false`; enable it only when the selected S3-compatible provider requires path-style URLs.
 
 The bucket must remain private. Its CORS policy should allow `PUT` and `GET` only from the exact
-`PILOT_PUBLIC_ORIGIN`, allow the `Content-Type` request header, and use the shortest practical
-cache/preflight lifetime. The application creates short-lived signed URLs, signs the declared
-content type and SHA-256 metadata, and verifies type, length, and SHA-256 metadata with `HEAD`
-before accepting evidence. The direct local session and local upload routes are absent in
-production. Startup never falls back to local disk when S3 configuration or connectivity fails.
+`PILOT_PUBLIC_ORIGIN`, allow the `Content-Type` and `x-amz-checksum-sha256` request headers, and use
+the shortest practical cache/preflight lifetime. The upload response includes `uploadHeaders`;
+clients must send the exact checksum header along with the content type. Do not move the checksum
+solely into a query parameter: some S3-compatible servers ignore it there.
+
+The application creates short-lived signed URLs, binds content type and the SHA-256 request
+header to the signature, and requires the storage service to reject a mismatched payload.
+`HEAD` with `ChecksumMode=ENABLED` verifies type, length, and the storage-verified full-object
+SHA-256 before accepting evidence. User-supplied metadata is never checksum proof. Missing or
+composite checksums fail closed; old metadata-only uploads require re-upload. A signed URL is
+reusable until expiry, but cannot upload different bytes when these controls are enforced.
+
+The chosen provider must support SHA-256 `PutObject` validation and checksum-enabled `HeadObject`.
+Do not assume every S3-compatible provider supports this combination. Validate the actual provider
+and its browser CORS policy before launch. This iteration verifies local MinIO only, not AWS,
+R2, public HTTPS, or WeChat device uploads. KMS-encrypted AWS objects also require the relevant KMS
+permissions to retrieve checksums; see the [AWS HeadObject documentation](https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html).
+
+The direct local session and local upload routes are absent in production. Storage errors do not
+fall back to disk. Startup/readiness configuration checks are not a live S3 connectivity probe.
+
+### Repeat the isolated S3 integration test
+
+With Docker running, run `pnpm test:s3`. The opt-in suite starts a disposable MinIO container
+on a random loopback-only port, creates random test-only credentials in memory, and mounts no
+host directories. It verifies upload/read, anonymous-read denial, incorrect payload rejection,
+forged metadata rejection, signed type/key enforcement, replay safety, and missing objects.
+The exact test container and synthetic objects are removed afterward; no customer data is used.
+Ordinary `pnpm check` skips these seven Docker-dependent tests, so run both commands for release.
+The default image is pinned by digest; `PET_S3_TEST_IMAGE` may select a reviewed replacement image.

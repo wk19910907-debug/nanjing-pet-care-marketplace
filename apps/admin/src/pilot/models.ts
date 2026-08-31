@@ -173,7 +173,10 @@ export type AssignedAddress = {
   city: '南京市'; district: string; serviceZone: string; detail: string;
 };
 export type EvidenceMedia = { mimeType: string; sizeBytes: number; sha256: string };
-export type EvidenceUpload = { objectKey: string; uploadUrl: string; expiresInSeconds: number };
+export type EvidenceUpload = {
+  objectKey: string; uploadUrl: string; expiresInSeconds: number;
+  uploadHeaders?: { 'x-amz-checksum-sha256': string };
+};
 export type AttachEvidenceInput = EvidenceMedia & { objectKey: string; capturedAt: string };
 export type SubmitReportInput = {
   checklist: PilotChecklist; afterState: PilotChecklist; notes: string;

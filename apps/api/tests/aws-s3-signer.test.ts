@@ -29,12 +29,13 @@ describe('createAwsS3Signer', () => {
     expect(commands[0]).toBeInstanceOf(PutObjectCommand);
     expect(commands[0]!.input).toEqual({
       Bucket: 'private-evidence', Key: 'orders/order-1/evidence-1',
-      ContentType: 'image/jpeg', ContentLength: 123, Metadata: { sha256: 'ab'.repeat(32) },
+      ContentType: 'image/jpeg', ContentLength: 123,
+      ChecksumSHA256: Buffer.from('ab'.repeat(32), 'hex').toString('base64'),
     });
     expect(options[0]).toEqual({
       expiresIn: 600,
       signableHeaders: new Set(['content-type']),
-      hoistableHeaders: new Set(['x-amz-meta-sha256']),
+      unhoistableHeaders: new Set(['x-amz-checksum-sha256']),
     });
     expect(commands[1]).toBeInstanceOf(GetObjectCommand);
     expect(commands[1]!.input).toEqual({ Bucket: 'private-evidence', Key: 'orders/order-1/evidence-1' });
@@ -42,9 +43,10 @@ describe('createAwsS3Signer', () => {
     expect(JSON.stringify(commands)).not.toContain(config.secretAccessKey);
   });
 
-  it('normalizes HEAD metadata and treats only missing objects as absent', async () => {
+  it('reads storage-verified checksums and treats only missing objects as absent', async () => {
     const sendHead = vi.fn()
-      .mockResolvedValueOnce({ ContentType: 'image/png', ContentLength: 456, Metadata: { sha256: 'cd'.repeat(32) } })
+      .mockResolvedValueOnce({ ContentType: 'image/png', ContentLength: 456,
+        ChecksumSHA256: Buffer.from('cd'.repeat(32), 'hex').toString('base64'), Metadata: { sha256: 'ab'.repeat(32) } })
       .mockRejectedValueOnce({ name: 'NotFound', $metadata: { httpStatusCode: 404 } })
       .mockRejectedValueOnce(new Error('storage unavailable'));
     const signer = createAwsS3Signer(config, { presign: vi.fn(), sendHead });
@@ -53,8 +55,22 @@ describe('createAwsS3Signer', () => {
       mimeType: 'image/png', sizeBytes: 456, sha256: 'cd'.repeat(32),
     });
     expect(sendHead.mock.calls[0]![0]).toBeInstanceOf(HeadObjectCommand);
-    expect(sendHead.mock.calls[0]![0].input).toEqual({ Bucket: 'private-evidence', Key: 'orders/order-1/evidence-1' });
+    expect(sendHead.mock.calls[0]![0].input).toEqual({ Bucket: 'private-evidence', Key: 'orders/order-1/evidence-1', ChecksumMode: 'ENABLED' });
     await expect(signer.head('missing')).resolves.toBeNull();
     await expect(signer.head('broken')).rejects.toThrow('storage unavailable');
+  });
+
+  it.each([
+    {},
+    { ChecksumSHA256: 'not-a-checksum' },
+    { ChecksumSHA256: `${Buffer.from('ab'.repeat(32), 'hex').toString('base64')}-2` },
+    { ChecksumSHA256: Buffer.from('ab'.repeat(32), 'hex').toString('base64'), ChecksumType: 'COMPOSITE' },
+  ])('fails closed for missing, malformed or composite checksums: %j', async (checksum) => {
+    const signer = createAwsS3Signer(config, {
+      presign: vi.fn(), sendHead: vi.fn().mockResolvedValue({
+        ContentType: 'image/jpeg', ContentLength: 123, Metadata: { sha256: 'ab'.repeat(32) }, ...checksum,
+      }),
+    });
+    await expect(signer.head('untrusted')).resolves.toEqual({ mimeType: 'image/jpeg', sizeBytes: 123, sha256: '' });
   });
 });
