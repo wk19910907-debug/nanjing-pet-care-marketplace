@@ -1,3 +1,5 @@
+import URL from 'core-js-pure/actual/url/index.js';
+
 export type MiniProgramEnvironment = 'develop' | 'trial' | 'release';
 
 function parseBaseUrl(value: string): URL {

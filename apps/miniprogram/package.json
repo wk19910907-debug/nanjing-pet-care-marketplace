@@ -4,14 +4,19 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "node scripts/build.mjs",
+    "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@pet/contracts": "workspace:*"
+    "@noble/hashes": "^2.4.0",
+    "@pet/contracts": "workspace:*",
+    "core-js-pure": "^3.50.0"
   },
   "devDependencies": {
     "@types/node": "^22.18.0",
+    "esbuild": "^0.28.2",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
   }

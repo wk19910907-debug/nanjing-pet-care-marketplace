@@ -1,0 +1,6 @@
+.title { font-size: 34rpx; font-weight: 600; margin-bottom: 20rpx; }
+label { display: block; padding: 20rpx 0; line-height: 1.6; }
+button { margin-top: 24rpx; min-height: 88rpx; }
+input { padding: 20rpx; min-height: 60rpx; background: #f6f4ec; border-radius: 16rpx; }
+textarea { box-sizing: border-box; width: 100%; padding: 20rpx; background: #f6f4ec; border-radius: 16rpx; }
+.muted { margin-top: 14rpx; word-break: break-all; }

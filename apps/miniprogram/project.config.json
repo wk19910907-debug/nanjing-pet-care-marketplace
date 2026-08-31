@@ -1,7 +1,7 @@
 {
   "description": "南京安心宠本地体验版",
   "compileType": "miniprogram",
-  "miniprogramRoot": "./",
+  "miniprogramRoot": "dist/",
   "appid": "touristappid",
   "setting": { "es6": true, "minified": false, "urlCheck": false }
 }

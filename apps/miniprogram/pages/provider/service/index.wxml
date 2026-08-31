@@ -1,1 +1,32 @@
-<view class="page"><view class="card">按服务清单逐项确认；完整地址仅在服务时间窗口开放。</view><button bindtap="checkIn">到场签到</button><button bindtap="upload">上传照片或短视频</button><view wx:for="{{readiness.missing}}" wx:key="*this" class="danger">待完成：{{item}}</view><button class="primary" disabled="{{!readiness.ready}}" bindtap="submit">提交服务报告</button></view>
+<view class="page">
+  <view class="card" wx:if="error"><text class="danger">{{error}}</text><button bindtap="reload" disabled="{{busy}}">重新读取任务</button></view>
+  <view class="card" wx:if="!loaded && !error">正在读取任务…</view>
+  <block wx:if="loaded">
+    <view class="card"><view class="title">{{order.serviceType === 'CAT_FEEDING' ? '上门喂猫' : '上门遛狗'}}</view><view class="muted">任务 {{order.id}}</view><view class="muted">记录由平台保存，照片确认后才能提交报告。</view></view>
+    <view class="card" wx:if="order.status === 'PENDING_SERVICE'">
+      <checkbox-group bindchange="beforeChange"><label><checkbox value="confirmed" checked="{{beforeConfirmed}}" disabled="{{busy}}"/>我已到达，并确认宠物当前状态可以开始服务</label></checkbox-group>
+      <button class="primary" bindtap="checkIn" disabled="{{!canCheckIn}}" loading="{{busy}}">确认到场</button>
+    </view>
+    <block wx:if="order.status === 'IN_SERVICE'">
+      <view class="card"><view class="title">1. 上传服务照片</view><view>已确认 {{evidenceCount}} 张照片</view><view class="muted">支持 JPG、PNG、WebP，单张不超过 20MB。</view><button bindtap="upload" disabled="{{!canUpload}}" loading="{{busy}}">{{retryAttachment ? '重试照片确认' : '拍照或选择照片'}}</button></view>
+      <view class="card"><view class="title">2. 确认完成事项</view>
+        <checkbox-group bindchange="checklistChange">
+          <block wx:if="order.serviceType === 'CAT_FEEDING'">
+            <label><checkbox value="petCountConfirmed" checked="{{checklist.petCountConfirmed}}" disabled="{{busy}}"/>确认宠物数量</label>
+            <label><checkbox value="foodRefilled" checked="{{checklist.foodRefilled}}" disabled="{{busy}}"/>补充食物</label>
+            <label><checkbox value="waterRefilled" checked="{{checklist.waterRefilled}}" disabled="{{busy}}"/>更换饮水</label>
+            <label><checkbox value="litterCleaned" checked="{{checklist.litterCleaned}}" disabled="{{busy}}"/>清理猫砂</label>
+          </block>
+          <label wx:else><checkbox value="leashSecured" checked="{{checklist.leashSecured}}" disabled="{{busy}}"/>牵引装备已固定</label>
+        </checkbox-group>
+        <label wx:if="order.serviceType === 'DOG_WALKING'">实际遛狗时长（分钟）<input type="number" value="{{walkMinutes}}" bindinput="walkChange" disabled="{{busy}}" placeholder="填写实际时长"/></label>
+      </view>
+      <view class="card"><view class="title">3. 提交服务报告</view><textarea placeholder="宠物状态或需要告知宠主的事项（选填）" value="{{notes}}" bindinput="notesChange" maxlength="1000" disabled="{{busy}}"/>
+        <checkbox-group bindchange="afterChange"><label><checkbox value="confirmed" checked="{{afterConfirmed}}" disabled="{{busy}}"/>我已确认服务后的宠物状态，记录真实</label></checkbox-group>
+        <view class="muted" wx:for="{{readiness.missing}}" wx:key="*this">待完成：{{item}}</view>
+        <button class="primary" bindtap="submit" disabled="{{!canSubmit}}" loading="{{busy}}">提交服务报告</button>
+      </view>
+    </block>
+    <view class="card" wx:if="order.status !== 'PENDING_SERVICE' && order.status !== 'IN_SERVICE'"><view class="title">当前任务已不可继续操作</view><view class="muted">报告已提交或订单状态已变化，请在平台查看后续结果。</view></view>
+  </block>
+</view>

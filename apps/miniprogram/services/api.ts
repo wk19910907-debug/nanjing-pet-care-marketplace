@@ -1,8 +1,9 @@
 import { PublicOperationsCatalogSchema } from '@pet/contracts';
+import { parseServiceOrder, parseUpload, uploadUrl, type UploadCapability } from './fulfillment-models.js';
 
 export type RequestSpec = {
   url: string;
-  method: 'GET' | 'POST';
+  method: 'GET' | 'POST' | 'PUT';
   headers: Record<string, string>;
   data?: unknown;
 };
@@ -43,6 +44,9 @@ export function createApiClient(config: {
     createLocalOwnerSession: () => request<{ expiresAt: string }>(
       'POST', '/api/v1/pilot/local-sessions', { role: 'OWNER' }, {}, false,
     ),
+    createLocalProviderSession: () => request<{ expiresAt: string }>(
+      'POST', '/api/v1/pilot/local-sessions', { role: 'PROVIDER' }, {}, false,
+    ),
     quote: (input: unknown) => request('POST', '/api/v1/quotes', input),
     listPets: () => request<Array<{ id: string; name: string; species: 'CAT' | 'DOG' }>>('GET', '/api/v1/pets'),
     listAddresses: () => request<Array<{ id: string; city: string; district: string; serviceZone: string }>>('GET', '/api/v1/addresses'),
@@ -55,10 +59,27 @@ export function createApiClient(config: {
     applyProvider: (input: unknown) => request('POST', '/api/v1/providers/applications', input),
     setAvailability: (input: unknown) => request('POST', '/api/v1/providers/availability', input),
     acceptInvitation: (invitationId: string) => request('POST', `/api/v1/invitations/${invitationId}/accept`),
-    checkIn: (orderId: string, input: unknown) => request('POST', `/api/v1/orders/${orderId}/check-in`, input),
-    issueUpload: (orderId: string, input: unknown) => request('POST', `/api/v1/orders/${orderId}/evidence/uploads`, input),
+    getServiceOrder: async (orderId: string) => parseServiceOrder(
+      await request('GET', `/api/v1/pilot/orders/${encodeURIComponent(orderId)}`), orderId,
+    ),
+    listProviderTasks: () => request<unknown[]>('GET', '/api/v1/pilot/orders'),
+    checkIn: (orderId: string, input: { beforeState: Record<string, unknown> }) => request('POST', `/api/v1/pilot/orders/${encodeURIComponent(orderId)}/check-in`, { beforeState: input.beforeState }),
+    issueUpload: async (orderId: string, input: unknown) => parseUpload(
+      await request('POST', `/api/v1/orders/${encodeURIComponent(orderId)}/evidence/uploads`, input), config.baseUrl,
+    ),
+    uploadEvidence: async (capability: UploadCapability, bytes: ArrayBuffer, mimeType: string) => {
+      const issued = parseUpload(capability, config.baseUrl);
+      if (!(bytes instanceof ArrayBuffer) || bytes.byteLength < 1 || bytes.byteLength > 20 * 1024 * 1024
+        || !['image/png', 'image/jpeg', 'image/webp'].includes(mimeType)) throw new Error('MEDIA_TYPE_NOT_ALLOWED');
+      const response = await config.transport({ method: 'PUT', url: uploadUrl(issued.uploadUrl, config.baseUrl),
+        data: bytes, headers: { 'Content-Type': mimeType, ...issued.uploadHeaders } });
+      if (response.statusCode !== 200 && response.statusCode !== 204) throw new Error('EVIDENCE_UPLOAD_FAILED');
+    },
     attachEvidence: (orderId: string, input: unknown) => request('POST', `/api/v1/orders/${orderId}/evidence`, input),
-    submitReport: (orderId: string, input: unknown) => request('POST', `/api/v1/orders/${orderId}/report`, input),
+    submitReport: (orderId: string, input: { checklist: Record<string, unknown>; afterState: Record<string, unknown>; notes: string }) => request(
+      'POST', `/api/v1/pilot/orders/${encodeURIComponent(orderId)}/report`,
+      { checklist: input.checklist, afterState: input.afterState, notes: input.notes },
+    ),
     getEarnings: () => request('GET', '/api/v1/providers/me/settlements'),
   };
 }

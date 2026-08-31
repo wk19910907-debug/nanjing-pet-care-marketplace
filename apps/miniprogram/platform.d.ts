@@ -1,4 +1,11 @@
+declare module 'core-js-pure/actual/url/index.js' {
+  const URLConstructor: typeof URL;
+  export default URLConstructor;
+}
+
 declare const wx: {
+  chooseMedia: import('./services/evidence.js').MediaPlatform['chooseMedia'];
+  getFileSystemManager: import('./services/evidence.js').MediaPlatform['getFileSystemManager'];
   request(options: Record<string, unknown>): void;
   requestPayment(options: Record<string, unknown>): void;
   getStorageSync(key: string): string | undefined;

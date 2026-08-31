@@ -10,4 +10,5 @@
     <view class="districts"><text>当前开放区域</text><text wx:for="{{districts}}" wx:key="code">{{item.name}}</text></view>
     <view class="steps"><text>1 提交预约</text><text>2 平台匹配</text><text>3 上门服务</text><text>4 查看记录</text></view>
   </view>
+  <button bindtap="openProviderTasks">服务人员 · 我的任务</button>
 </view>

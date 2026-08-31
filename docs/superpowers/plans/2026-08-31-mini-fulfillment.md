@@ -32,7 +32,7 @@ tests/provider-service.test.ts, tests/provider-page.test.ts.
 
 ## Task 3 — Importable bundle and release checks
 
-Files: scripts/build-miniprogram.mjs, package.json, project.config.json,
+Files: apps/miniprogram/scripts/build.mjs, package.json, project.config.json,
 tests/build.test.ts, docs/operations/miniprogram.md.
 
 - Write build smoke test for app + all pages in an isolated VM without Node globals. Test

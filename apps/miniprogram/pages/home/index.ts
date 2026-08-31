@@ -1,6 +1,7 @@
 import { presentCatalog, presentCatalogFailure } from '../../presenters/catalog-presenter.js';
 
 Page({
+  openProviderTasks() { wx.navigateTo({ url: '/pages/provider/invitations/index' }); },
   data: { status: 'loading', announcement: '', serviceCards: [], districts: [], bookingAvailable: false, errorMessage: '' },
   onLoad(this: any) { void this.loadCatalog(); },
   async loadCatalog(this: any) {
