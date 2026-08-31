@@ -1,5 +1,11 @@
 <view class="page">
-  <view wx:if="{{status==='loading'}}" class="card">正在加载预约信息…</view>
+  <view wx:if="{{needsProfile}}" class="card">
+    <text class="heading">先认识一下你</text><view class="hint">填写一个昵称即可继续，不需要手机号或微信号。</view>
+    <input class="field" value="{{displayName}}" maxlength="30" bindinput="changeDisplayName" disabled="{{busy}}" placeholder="你的昵称"/>
+    <view class="danger" wx:if="{{profileError}}">{{profileError}}</view><view class="danger" wx:if="{{errorMessage}}">{{errorMessage}}</view>
+    <button class="primary" bindtap="saveProfile" disabled="{{busy}}" loading="{{busy}}">保存并继续</button>
+  </view>
+  <view wx:elif="{{status==='loading'}}" class="card">正在加载预约信息…</view>
   <view wx:elif="{{status==='error'}}" class="card"><text>{{errorMessage}}</text><button bindtap="loadForm">重新加载</button></view>
   <block wx:else>
     <view wx:if="{{announcement}}" class="card">{{announcement}}</view>

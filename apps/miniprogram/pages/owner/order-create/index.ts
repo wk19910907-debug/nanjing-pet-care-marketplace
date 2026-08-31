@@ -1,9 +1,13 @@
 import { presentCatalog, presentCatalogFailure } from '../../../presenters/catalog-presenter.js';
 import { presentQuoteBreakdown } from '../../../presenters/order-presenter.js';
 import { createOrderAttempt, petsForService } from '../../../presenters/order-create-presenter.js';
+import { accountErrorMessage } from '../../../services/account-models.js';
+import { profileHandlers } from '../../../services/profile-page.js';
 
 Page({
+  ...profileHandlers('OWNER', 'loadForm'),
   data: {
+    needsProfile: false, displayName: '', profileError: '',
     status: 'loading', errorMessage: '', serviceCards: [], districts: [], announcement: '',
     allPets: [], pets: [], addresses: [], serviceType: 'CAT_FEEDING', petIndex: 0, addressIndex: 0,
     startsAt: '', durationMinutes: 30, quote: null, quoteRows: [], pendingAttempt: null, busy: false,
@@ -12,12 +16,18 @@ Page({
     if (query.serviceType === 'DOG_WALKING') this.setData({ serviceType: 'DOG_WALKING' });
     await this.loadForm();
   },
+  onUnload(this: any) { this.disposed = true; },
   async loadForm(this: any) {
-    this.setData({ status: 'loading', errorMessage: '' });
-    const { api, login, session } = getApp<any>().globalData;
+    if (this.disposed || this.data.busy) return;
+    this.setData({ busy: true, status: 'loading', errorMessage: '', quote: null, quoteRows: [], pendingAttempt: null });
+    const { api, access } = getApp<any>().globalData;
     try {
-      if (!session.read()) await login();
+      const current = await access.load('OWNER');
+      if (this.disposed) return;
+      this.setData({ needsProfile: current.displayName === null });
+      if (current.displayName === null) { this.setData({ status: 'profile' }); return; }
       const [catalog, pets, addresses] = await Promise.all([api.getCatalog(), api.listPets(), api.listAddresses()]);
+      if (this.disposed) return;
       const view = presentCatalog(catalog);
       const openNames = new Set<string>(view.districts.map((district) => district.name));
       const serviceType = view.serviceCards.some((service) => service.type === this.data.serviceType)
@@ -25,7 +35,8 @@ Page({
       this.setData({ ...view, serviceType, allPets: pets, pets: petsForService(pets, serviceType), addresses: addresses.filter(
         (address: { district: string }) => openNames.has(address.district),
       ), petIndex: 0, quote: null, quoteRows: [], pendingAttempt: null });
-    } catch { this.setData(presentCatalogFailure()); }
+    } catch (error) { if (!this.disposed) this.setData({ ...presentCatalogFailure(), errorMessage: accountErrorMessage(error) }); }
+    finally { if (!this.disposed) this.setData({ busy: false }); }
   },
   chooseService(this: any, event: any) {
     const serviceType = event.currentTarget.dataset.value;
@@ -43,13 +54,15 @@ Page({
       startsAt: this.data.startsAt, durationMinutes: this.data.durationMinutes };
   },
   async refreshQuote(this: any) {
+    if (this.disposed || this.data.busy || this.data.needsProfile || this.data.status !== 'ready') return;
     try {
       const quote = await getApp<any>().globalData.api.quote(this.requestInput());
+      if (this.disposed) return;
       this.setData({ quote, quoteRows: presentQuoteBreakdown(quote) });
-    } catch (error) { wx.showToast({ title: error instanceof Error ? error.message : '报价失败', icon: 'none' }); }
+    } catch (error) { if (!this.disposed) wx.showToast({ title: error instanceof Error ? error.message : '报价失败', icon: 'none' }); }
   },
   async submit(this: any) {
-    if (!this.data.quote || this.data.busy) return;
+    if (this.disposed || this.data.needsProfile || this.data.status !== 'ready' || !this.data.quote || this.data.busy) return;
     this.setData({ busy: true });
     try {
       const attempt = this.data.pendingAttempt ?? createOrderAttempt(
@@ -57,10 +70,11 @@ Page({
       );
       if (!this.data.pendingAttempt) this.setData({ pendingAttempt: attempt });
       const order = await getApp<any>().globalData.api.createOrder(attempt.input, attempt.idempotencyKey);
+      if (this.disposed) return;
       this.setData({ pendingAttempt: null });
       wx.showToast({ title: '订单已提交，等待平台匹配', icon: 'none' });
       wx.navigateTo({ url: `/pages/owner/order-detail/index?id=${order.id}` });
-    } catch (error) { wx.showToast({ title: error instanceof Error ? error.message : '提交失败', icon: 'none' }); }
-    finally { this.setData({ busy: false }); }
+    } catch (error) { if (!this.disposed) wx.showToast({ title: error instanceof Error ? error.message : '提交失败', icon: 'none' }); }
+    finally { if (!this.disposed) this.setData({ busy: false }); }
   },
 });

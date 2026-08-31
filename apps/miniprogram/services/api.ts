@@ -1,4 +1,5 @@
 import { PublicOperationsCatalogSchema } from '@pet/contracts';
+import { parseAccountSession } from './account-models.js';
 import { parseServiceOrder, parseUpload, uploadUrl, type UploadCapability } from './fulfillment-models.js';
 
 export type RequestSpec = {
@@ -9,6 +10,10 @@ export type RequestSpec = {
 };
 
 export type RequestTransport = (request: RequestSpec) => Promise<{ statusCode: number; data: unknown }>;
+
+export class ApiError extends Error {
+  constructor(public readonly status: number, code: string) { super(code); }
+}
 
 export function createApiClient(config: {
   baseUrl: string;
@@ -23,12 +28,17 @@ export function createApiClient(config: {
     });
     if (response.statusCode < 200 || response.statusCode >= 300) {
       const payload = response.data as { code?: string } | null;
-      throw new Error(payload?.code ?? 'REQUEST_FAILED');
+      throw new ApiError(response.statusCode, typeof payload?.code === 'string' ? payload.code : 'REQUEST_FAILED');
     }
     return response.data as T;
   }
 
   return {
+    getSession: async () => parseAccountSession(await request('GET', '/api/v1/pilot/session')),
+    saveDisplayName: async (name: string) => {
+      if (typeof name !== 'string' || !name.trim() || name.trim().length > 30) throw new Error('DISPLAY_NAME_INVALID');
+      await request('POST', '/api/v1/pilot/me', { displayName: name.trim() });
+    },
     getCatalog: async () => PublicOperationsCatalogSchema.parse(
       await request('GET', '/api/v1/catalog', undefined, {}, false),
     ),

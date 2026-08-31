@@ -1,13 +1,20 @@
+import { accountErrorMessage } from '../../../services/account-models.js';
+import { profileHandlers } from '../../../services/profile-page.js';
+
 Page({
-  data: { tasks: [], busy: false, error: '' },
+  ...profileHandlers('PROVIDER', 'reload'),
+  data: { tasks: [], busy: false, error: '', needsProfile: false, displayName: '', profileError: '' },
   onLoad(this: any) { return this.reload(); },
   onUnload(this: any) { this.disposed = true; },
   async reload(this: any) {
     if (this.data.busy || this.disposed) return;
-    this.setData({ busy: true, error: '' });
-    const { api, login, session } = getApp<any>().globalData;
+    this.setData({ busy: true, error: '', tasks: [] });
+    const { api, access } = getApp<any>().globalData;
     try {
-      if (!session.read()) await login('PROVIDER');
+      const current = await access.load('PROVIDER');
+      if (this.disposed) return;
+      this.setData({ needsProfile: current.displayName === null });
+      if (current.displayName === null) return;
       const records = await api.listProviderTasks();
       if (!Array.isArray(records)) throw new Error('INVALID_TASKS');
       const tasks = records.filter((item: any) => item && typeof item.id === 'string'
@@ -21,7 +28,7 @@ Page({
         canOpen: ['PENDING_SERVICE', 'IN_SERVICE', 'PENDING_CONFIRMATION', 'COMPLETED', 'DISPUTED'].includes(item.status),
       }));
       if (!this.disposed) this.setData({ tasks });
-    } catch { if (!this.disposed) this.setData({ tasks: [], error: '任务暂时无法读取。请确认已完成服务人员登录与入驻，再重试。' }); }
+    } catch (error) { if (!this.disposed) this.setData({ tasks: [], error: accountErrorMessage(error) }); }
     finally { if (!this.disposed) this.setData({ busy: false }); }
   },
   async accept(this: any, event: any) {

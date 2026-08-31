@@ -431,7 +431,7 @@ describe('pilot authentication routes', () => {
     await app.close();
   });
 
-  it('updates only the authenticated nickname and persists it in the session view', async () => {
+  it.each(['PATCH', 'POST'] as const)('%s updates only the authenticated nickname and persists it in the session view', async (method) => {
     const { app } = createPilotTestApp('development');
     const login = await app.inject({
       method: 'POST', url: '/api/v1/pilot/sessions', payload: { inviteCode: 'owner-invite' },
@@ -439,7 +439,7 @@ describe('pilot authentication routes', () => {
     const cookie = login.headers['set-cookie']!;
 
     const update = await app.inject({
-      method: 'PATCH', url: '/api/v1/pilot/me', headers: { cookie },
+      method, url: '/api/v1/pilot/me', headers: { cookie },
       payload: { displayName: '  安心宠主  ', role: 'ADMIN' },
     });
     expect(update.statusCode).toBe(200);
@@ -532,6 +532,26 @@ describe('pilot authentication routes', () => {
       headers: { cookie: 'petcare_pilot_session=cookie-token' },
     });
     expect(cookie.statusCode).toBe(403);
+    await app.close();
+  });
+
+  it('rejects unauthenticated native nickname writes', async () => {
+    const { app } = createPilotTestApp('development');
+    const result = await app.inject({ method: 'POST', url: '/api/v1/pilot/me', payload: { displayName: '小橘' } });
+    expect(result.statusCode).toBe(401);
+    await app.close();
+  });
+
+  it('keeps the production origin guard and supports authenticated native POST nickname writes', async () => {
+    const { app, sessions } = createPilotTestApp();
+    sessions.set('native-session', { userId: 'native-user', role: 'PROVIDER', displayName: null, expiresAt, revoked: false });
+    const blocked = await app.inject({ method: 'POST', url: '/api/v1/pilot/me',
+      headers: { cookie: 'petcare_pilot_session=native-session', origin: 'https://attacker.example' }, payload: { displayName: '小橘' } });
+    expect(blocked.statusCode).toBe(403);
+    const saved = await app.inject({ method: 'POST', url: '/api/v1/pilot/me',
+      headers: { authorization: 'Bearer native-session' }, payload: { displayName: '小橘', userId: 'someone-else', role: 'ADMIN' } });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toEqual({ id: 'native-user', role: 'PROVIDER', displayName: '小橘' });
     await app.close();
   });
 

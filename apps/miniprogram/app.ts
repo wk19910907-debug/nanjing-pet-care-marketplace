@@ -3,6 +3,7 @@ import { resolveApiBaseUrl } from './services/environment.js';
 import { createSessionStore, createWechatLoginAdapter } from './services/session.js';
 import { chooseEvidence } from './services/evidence.js';
 import { createWxTransport } from './services/wx-transport.js';
+import { createAccountAccess } from './services/account-access.js';
 
 const session = createSessionStore({
   get: (key) => wx.getStorageSync(key), set: (key, value) => wx.setStorageSync(key, value),
@@ -17,7 +18,7 @@ const baseUrl = resolveApiBaseUrl({
   });
 const api = createApiClient({
   baseUrl,
-  token: session.read,
+  token: environment === 'develop' ? () => null : session.read,
   transport: createWxTransport(wx, baseUrl, environment === 'develop'),
 });
 const wechatLogin = createWechatLoginAdapter({
@@ -29,4 +30,7 @@ const login = environment === 'develop'
   ? (role = 'OWNER') => role === 'PROVIDER' ? api.createLocalProviderSession() : api.createLocalOwnerSession()
   : wechatLogin;
 
-App({ globalData: { api, session, login, chooseEvidence: () => chooseEvidence(wx) } });
+const access = createAccountAccess({ getSession: api.getSession, saveDisplayName: api.saveDisplayName,
+  login, clear: environment === 'develop' ? () => {} : session.clear, development: environment === 'develop' });
+
+App({ globalData: { api, session, login, access, chooseEvidence: () => chooseEvidence(wx) } });

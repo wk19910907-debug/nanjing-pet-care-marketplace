@@ -101,10 +101,11 @@ export async function registerPilotAuthRoutes(
     dependencies.sessions.authenticate(authorization(request))
   ));
 
-  app.patch('/api/v1/pilot/me', async (request) => {
+  app.route({ method: ['PATCH', 'POST'], url: '/api/v1/pilot/me', handler: async (request) => {
     const actor = await dependencies.sessions.authenticate(authorization(request));
     const { displayName } = DisplayNameSchema.parse(request.body);
     return dependencies.sessions.setDisplayName(actor, displayName);
+  },
   });
 
   app.delete('/api/v1/pilot/session', async (request, reply) => {

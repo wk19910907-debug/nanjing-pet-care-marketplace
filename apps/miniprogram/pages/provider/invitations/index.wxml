@@ -1,1 +1,12 @@
-<view class="page"><view class="card"><view>我的服务任务</view><view class="muted">只展示平台分配给当前账号的邀请与任务。</view><view class="danger" wx:if="error">{{error}}</view><button bindtap="reload" loading="{{busy}}" disabled="{{busy}}">刷新任务</button></view><view class="card" wx:if="!busy && !error && tasks.length === 0">暂无任务，等待平台匹配。</view><view class="card" wx:for="{{tasks}}" wx:key="id"><view>{{item.district}} · {{item.label}}</view><view class="muted">{{item.startsAt}}</view><button wx:if="item.invitationId" class="primary" disabled="{{busy}}" data-id="{{item.invitationId}}" bindtap="accept">接受服务邀请</button><button wx:if="item.canOpen" class="primary" disabled="{{busy}}" data-id="{{item.id}}" bindtap="openTask">查看服务任务</button></view></view>
+<view class="page">
+  <view class="card"><view>我的服务任务</view><view class="muted">只展示平台分配给当前账号的邀请与任务。</view><view class="danger" wx:if="{{error}}">{{error}}</view><button bindtap="reload" loading="{{busy}}" disabled="{{busy}}">刷新任务</button></view>
+  <view class="card" wx:if="{{needsProfile}}">
+    <view class="heading">填写你的服务昵称</view><view class="muted">填写一个昵称即可继续，不需要手机号或微信号。接单资格仍需平台审核。</view>
+    <input class="field" value="{{displayName}}" maxlength="30" bindinput="changeDisplayName" disabled="{{busy}}" placeholder="你的昵称"/>
+    <view class="danger" wx:if="{{profileError}}">{{profileError}}</view><button class="primary" bindtap="saveProfile" disabled="{{busy}}" loading="{{busy}}">保存并继续</button>
+  </view>
+  <block wx:else>
+    <view class="card" wx:if="{{!busy && !error && tasks.length === 0}}">暂无任务，等待平台匹配。</view>
+    <view class="card" wx:for="{{tasks}}" wx:key="id"><view>{{item.district}} · {{item.label}}</view><view class="muted">{{item.startsAt}}</view><button wx:if="{{item.invitationId}}" class="primary" disabled="{{busy}}" data-id="{{item.invitationId}}" bindtap="accept">接受服务邀请</button><button wx:if="{{item.canOpen}}" class="primary" disabled="{{busy}}" data-id="{{item.id}}" bindtap="openTask">查看服务任务</button></view>
+  </block>
+</view>
