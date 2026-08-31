@@ -11,6 +11,8 @@ import type { AppConfig } from '../src/config.js';
 import { bootstrapAdminInvite, runBootstrapCommand } from '../src/pilot/bootstrap.js';
 import { createPilotApplication } from '../src/pilot/composition.js';
 import { runPilotServer } from '../src/server.js';
+import { createApiClient } from '../../miniprogram/services/api.js';
+import { addressDraft, petDraft, bookingStartsAt } from '../../miniprogram/services/booking-details.js';
 
 const execFileAsync = promisify(execFile);
 const databaseName = `petcare_task5_${randomUUID().replaceAll('-', '')}`;
@@ -105,6 +107,51 @@ afterAll(async () => {
 });
 
 describe('pilot application composition', () => {
+  it('runs a first native booking through real profile, quote and order routes without duplicate retries', async () => {
+    const config = developmentConfig();
+    config.wechatLogin = { appId: 'wx1234567890abcdef', appSecret: 'a'.repeat(32) };
+    const application = await createPilotApplication(config, { staticDir,
+      wechatTransport: async () => Response.json({ openid: 'native-booking-openid', session_key: 'test-session-key' }),
+    });
+    let token: string | null = null;
+    const api = createApiClient({ baseUrl: 'http://native.test', token: () => token, transport: async (request) => {
+      const response = await application.app.inject({ method: request.method,
+        url: new URL(request.url).pathname, headers: request.headers,
+        ...(request.data === undefined ? {} : { payload: JSON.stringify(request.data),
+          headers: { ...request.headers, 'content-type': 'application/json' } }),
+      });
+      return { statusCode: response.statusCode, data: response.json() };
+    } });
+    try {
+      token = (await api.createWechatSession({ code: 'native-first-code' })).token;
+      await api.saveDisplayName('首单宠主');
+      const owner = await api.getSession();
+      expect(await api.listPets()).toEqual([]);
+      expect(await api.listAddresses()).toEqual([]);
+      const draft = addressDraft('建邺区', '测试小区1栋101', 'native-address-1');
+      const address = await api.createAddress(draft);
+      expect(await api.createAddress(draft)).toEqual(address);
+      expect(await api.listAddresses()).toEqual([address]);
+      expect(JSON.stringify(address)).not.toMatch(/accessInstructions|encrypted|ownerId/);
+      for (const service of ['CAT_FEEDING', 'DOG_WALKING'] as const) {
+        const petInput = petDraft(service, service === 'CAT_FEEDING' ? '团子' : '小白', '', `native-${service}`);
+        const pet = await api.createPet(petInput);
+        expect(await api.createPet(petInput)).toEqual(pet);
+        const input = { serviceType: service, petIds: [pet.id], addressId: address.id,
+          startsAt: bookingStartsAt('2099-09-01', '10:00'), durationMinutes: service === 'CAT_FEEDING' ? 25 : 30 };
+        const quote = await api.quote(input);
+        expect(quote).toMatchObject({ totalFen: service === 'CAT_FEEDING' ? 3200 : 3700,
+          durationFen: 0, distanceFen: 0, holidayFen: 0, currency: 'CNY' });
+        const order = await api.createOrder({ ...input, notes: '' }, `native-order-${service}`);
+        expect(order).toMatchObject({ id: expect.any(String), totalFen: quote.totalFen, status: 'PENDING_PAYMENT' });
+        expect(await api.createOrder({ ...input, notes: '' }, `native-order-${service}`)).toEqual(order);
+      }
+      expect(await application.prisma.pet.count({ where: { ownerId: owner.userId } })).toBe(2);
+      expect(await application.prisma.serviceAddress.count({ where: { ownerId: owner.userId } })).toBe(1);
+      expect(await application.prisma.order.count({ where: { ownerId: owner.userId } })).toBe(2);
+    } finally { await application.app.close(); }
+  });
+
   it('wires WeChat exchange to persisted owner sessions, nickname onboarding and restart recovery', async () => {
     const config = developmentConfig();
     config.wechatLogin = { appId: 'wx1234567890abcdef', appSecret: 'a'.repeat(32) };

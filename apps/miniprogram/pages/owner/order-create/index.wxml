@@ -7,17 +7,44 @@
   </view>
   <view wx:elif="{{status==='loading'}}" class="card">正在加载预约信息…</view>
   <view wx:elif="{{status==='error'}}" class="card"><text>{{errorMessage}}</text><button bindtap="loadForm">重新加载</button></view>
+  <view wx:elif="{{submitted}}" class="card"><text class="heading">预约已提交</text><view class="hint">请查看订单状态，按提示完成后续步骤。</view><button class="primary" bindtap="openCreatedOrder">查看订单</button></view>
+  <view wx:elif="{{!bookingAvailable}}" class="card">服务暂未开放，请稍后再来。</view>
   <block wx:else>
     <view wx:if="{{announcement}}" class="card">{{announcement}}</view>
-    <view class="card"><text class="heading">选择服务</text><view class="service-switch"><button wx:for="{{serviceCards}}" wx:key="type" class="{{serviceType===item.type?'selected':''}}" data-value="{{item.type}}" bindtap="chooseService">{{item.title}} {{item.price}}</button></view></view>
-    <view class="card"><text class="heading">预约信息</text>
-      <picker range="{{pets}}" range-key="name" value="{{petIndex}}" bindchange="choosePet"><view class="field">宠物：{{pets[petIndex].name || '暂无宠物资料'}}</view></picker>
-      <picker range="{{addresses}}" range-key="serviceZone" value="{{addressIndex}}" bindchange="chooseAddress"><view class="field">地址：{{addresses[addressIndex].serviceZone || '暂无开放区域地址'}}</view></picker>
-      <input class="field" value="{{startsAt}}" bindinput="changeStartsAt" placeholder="上门时间，如 2026-09-01T10:00:00+08:00"/>
+    <view class="card"><text class="heading">这次需要什么服务？</text>
+      <view class="service-switch"><button wx:for="{{serviceCards}}" wx:key="type" class="{{serviceType===item.type?'selected':''}}" data-value="{{item.type}}" bindtap="chooseService" disabled="{{busy || detailPending || pendingAttempt}}">{{item.title}} {{item.price}}</button></view>
+      <text class="hint compact">{{serviceType==='CAT_FEEDING'?'喂食换水、清理猫砂，约25分钟':'牵引散步、状态反馈，约30分钟'}}</text>
     </view>
+    <view class="card"><view class="section-row"><text class="heading">照顾哪位小朋友？</text><button wx:if="{{petMode==='EXISTING'}}" class="text-button" bindtap="useNewPet" disabled="{{busy || detailPending || pendingAttempt}}">＋ 添加</button></view>
+      <picker wx:if="{{petMode==='EXISTING'}}" range="{{pets}}" range-key="name" value="{{petIndex}}" bindchange="choosePet" disabled="{{busy || detailPending || pendingAttempt}}"><view class="field">{{pets[petIndex].name}} <text class="muted">点击切换</text></view></picker>
+      <view wx:else>
+        <text class="muted">{{serviceType==='CAT_FEEDING'?'猫咪':'狗狗'}}资料 · 保存后下次可直接选</text>
+        <input class="field" value="{{newPetName}}" maxlength="50" bindinput="changePetName" disabled="{{busy || detailPending || pendingAttempt}}" placeholder="宠物名字，如团子"/>
+        <button class="text-button note-toggle" bindtap="togglePetNotes" disabled="{{busy || detailPending || pendingAttempt}}">{{showPetNotes?'收起注意事项':'＋ 注意事项（选填）'}}</button>
+        <textarea wx:if="{{showPetNotes}}" class="field textarea" value="{{newPetNotes}}" maxlength="1000" bindinput="changePetNotes" disabled="{{busy || detailPending || pendingAttempt}}" placeholder="如过敏、怕生等需要特别留意的情况"/>
+        <button class="secondary" bindtap="savePet" disabled="{{busy || pendingAttempt || (detailPending && detailPending!=='pet')}}" loading="{{busy && detailPending==='pet'}}">{{detailPending==='pet'?'重试确认宠物资料':'保存宠物'}}</button>
+        <button wx:if="{{pets.length}}" class="text-button" bindtap="useExistingPet" disabled="{{busy || detailPending || pendingAttempt}}">选择已有宠物</button>
+      </view>
+    </view>
+    <view class="card"><view class="section-row"><text class="heading">去哪里照顾？</text><button wx:if="{{addressMode==='EXISTING'}}" class="text-button" bindtap="useNewAddress" disabled="{{busy || detailPending || pendingAttempt}}">＋ 添加</button></view>
+      <picker wx:if="{{addressMode==='EXISTING'}}" range="{{addresses}}" range-key="label" value="{{addressIndex}}" bindchange="chooseAddress" disabled="{{busy || detailPending || pendingAttempt}}"><view class="field address">{{addresses[addressIndex].label}} <text class="muted">点击切换</text></view></picker>
+      <view wx:else>
+        <picker range="{{districts}}" range-key="name" value="{{districtIndex}}" bindchange="chooseDistrict" disabled="{{busy || detailPending || pendingAttempt}}"><view class="field">南京市 · {{districts[districtIndex].name || '请选择开放区域'}}</view></picker>
+        <textarea class="field textarea" value="{{newAddressDetail}}" maxlength="300" bindinput="changeAddressDetail" disabled="{{busy || detailPending || pendingAttempt}}" placeholder="小区 / 街道、楼栋、门牌号"/>
+        <text class="hint compact">请勿填写门锁密码。门牌用于履约，仅向获授权人员展示。</text>
+        <button class="secondary" bindtap="saveAddress" disabled="{{busy || pendingAttempt || (detailPending && detailPending!=='address')}}" loading="{{busy && detailPending==='address'}}">{{detailPending==='address'?'重试确认地址':'保存地址'}}</button>
+        <button wx:if="{{addresses.length}}" class="text-button" bindtap="useExistingAddress" disabled="{{busy || detailPending || pendingAttempt}}">选择已有地址</button>
+      </view>
+    </view>
+    <view class="card"><text class="heading">什么时候上门？</text>
+      <view class="time-grid"><picker mode="date" start="{{today}}" value="{{visitDate}}" bindchange="changeVisitDate" disabled="{{busy || detailPending || pendingAttempt}}"><view class="field">{{visitDate || '选择日期'}}</view></picker>
+      <picker mode="time" value="{{visitTime}}" bindchange="changeVisitTime" disabled="{{busy || detailPending || pendingAttempt}}"><view class="field">{{visitTime || '选择时间'}}</view></picker></view>
+      <text class="hint compact">北京时间，平台按所选时间安排上门。</text>
+    </view>
+    <view wx:if="{{detailError}}" class="card danger">{{detailError}}</view>
     <view wx:if="{{quoteRows.length}}" class="card"><view wx:for="{{quoteRows}}" wx:key="label" class="quote-row"><text>{{item.label}}</text><text>{{item.value}}</text></view></view>
-    <button class="secondary" bindtap="refreshQuote">获取平台报价</button>
-    <button class="primary" disabled="{{!quote || busy}}" loading="{{busy}}" bindtap="submit">提交订单</button>
+    <button class="secondary" bindtap="refreshQuote" disabled="{{busy || detailPending || pendingAttempt || petMode==='NEW' || addressMode==='NEW'}}">查看本次价格</button>
+    <button class="primary" disabled="{{!quote || busy || detailPending}}" loading="{{busy && pendingAttempt}}" bindtap="submit">{{pendingAttempt?'重试确认订单':'提交订单，平台安排'}}</button>
     <text class="hint">订单提交后由平台匹配服务人员，价格以服务器报价为准。</text>
   </block>
 </view>

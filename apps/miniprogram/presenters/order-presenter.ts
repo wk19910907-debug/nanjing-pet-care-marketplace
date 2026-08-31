@@ -1,21 +1,14 @@
-import type { OrderStatus } from '@pet/contracts';
-
-type Quote = {
-  baseFen: number;
-  distanceSurchargeFen: number;
-  extraPetFen: number;
-  holidaySurchargeFen: number;
-  totalFen: number;
-};
+import type { OrderStatus, QuoteBreakdown } from '@pet/contracts';
 
 const yuan = (fen: number) => `¥${(fen / 100).toFixed(2)}`;
 
-export function presentQuoteBreakdown(quote: Quote) {
+export function presentQuoteBreakdown(quote: QuoteBreakdown) {
   const rows = [
     { label: '基础服务', fen: quote.baseFen },
-    { label: '超距费用', fen: quote.distanceSurchargeFen },
+    { label: '加时费用', fen: quote.durationFen },
+    { label: '超距费用', fen: quote.distanceFen },
     { label: '多宠费用', fen: quote.extraPetFen },
-    { label: '节假日费用', fen: quote.holidaySurchargeFen },
+    { label: '节假日费用', fen: quote.holidayFen },
   ].filter((row) => row.fen > 0).map((row) => ({ label: row.label, value: yuan(row.fen) }));
   return [...rows, { label: '合计', value: yuan(quote.totalFen), emphasized: true as const }];
 }

@@ -48,11 +48,15 @@ it.each(roles)('%s rejects empty nickname locally', async (role) => {
 it.each(['quote', 'submit'] as const)('ignores owner %s responses after unloading', async (operation) => {
   const { page, api } = await setup('OWNER');
   page.changeDisplayName({ detail: { value: '小橘' } }); await page.saveProfile();
-  page.setData({ pets: [{ id: 'pet-1' }], addresses: [{ id: 'address-1' }], startsAt: '2099-01-01T00:00:00Z', quote: {} });
+  const quotedInput = { serviceType: 'DOG_WALKING', petIds: ['pet-1'], addressId: 'address-1',
+    startsAt: '2099-01-01T10:00:00+08:00', durationMinutes: 30, notes: '' };
+  page.setData({ pets: [{ id: 'pet-1', name: '豆豆', species: 'DOG' }], addresses: [{ id: 'address-1' }],
+    petMode: 'EXISTING', addressMode: 'EXISTING', visitDate: '2099-01-01', visitTime: '10:00', quote: { totalFen: 3700 }, quotedInput });
   let finish!: (result: any) => void;
   const result = new Promise((resolve) => { finish = resolve; });
   (operation === 'quote' ? api.quote : api.createOrder).mockReturnValueOnce(result);
   const pending = operation === 'quote' ? page.refreshQuote() : page.submit();
+  expect(operation === 'quote' ? api.quote : api.createOrder).toHaveBeenCalledOnce();
   page.onUnload(); page.setData.mockClear(); finish({ id: 'order-1' }); await pending;
   expect(page.setData).not.toHaveBeenCalled(); expect(wx.showToast).not.toHaveBeenCalled(); expect(wx.navigateTo).not.toHaveBeenCalled();
 });

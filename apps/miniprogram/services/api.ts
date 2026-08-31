@@ -1,5 +1,6 @@
-import { PublicOperationsCatalogSchema } from '@pet/contracts';
+import { PublicOperationsCatalogSchema, QuoteBreakdownSchema } from '@pet/contracts';
 import { parseAccountSession } from './account-models.js';
+import { parsePet, parseAddress, type PetDraft, type AddressDraft } from './booking-details.js';
 import { parseServiceOrder, parseUpload, uploadUrl, type UploadCapability } from './fulfillment-models.js';
 
 export type RequestSpec = {
@@ -57,9 +58,19 @@ export function createApiClient(config: {
     createLocalProviderSession: () => request<{ expiresAt: string }>(
       'POST', '/api/v1/pilot/local-sessions', { role: 'PROVIDER' }, {}, false,
     ),
-    quote: (input: unknown) => request('POST', '/api/v1/quotes', input),
-    listPets: () => request<Array<{ id: string; name: string; species: 'CAT' | 'DOG' }>>('GET', '/api/v1/pets'),
-    listAddresses: () => request<Array<{ id: string; city: string; district: string; serviceZone: string }>>('GET', '/api/v1/addresses'),
+    quote: async (input: unknown) => QuoteBreakdownSchema.parse(await request('POST', '/api/v1/quotes', input)),
+    listPets: async () => {
+      const result = await request<unknown>('GET', '/api/v1/pets');
+      if (!Array.isArray(result)) throw new Error('INVALID_PROFILE_RESPONSE');
+      return result.map(parsePet);
+    },
+    listAddresses: async () => {
+      const result = await request<unknown>('GET', '/api/v1/addresses');
+      if (!Array.isArray(result)) throw new Error('INVALID_PROFILE_RESPONSE');
+      return result.map(parseAddress);
+    },
+    createPet: async (input: PetDraft) => parsePet(await request('POST', '/api/v1/pets', input)),
+    createAddress: async (input: AddressDraft) => parseAddress(await request('POST', '/api/v1/addresses', input)),
     createOrder: (input: unknown, idempotencyKey: string) =>
       request('POST', '/api/v1/orders', input, { 'Idempotency-Key': idempotencyKey }),
     getOrder: (orderId: string) => request('GET', `/api/v1/orders/${orderId}`),
