@@ -71,6 +71,7 @@ it.each(['pet', 'address', 'order'] as const)('keeps an ambiguous %s attempt fro
   await page[method]();
   expect(create.mock.calls[1]).toEqual(create.mock.calls[0]);
   expect(page.data.detailPending || page.data.pendingAttempt).toBeTruthy();
+  expect(page.data.detailError).toBe('登录已失效。原资料或订单结果尚未确认；请重新登录后先核对，再留在当前页重试确认。');
   await page[method]();
   expect(create.mock.calls[2]).toEqual(create.mock.calls[0]);
 });
@@ -151,6 +152,7 @@ it.each(['SERVICE_NOT_AVAILABLE', 'AREA_NOT_AVAILABLE', 'REQUEST_CONFLICT'] as c
   await page.submit(); const original = api.createOrder.mock.calls[0]; await page.submit();
   expect(page.data.pendingAttempt).not.toBeNull(); expect(api.createOrder.mock.calls[1]).toEqual(original);
   page.changeVisitTime(input('12:00')); expect(page.data.visitTime).toBe('10:00');
+  expect(page.data.detailError).toBe('原资料或订单结果尚未确认，请留在当前页重试确认，暂时不要修改内容。');
 });
 
 it('allows editing after a definitive validation rejection and retains the typed draft', async () => {

@@ -12,6 +12,12 @@ export function definitelyRejected(error: unknown, hasPriorAmbiguity = false): b
   return [400, 401, 403, 422, 429].includes(error.status)
     || (error.status === 409 && ['SERVICE_NOT_AVAILABLE', 'AREA_NOT_AVAILABLE'].includes(error.message));
 }
+export function ambiguousBookingErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.status === 401) {
+    return '登录已失效。原资料或订单结果尚未确认；请重新登录后先核对，再留在当前页重试确认。';
+  }
+  return '原资料或订单结果尚未确认，请留在当前页重试确认，暂时不要修改内容。';
+}
 const newKey = (kind: string) => `${kind}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 async function save(page: any, kind: 'pet' | 'address') {
@@ -52,10 +58,13 @@ async function save(page: any, kind: 'pet' | 'address') {
     page.setData({ detailPending: '', detailError: '' });
   } catch (error) {
     if (page.disposed) return;
-    if (definitelyRejected(error, page[ambiguityField] === true)) {
+    const hasPriorAmbiguity = page[ambiguityField] === true;
+    const rejected = definitelyRejected(error, hasPriorAmbiguity);
+    const ambiguous = hasPriorAmbiguity || (requestSent && !rejected);
+    if (rejected) {
       page[field] = null; page[ambiguityField] = false; page.setData({ detailPending: '' });
     } else if (requestSent) page[ambiguityField] = true;
-    page.setData({ detailError: bookingErrorMessage(error) });
+    page.setData({ detailError: ambiguous ? ambiguousBookingErrorMessage(error) : bookingErrorMessage(error) });
   } finally { if (!page.disposed) page.setData({ busy: false }); }
 }
 

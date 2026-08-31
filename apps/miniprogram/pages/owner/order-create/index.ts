@@ -3,7 +3,7 @@ import { presentQuoteBreakdown } from '../../../presenters/order-presenter.js';
 import { createOrderAttempt, petsForService } from '../../../presenters/order-create-presenter.js';
 import { accountErrorMessage } from '../../../services/account-models.js';
 import { profileHandlers } from '../../../services/profile-page.js';
-import { bookingDetailHandlers, canEditBooking, clearedQuote, definitelyRejected } from '../../../services/booking-details-page.js';
+import { ambiguousBookingErrorMessage, bookingDetailHandlers, canEditBooking, clearedQuote, definitelyRejected } from '../../../services/booking-details-page.js';
 import { bookingErrorMessage, bookingStartsAt, chinaToday } from '../../../services/booking-details.js';
 
 Page({
@@ -105,11 +105,14 @@ Page({
       this.openCreatedOrder();
     } catch (error) {
       if (!this.disposed) {
-        if (definitelyRejected(error, this.orderAttemptAmbiguous === true)) {
+        const hasPriorAmbiguity = this.orderAttemptAmbiguous === true;
+        const rejected = definitelyRejected(error, hasPriorAmbiguity);
+        const ambiguous = hasPriorAmbiguity || (requestSent && !rejected);
+        if (rejected) {
           this.orderAttemptAmbiguous = false;
           this.setData({ pendingAttempt: null, ...clearedQuote });
         } else if (requestSent) this.orderAttemptAmbiguous = true;
-        this.setData({ detailError: bookingErrorMessage(error) });
+        this.setData({ detailError: ambiguous ? ambiguousBookingErrorMessage(error) : bookingErrorMessage(error) });
       }
     }
     finally { if (!this.disposed) this.setData({ busy: false }); }
