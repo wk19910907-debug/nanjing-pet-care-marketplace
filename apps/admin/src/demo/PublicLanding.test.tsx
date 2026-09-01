@@ -24,7 +24,7 @@ describe('PublicLanding', () => {
   });
 
   it('locks the customer website to one premium white commerce system', () => {
-    const css = readFileSync('src/demo/customer-web.css', 'utf8').toLowerCase();
+    const css = readFileSync('src/demo/customer-web.css', 'utf8').toLowerCase().replaceAll('\r\n', '\n');
     for (const token of [
       '--store-canvas: #f6f6f1', '--store-surface: #ffffff', '--store-ink: #17231d',
       '--store-brand: #1f4b3a', '--store-brand-deep: #143428', '--store-gold: #b79a63',
