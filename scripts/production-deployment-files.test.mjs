@@ -46,7 +46,7 @@ test('Compose publishes only Caddy and waits for the private application healthc
   assert.match(compose, /- "80:80"/);
   assert.match(compose, /- "443:443"/);
   assert.match(compose, /- "443:443\/udp"/);
-  const appService = compose.match(/\n  app:\n[\s\S]*?\nnetworks:/)?.[0];
+  const appService = compose.match(/\r?\n  app:\r?\n[\s\S]*?\r?\nnetworks:/)?.[0];
   assert.ok(appService, 'app service block missing');
   assert.match(appService, /expose:\s*\n\s*- "3000"/);
   assert.doesNotMatch(appService, /\n\s+ports:/);
