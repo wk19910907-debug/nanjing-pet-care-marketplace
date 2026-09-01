@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { PointerEvent, ReactNode } from 'react';
 import catCareAvif from '../assets/cat-care-card.avif';
 import catCareWebp from '../assets/cat-care-card.webp';
 import dogWalkAvif from '../assets/dog-walk-card.avif';
@@ -7,6 +7,7 @@ import heroAvif from '../assets/premium-care-hero.avif';
 import heroWebp from '../assets/premium-care-hero.webp';
 import type { PublicOperationsCatalog, ServiceType } from '../pilot/models.js';
 import { CommerceIcon, type CommerceIconName } from './CommerceIcon.js';
+import { calculateHeroParallax } from './heroMotion.js';
 import { PublicQuote } from './PublicQuotePanel.js';
 import type { PublicQuoteSelection } from './publicQuote.js';
 
@@ -94,6 +95,16 @@ export function PublicLanding({
     onQuoteChange(selection);
     onQuoteStartOrder(selection);
   };
+  const moveHeroMedia = (event: PointerEvent<HTMLPictureElement>) => {
+    if (typeof window.matchMedia !== 'function' || !window.matchMedia('(pointer: fine)').matches) return;
+    const { x, y } = calculateHeroParallax(event.clientX, event.clientY, event.currentTarget.getBoundingClientRect());
+    event.currentTarget.style.setProperty('--hero-shift-x', `${x}px`);
+    event.currentTarget.style.setProperty('--hero-shift-y', `${y}px`);
+  };
+  const resetHeroMedia = (event: PointerEvent<HTMLPictureElement>) => {
+    event.currentTarget.style.setProperty('--hero-shift-x', '0px');
+    event.currentTarget.style.setProperty('--hero-shift-y', '0px');
+  };
 
   return <div className="customer-web">
     <nav className="public-nav store-nav" aria-label="官网导航">
@@ -121,7 +132,7 @@ export function PublicLanding({
           </button>
           <ul className="store-trust"><li>身份资料审核</li><li>平台统一匹配</li><li>服务过程留痕</li></ul>
         </div>
-        <picture className="store-hero-media">
+        <picture className="store-hero-media" onPointerMove={moveHeroMedia} onPointerLeave={resetHeroMedia}>
           <source srcSet={heroAvif} type="image/avif"/>
           <img src={heroWebp} width="1600" height="1000" alt="猫和狗在明亮整洁的家中休息"/>
         </picture>
