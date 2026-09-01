@@ -1,0 +1,50 @@
+name: Validate production image
+
+on:
+  pull_request:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - deploy/**
+      - scripts/production-deployment-files.test.mjs
+      - package.json
+      - pnpm-lock.yaml
+      - apps/**
+      - packages/**
+      - prisma/**
+      - .github/workflows/production-image.yml
+  push:
+    branches:
+      - main
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - deploy/**
+      - scripts/production-deployment-files.test.mjs
+      - package.json
+      - pnpm-lock.yaml
+      - apps/**
+      - packages/**
+      - prisma/**
+      - .github/workflows/production-image.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.0
+          run_install: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.23.2
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:deploy
+      - run: docker build --tag nanjing-petcare:ci .

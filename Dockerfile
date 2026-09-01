@@ -8,9 +8,16 @@ WORKDIR /app
 RUN corepack enable \
   && corepack prepare pnpm@10.15.0 --activate
 
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/admin/package.json apps/admin/package.json
+COPY apps/api/package.json apps/api/package.json
+COPY apps/miniprogram/package.json apps/miniprogram/package.json
+COPY packages/contracts/package.json packages/contracts/package.json
+COPY packages/domain/package.json packages/domain/package.json
+RUN pnpm install --frozen-lockfile
+
 COPY . .
-RUN pnpm install --frozen-lockfile \
-  && pnpm --filter @pet/api exec prisma generate --schema ../../prisma/schema.prisma \
+RUN pnpm --filter @pet/api exec prisma generate --schema ../../prisma/schema.prisma \
   && pnpm pilot:build \
   && sed -i 's/\r$//' /app/deploy/entrypoint.sh \
   && chmod 0555 /app/deploy/entrypoint.sh
@@ -34,4 +41,3 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=4 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PILOT_PORT||3000)+'/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 
 ENTRYPOINT ["/app/deploy/entrypoint.sh"]
-

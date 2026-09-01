@@ -1,6 +1,7 @@
 .git
 .github
 .env*
+**/.env*
 !.env.example
 !deploy/.env.production.example
 node_modules
@@ -23,4 +24,3 @@ evidence
 *.log
 Dockerfile*
 !Dockerfile
-
