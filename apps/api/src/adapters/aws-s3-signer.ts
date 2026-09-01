@@ -1,5 +1,6 @@
 import {
   GetObjectCommand,
+  HeadBucketCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -19,6 +20,7 @@ type PresignOptions = {
 type AwsS3SignerDependencies = {
   presign(command: SignedCommand, options: PresignOptions): Promise<string>;
   sendHead(command: HeadObjectCommand): Promise<HeadObjectCommandOutput>;
+  sendProbe(command: HeadBucketCommand, options: { abortSignal: AbortSignal }): Promise<unknown>;
 };
 
 function isMissingObject(error: unknown): boolean {
@@ -42,8 +44,22 @@ export function createAwsS3Signer(
     getSignedUrl(client!, command, options)
   ));
   const sendHead = dependencies?.sendHead ?? ((command: HeadObjectCommand) => client!.send(command));
+  const sendProbe = dependencies?.sendProbe ?? ((command: HeadBucketCommand, options: { abortSignal: AbortSignal }) => (
+    client!.send(command, options)
+  ));
 
   return {
+    probe: async () => {
+      try {
+        await sendProbe(
+          new HeadBucketCommand({ Bucket: config.bucket }),
+          { abortSignal: AbortSignal.timeout(3_000) },
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    },
     presignPut: (input) => presign(new PutObjectCommand({
       Bucket: config.bucket,
       Key: input.objectKey,

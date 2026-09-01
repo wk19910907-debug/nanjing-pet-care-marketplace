@@ -37,9 +37,9 @@ describe('production readiness', () => {
 
   it('exposes only readiness booleans and provider names, never credentials', () => {
     const config = loadConfig(productionEnvironment);
-    const response = readinessSnapshot(config, { database: true });
+    const response = readinessSnapshot(config, { database: true, objectStorage: true });
     expect(response).toEqual({
-      ready: true, database: true, encryption: true,
+      ready: true, database: true, objectStorage: true, encryption: true,
       paymentProvider: 'wechat', objectStorageProvider: 's3', notificationProvider: 'wechat',
     });
     const serialized = JSON.stringify(response);
@@ -58,9 +58,9 @@ describe('production readiness', () => {
 
   it('does not require WeChat secrets for pilot production and exposes no pilot secrets', () => {
     const config = loadConfig(pilotProductionEnvironment);
-    const response = readinessSnapshot(config, { database: true });
+    const response = readinessSnapshot(config, { database: true, objectStorage: true });
     expect(response).toEqual({
-      ready: true, database: true, encryption: true,
+      ready: true, database: true, objectStorage: true, encryption: true,
       paymentProvider: 'manual', objectStorageProvider: 's3', notificationProvider: 'disabled',
     });
     const serialized = JSON.stringify(response);
@@ -71,6 +71,14 @@ describe('production readiness', () => {
       pilotProductionEnvironment.S3_SECRET_ACCESS_KEY,
       pilotProductionEnvironment.PILOT_PUBLIC_ORIGIN,
     ]) expect(serialized).not.toContain(secret);
+  });
+
+  it('fails readiness when configured object storage is unavailable', () => {
+    const response = readinessSnapshot(loadConfig(pilotProductionEnvironment), {
+      database: true,
+      objectStorage: false,
+    });
+    expect(response).toMatchObject({ ready: false, database: true, objectStorage: false });
   });
 });
 
@@ -108,6 +116,7 @@ describe('production adapter boundaries', () => {
 
   it('uses S3 presigned URLs and verifies immutable upload metadata', async () => {
     const storage = new S3ObjectStorage({
+      probe: async () => true,
       presignPut: async () => 'https://s3/upload', presignGet: async () => 'https://s3/read',
       head: async () => ({ mimeType: 'image/jpeg', sizeBytes: 123, sha256: 'c'.repeat(64) }),
     });

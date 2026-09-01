@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { GetObjectCommand, HeadBucketCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { createAwsS3Signer } from '../src/adapters/aws-s3-signer.js';
 
 const config = {
@@ -17,7 +17,7 @@ describe('createAwsS3Signer', () => {
       options.push(input);
       return command instanceof PutObjectCommand ? 'https://objects.example.com/upload?signed=1' : 'https://objects.example.com/read?signed=1';
     });
-    const signer = createAwsS3Signer(config, { presign, sendHead: vi.fn() });
+    const signer = createAwsS3Signer(config, { presign, sendHead: vi.fn(), sendProbe: vi.fn() });
 
     await expect(signer.presignPut({
       objectKey: 'orders/order-1/evidence-1', mimeType: 'image/jpeg', sizeBytes: 123,
@@ -49,7 +49,7 @@ describe('createAwsS3Signer', () => {
         ChecksumSHA256: Buffer.from('cd'.repeat(32), 'hex').toString('base64'), Metadata: { sha256: 'ab'.repeat(32) } })
       .mockRejectedValueOnce({ name: 'NotFound', $metadata: { httpStatusCode: 404 } })
       .mockRejectedValueOnce(new Error('storage unavailable'));
-    const signer = createAwsS3Signer(config, { presign: vi.fn(), sendHead });
+    const signer = createAwsS3Signer(config, { presign: vi.fn(), sendHead, sendProbe: vi.fn() });
 
     await expect(signer.head('orders/order-1/evidence-1')).resolves.toEqual({
       mimeType: 'image/png', sizeBytes: 456, sha256: 'cd'.repeat(32),
@@ -69,8 +69,21 @@ describe('createAwsS3Signer', () => {
     const signer = createAwsS3Signer(config, {
       presign: vi.fn(), sendHead: vi.fn().mockResolvedValue({
         ContentType: 'image/jpeg', ContentLength: 123, Metadata: { sha256: 'ab'.repeat(32) }, ...checksum,
-      }),
+      }), sendProbe: vi.fn(),
     });
     await expect(signer.head('untrusted')).resolves.toEqual({ mimeType: 'image/jpeg', sizeBytes: 123, sha256: '' });
+  });
+
+  it('bounds and fails closed when probing bucket access', async () => {
+    const sendProbe = vi.fn()
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error('storage unavailable'));
+    const signer = createAwsS3Signer(config, { presign: vi.fn(), sendHead: vi.fn(), sendProbe });
+
+    await expect(signer.probe()).resolves.toBe(true);
+    expect(sendProbe.mock.calls[0]![0]).toBeInstanceOf(HeadBucketCommand);
+    expect(sendProbe.mock.calls[0]![0].input).toEqual({ Bucket: 'private-evidence' });
+    expect(sendProbe.mock.calls[0]![1]).toMatchObject({ abortSignal: expect.any(AbortSignal) });
+    await expect(signer.probe()).resolves.toBe(false);
   });
 });

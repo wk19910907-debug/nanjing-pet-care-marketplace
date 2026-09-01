@@ -245,6 +245,7 @@ describe('pilot application composition', () => {
       ready: true,
       database: true,
       encryption: true,
+      objectStorage: true,
       paymentProvider: 'manual',
       objectStorageProvider: 'filesystem',
       notificationProvider: 'disabled',
@@ -447,6 +448,7 @@ describe('pilot application composition', () => {
     const application = await createPilotApplication(productionConfig(forbiddenDiskRoot), {
       staticDir,
       s3Signer: {
+        probe: async () => true,
         presignPut: async () => 'https://objects.example.com/upload',
         presignGet: async () => 'https://objects.example.com/read',
         head: async () => null,
@@ -458,9 +460,28 @@ describe('pilot application composition', () => {
     });
 
     expect(ready.statusCode).toBe(200);
-    expect(ready.json()).toMatchObject({ objectStorageProvider: 's3' });
+    expect(ready.json()).toMatchObject({ objectStorage: true, objectStorageProvider: 's3' });
     expect(localRoute.statusCode).toBe(404);
     await expect(readFile(forbiddenDiskRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+    await application.app.close();
+  });
+
+  it('reports production as unavailable when the S3 dependency probe fails', async () => {
+    const application = await createPilotApplication(
+      productionConfig(path.join(temporaryRoot, 'unused-unavailable-storage')),
+      {
+        staticDir,
+        s3Signer: {
+          presignPut: async () => 'https://objects.example.com/upload',
+          presignGet: async () => 'https://objects.example.com/read',
+          head: async () => null,
+          probe: async () => false,
+        },
+      },
+    );
+    const ready = await application.app.inject({ method: 'GET', url: '/health/ready' });
+    expect(ready.statusCode).toBe(503);
+    expect(ready.json()).toMatchObject({ ready: false, database: true, objectStorage: false });
     await application.app.close();
   });
 
@@ -469,6 +490,7 @@ describe('pilot application composition', () => {
     const application = await createPilotApplication(config, {
       staticDir,
       s3Signer: {
+        probe: async () => true,
         presignPut: async () => 'https://objects.example.com/upload',
         presignGet: async () => 'https://objects.example.com/read',
         head: async () => null,

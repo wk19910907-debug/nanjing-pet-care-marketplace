@@ -221,6 +221,9 @@ export async function createPilotApplication(
           return false;
         }
       }),
+      config.nodeEnv === 'production'
+        ? () => overrides.s3Signer!.probe()
+        : async () => true,
     );
     app.addHook('onSend', async (request, reply, payload) => {
       const contentType = reply.getHeader('content-type');

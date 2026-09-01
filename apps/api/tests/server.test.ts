@@ -14,7 +14,7 @@ const environment = {
 
 describe('resolvePilotServerOverrides', () => {
   it('constructs the production S3 signer and preserves explicit overrides', () => {
-    const signer = { presignPut: vi.fn(), presignGet: vi.fn(), head: vi.fn() };
+    const signer = { probe: vi.fn(), presignPut: vi.fn(), presignGet: vi.fn(), head: vi.fn() };
     const factory = vi.fn(() => signer);
     const config = loadConfig(environment);
     const resolved = resolvePilotServerOverrides(config, { staticDir: 'dist' }, factory);
@@ -26,7 +26,7 @@ describe('resolvePilotServerOverrides', () => {
     });
     expect(resolved).toEqual({ staticDir: 'dist', s3Signer: signer });
 
-    const explicit = { presignPut: vi.fn(), presignGet: vi.fn(), head: vi.fn() };
+    const explicit = { probe: vi.fn(), presignPut: vi.fn(), presignGet: vi.fn(), head: vi.fn() };
     expect(resolvePilotServerOverrides(config, { s3Signer: explicit }, factory).s3Signer).toBe(explicit);
     expect(factory).toHaveBeenCalledTimes(1);
   });

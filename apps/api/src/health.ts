@@ -1,15 +1,19 @@
 import type { FastifyInstance } from 'fastify';
 import type { AppConfig } from './config.js';
 
-export function readinessSnapshot(config: AppConfig, probes: { database: boolean }) {
+export function readinessSnapshot(
+  config: AppConfig,
+  probes: { database: boolean; objectStorage: boolean },
+) {
   const production = config.production;
   const encryptionConfigured = Boolean(
     config.fieldEncryptionKey ?? production?.fieldEncryptionKey,
   );
   if (config.pilot) return {
-    ready: probes.database && encryptionConfigured
+    ready: probes.database && probes.objectStorage && encryptionConfigured
       && (config.nodeEnv !== 'production' || Boolean(production)),
     database: probes.database,
+    objectStorage: probes.objectStorage,
     encryption: encryptionConfigured,
     paymentProvider: 'manual' as const,
     objectStorageProvider: config.nodeEnv === 'production'
@@ -18,8 +22,9 @@ export function readinessSnapshot(config: AppConfig, probes: { database: boolean
     notificationProvider: 'disabled' as const,
   };
   const result = {
-    ready: probes.database && Boolean(production),
+    ready: probes.database && probes.objectStorage && Boolean(production),
     database: probes.database,
+    objectStorage: probes.objectStorage,
     encryption: encryptionConfigured,
     paymentProvider: production ? 'wechat' as const : 'fake' as const,
     objectStorageProvider: production ? 's3' as const : 'fake' as const,
@@ -32,10 +37,12 @@ export function registerHealthRoutes(
   app: FastifyInstance,
   config: AppConfig,
   databaseProbe: () => Promise<boolean>,
+  objectStorageProbe: () => Promise<boolean>,
 ) {
   app.get('/health/live', async () => ({ alive: true }));
   app.get('/health/ready', async (_request, reply) => {
-    const snapshot = readinessSnapshot(config, { database: await databaseProbe() });
+    const [database, objectStorage] = await Promise.all([databaseProbe(), objectStorageProbe()]);
+    const snapshot = readinessSnapshot(config, { database, objectStorage });
     return reply.code(snapshot.ready ? 200 : 503).send(snapshot);
   });
 }

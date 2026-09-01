@@ -47,4 +47,16 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:deploy
+      - name: Validate Compose configuration
+        run: |
+          cp deploy/.env.production.example deploy/.env.production
+          docker compose --env-file deploy/.env.production \
+            --file deploy/compose.production.yml config --quiet
+      - name: Validate Caddy configuration
+        run: |
+          docker run --rm \
+            --env SITE_DOMAIN=pet.example.com \
+            --volume "$PWD/deploy/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2.11.4-alpine \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
       - run: docker build --tag nanjing-petcare:ci .

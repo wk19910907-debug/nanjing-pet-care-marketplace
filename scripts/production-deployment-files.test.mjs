@@ -54,7 +54,7 @@ test('Compose publishes only Caddy and waits for the private application healthc
   assert.match(compose, /condition: service_healthy/);
   assert.match(compose, /restart: unless-stopped/g);
   assert.match(compose, /max-size: "10m"/);
-  assert.match(compose, /internal: true/);
+  assert.doesNotMatch(compose, /internal: true/);
 });
 
 test('Caddy terminates HTTPS without weakening browser origin protections', async () => {
@@ -89,6 +89,8 @@ test('production environment template is complete but contains no usable secrets
 test('CI validates the deployment image without publishing it', async () => {
   const workflow = await source('.github/workflows/production-image.yml');
   assert.match(workflow, /pnpm test:deploy/);
+  assert.match(workflow, /docker compose[\s\S]*config --quiet/);
+  assert.match(workflow, /caddy validate/);
   assert.match(workflow, /docker build --tag nanjing-petcare:ci \./);
   assert.doesNotMatch(workflow, /docker push|push:\s*true|kubectl|ssh-action/);
 });

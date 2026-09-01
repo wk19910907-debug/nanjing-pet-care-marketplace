@@ -1,6 +1,7 @@
 import type { ObjectStorage } from './object-storage.js';
 
 export interface S3Signer {
+  probe(): Promise<boolean>;
   presignPut(input: { objectKey: string; mimeType: string; sizeBytes: number; sha256: string; expiresInSeconds: number }): Promise<string>;
   presignGet(input: { objectKey: string; expiresInSeconds: number }): Promise<string>;
   head(objectKey: string): Promise<{ mimeType: string; sizeBytes: number; sha256: string } | null>;
