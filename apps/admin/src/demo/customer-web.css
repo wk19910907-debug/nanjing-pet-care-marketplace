@@ -576,6 +576,13 @@
 
 .customer-web .store-process,
 .customer-web .store-safeguards { padding-top: 74px; padding-bottom: 74px; }
+.customer-web .store-process {
+  margin-top: 32px;
+  border-radius: 28px;
+  color: #ffffff;
+  background: var(--store-brand-deep);
+}
+.customer-web .store-process h2 { color: #ffffff; }
 .customer-web .process-grid,
 .customer-web .safeguard-grid {
   margin-top: 28px;

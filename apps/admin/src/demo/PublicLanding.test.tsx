@@ -32,6 +32,7 @@ describe('PublicLanding', () => {
     expect(css).toContain('@media (max-width: 760px)');
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(css).toContain('min-height: 44px');
+    expect(css).toContain('background: var(--store-brand-deep)');
     expect(css).not.toMatch(/#f47672|#b94f43|#463831|#4e3b33|#925044/);
   });
 
