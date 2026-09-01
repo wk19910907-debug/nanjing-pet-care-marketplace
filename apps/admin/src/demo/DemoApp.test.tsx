@@ -44,5 +44,8 @@ describe('DemoApp public framing', () => {
     expect(screen.getByText('演示数据仅保存在当前浏览器，不会形成真实订单。')).toBeTruthy();
     expect(screen.getByRole('navigation', { name: '功能演示角色' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '清空演示数据' })).toBeTruthy();
+    expect(document.querySelectorAll('main main')).toHaveLength(0);
+    expect(screen.getAllByRole('contentinfo')).toHaveLength(1);
+    expect(screen.getByText(/请勿填写门锁密码等敏感信息/)).toBeTruthy();
   });
 });

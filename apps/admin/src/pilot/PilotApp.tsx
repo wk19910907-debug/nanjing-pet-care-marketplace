@@ -18,6 +18,7 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
   const [session, setSession] = useState<PilotSession | null | undefined>(undefined);
   const [failure, setFailure] = useState('');
   const [publicCatalog, setPublicCatalog] = useState<PublicOperationsCatalog | null>(null);
+  const [catalogFailed, setCatalogFailed] = useState(false);
   const [quoteSelection, setQuoteSelection] = useState<PublicQuoteSelection>({ serviceType: 'CAT_FEEDING', district: '建邺区' });
   const bootstrapped = useRef(false);
   const catalogBootstrapped = useRef(false);
@@ -38,6 +39,16 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
     }
   }, [api]);
 
+  const loadCatalog = useCallback(async () => {
+    setCatalogFailed(false);
+    setPublicCatalog(null);
+    try {
+      setPublicCatalog(await api.getCatalog());
+    } catch {
+      setCatalogFailed(true);
+    }
+  }, [api]);
+
   useEffect(() => {
     if (bootstrapped.current) return;
     bootstrapped.current = true;
@@ -47,8 +58,8 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
   useEffect(() => {
     if (catalogBootstrapped.current) return;
     catalogBootstrapped.current = true;
-    void api.getCatalog().then(setPublicCatalog).catch(() => setPublicCatalog(null));
-  }, [api]);
+    void loadCatalog();
+  }, [loadCatalog]);
 
   useEffect(() => {
     if (!session) return;
@@ -109,6 +120,7 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
       catalog={publicCatalog}
       onStartOrder={showLogin}
       onQuoteStartOrder={showLogin}
+      {...(catalogFailed ? { onReloadCatalog: () => void loadCatalog() } : {})}
       quoteSelection={quoteSelection}
       onQuoteChange={setQuoteSelection}
     >

@@ -16,6 +16,7 @@ type PublicLandingProps = {
   onStartOrder: () => void;
   onQuoteStartOrder: (selection?: PublicQuoteSelection) => void;
   onViewOrders?: () => void;
+  onReloadCatalog?: () => void;
   quoteSelection: PublicQuoteSelection;
   onQuoteChange: (selection: PublicQuoteSelection) => void;
   catalog: PublicOperationsCatalog | null;
@@ -81,6 +82,7 @@ export function PublicLanding({
   children,
   onStartOrder,
   onViewOrders,
+  onReloadCatalog,
   onQuoteStartOrder,
   quoteSelection,
   onQuoteChange,
@@ -121,7 +123,7 @@ export function PublicLanding({
       </div>
     </nav>
 
-    <main>
+    <div className="store-main">
       <section id="top" className="store-hero">
         <div className="store-hero-copy">
           <span className="store-kicker">PREMIUM PET CARE · NANJING</span>
@@ -173,7 +175,7 @@ export function PublicLanding({
               </button>
             </div>
           </article>)}
-          {!bookingAvailable && <p className="pilot-empty">服务配置暂不可用，请稍后重试。</p>}
+          {!bookingAvailable && <div className="store-catalog-empty"><p className="pilot-empty">服务配置暂不可用，请稍后重试。</p>{onReloadCatalog && <button type="button" onClick={onReloadCatalog}>重新加载服务</button>}</div>}
         </div>
         <p className="store-price-note">最终价格以确认预约时的服务器报价为准</p>
         {catalog && <details className="optional-pricing"><summary>查看区域与参考价格</summary><PublicQuote catalog={catalog} selection={quoteSelection} onChange={onQuoteChange} onStartOrder={onQuoteStartOrder}/></details>}
@@ -198,11 +200,11 @@ export function PublicLanding({
         <details><summary>价格如何确定？</summary><p>页面显示起步价，提交前会展示服务器生成的最终报价。</p></details>
         <details><summary>南京哪些区域可以预约？</summary><p>可在预约页选择当前开放区域，是否能在指定时间接单以平台确认结果为准。</p></details>
       </section>
-    </main>
+    </div>
 
     <footer className="store-footer">
       <a className="store-brand" href="#top"><span className="store-brand-mark" aria-hidden="true"><CommerceIcon name="cat"/></span><span><strong>安心宠</strong><small>PET CARE · NANJING</small></span></a>
-      <p>南京上门喂猫与遛狗服务 · 页面为试运营信息展示，服务范围与价格以预约确认结果为准。</p>
+      <p>南京上门喂猫与遛狗服务 · 页面为试运营信息展示，服务范围与价格以预约确认结果为准。请勿填写门锁密码等敏感信息。</p>
       <nav aria-label="页脚导航"><a href="#services">服务</a><a href="#safeguards">保障</a><a href="#faq">常见问题</a></nav>
     </footer>
 

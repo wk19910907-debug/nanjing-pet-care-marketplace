@@ -11,4 +11,9 @@ describe('calculateHeroParallax', () => {
   it('fails closed for zero-sized bounds', () => {
     expect(calculateHeroParallax(1, 1, { left: 0, top: 0, width: 0, height: 0 })).toEqual({ x: 0, y: 0 });
   });
+  it('fails closed for non-finite pointers or bounds', () => {
+    expect(calculateHeroParallax(Number.NaN, 1, bounds)).toEqual({ x: 0, y: 0 });
+    expect(calculateHeroParallax(1, Number.POSITIVE_INFINITY, bounds)).toEqual({ x: 0, y: 0 });
+    expect(calculateHeroParallax(1, 1, { ...bounds, width: Number.NaN })).toEqual({ x: 0, y: 0 });
+  });
 });

@@ -33,6 +33,13 @@ describe('PublicLanding', () => {
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(css).toContain('min-height: 44px');
     expect(css).toContain('background: var(--store-brand-deep)');
+    expect(css).toContain('.customer-web .store-hero-copy { order: 1;');
+    expect(css).toContain('order: 2;\n    min-height: 0;\n    aspect-ratio: 16 / 10;');
+    expect(css).not.toContain('color: var(--store-gold)');
+    expect(css).not.toMatch(/font-size: (9|10|11)px/);
+    expect(css).toMatch(/\.store-nav-links a \{[^}]*min-height: 44px/s);
+    expect(css).toMatch(/\.store-footer nav a \{[^}]*min-height: 44px/s);
+    expect(css).not.toMatch(/songti|stsong|georgia/);
     expect(css).not.toMatch(/#f47672|#b94f43|#463831|#4e3b33|#925044/);
   });
 

@@ -92,6 +92,23 @@ describe('PilotApp', () => {
     ]);
   });
 
+  it('recovers the public service catalog after a transient first-load failure', async () => {
+    const getCatalog = vi.fn()
+      .mockRejectedValueOnce(new Error('temporary catalog failure'))
+      .mockResolvedValueOnce(publicCatalog);
+    const api = fakeApi({
+      getSession: vi.fn().mockRejectedValue(new PilotApiError(401, 'UNAUTHENTICATED')),
+      getCatalog,
+    });
+    render(<PilotApp api={api}/>);
+
+    const retry = await screen.findByRole('button', { name: '重新加载服务' });
+    await userEvent.click(retry);
+
+    expect(await screen.findByRole('button', { name: '预约上门喂猫' })).toBeTruthy();
+    expect(getCatalog).toHaveBeenCalledTimes(2);
+  });
+
   it.each([
     ['以宠主身份进入', 'OWNER', '今天需要照顾谁？'],
     ['以服务人员身份进入', 'PROVIDER', '服务人员工作区'],
