@@ -41,26 +41,32 @@ describe('PublicLanding', () => {
     expect(start).toHaveBeenCalledOnce();
   });
 
-  it('leads with a truthful booking-first public experience', async () => {
+  it('leads with a truthful premium commerce hierarchy', async () => {
     const onStartOrder = vi.fn();
+    const onQuoteStartOrder = vi.fn();
+    const onQuoteChange = vi.fn();
+    const onViewOrders = vi.fn();
     render(<PublicLanding
       catalog={catalog}
       onStartOrder={onStartOrder}
-      onQuoteStartOrder={vi.fn()}
+      onViewOrders={onViewOrders}
+      onQuoteStartOrder={onQuoteStartOrder}
       quoteSelection={{ serviceType: 'CAT_FEEDING', district: '建邺区' }}
-      onQuoteChange={vi.fn()}
-    ><div>角色入口</div></PublicLanding>);
+      onQuoteChange={onQuoteChange}
+    ><div>预约工作区</div></PublicLanding>);
 
-    expect(screen.getByRole('heading', { name: '出门放心，宠物在家也被认真照顾' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '熟悉的家，安心的照护' })).toBeTruthy();
+    expect(screen.getByRole('navigation', { name: '服务快捷入口' })).toBeTruthy();
     expect(screen.getByText('¥32 起')).toBeTruthy();
     expect(screen.getByText('¥37 起')).toBeTruthy();
-    for (const label of ['身份资料审核', '平台统一匹配', '订单状态可查', '服务过程留痕']) {
-      expect(screen.getByText(label)).toBeTruthy();
-    }
-    expect(document.body.textContent).not.toMatch(/安全体验版|演示人员|不会上传到远端服务器|体验报价/);
+    expect(screen.getByText('最终价格以确认预约时的服务器报价为准')).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/自主选人|五星|服务\d+次|用户\d+人/);
 
-    await userEvent.click(screen.getAllByRole('button', { name: '立即预约' })[0]!);
-    expect(onStartOrder).toHaveBeenCalledOnce();
+    await userEvent.click(screen.getByRole('button', { name: '快捷预约上门喂猫' }));
+    expect(onQuoteChange).toHaveBeenCalledWith({ serviceType: 'CAT_FEEDING', district: '建邺区' });
+    expect(onQuoteStartOrder).toHaveBeenCalledWith({ serviceType: 'CAT_FEEDING', district: '建邺区' });
+    await userEvent.click(screen.getAllByRole('button', { name: '我的订单' })[0]!);
+    expect(onViewOrders).toHaveBeenCalledOnce();
   });
 
   it('uses live availability, price, districts, and announcement', () => {
@@ -81,7 +87,7 @@ describe('PublicLanding', () => {
     ><div>登录入口</div></PublicLanding>);
     expect(screen.getByText('周末正常接单')).toBeTruthy();
     expect(screen.getAllByText('¥35 起').length).toBeGreaterThan(0);
-    expect(screen.queryByRole('button', { name: '预约遛狗' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '预约上门遛狗' })).toBeNull();
     expect(screen.getByRole('option', { name: '鼓楼区' })).toBeTruthy();
     expect(screen.queryByRole('option', { name: '建邺区' })).toBeNull();
   });
