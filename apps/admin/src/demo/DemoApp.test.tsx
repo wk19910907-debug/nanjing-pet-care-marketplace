@@ -22,9 +22,9 @@ describe('DemoApp public framing', () => {
   });
   it('prefills the newly chosen dog then cat service and opens owner orders from another role', async () => {
     render(<DemoApp/>);
-    await userEvent.click(screen.getByRole('button', { name: '预约遛狗' }));
+    await userEvent.click(screen.getByRole('button', { name: '预约上门遛狗' }));
     expect((within(document.querySelector('form')!).getByLabelText('服务类型') as HTMLSelectElement).value).toBe('DOG_WALKING');
-    await userEvent.click(screen.getByRole('button', { name: '预约喂猫' }));
+    await userEvent.click(screen.getByRole('button', { name: '预约上门喂猫' }));
     expect((within(document.querySelector('form')!).getByLabelText('服务类型') as HTMLSelectElement).value).toBe('CAT_FEEDING');
     await userEvent.click(screen.getByRole('button', { name: '平台运营' }));
     await userEvent.click(screen.getAllByRole('button', { name: '我的订单' })[0]!);

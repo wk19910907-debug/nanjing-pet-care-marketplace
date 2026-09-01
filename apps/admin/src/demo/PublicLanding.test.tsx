@@ -23,6 +23,18 @@ describe('PublicLanding', () => {
     expect(css).toContain('.customer-web #top { scroll-margin-top: 88px; }');
   });
 
+  it('locks the customer website to one premium white commerce system', () => {
+    const css = readFileSync('src/demo/customer-web.css', 'utf8').toLowerCase();
+    for (const token of [
+      '--store-canvas: #f6f6f1', '--store-surface: #ffffff', '--store-ink: #17231d',
+      '--store-brand: #1f4b3a', '--store-brand-deep: #143428', '--store-gold: #b79a63',
+    ]) expect(css).toContain(token);
+    expect(css).toContain('@media (max-width: 760px)');
+    expect(css).toContain('@media (prefers-reduced-motion: reduce)');
+    expect(css).toContain('min-height: 44px');
+    expect(css).not.toMatch(/#f47672|#b94f43|#463831|#4e3b33|#925044/);
+  });
+
   it('offers orders access and keeps optional pricing collapsed before the booking workspace', async () => {
     const orders = vi.fn();
     render(<PublicLanding catalog={catalog} onStartOrder={vi.fn()} onViewOrders={orders} onQuoteStartOrder={vi.fn()} quoteSelection={{ serviceType: 'CAT_FEEDING', district: '建邺区' }} onQuoteChange={vi.fn()}><div data-testid="booking">预约入口</div></PublicLanding>);
