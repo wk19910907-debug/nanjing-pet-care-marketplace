@@ -13,6 +13,7 @@
     "lint": "pnpm -r lint",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:local-start",
     "test:local-start": "node -e \"if(process.platform==='win32'){require('node:child_process').execFileSync('pwsh',['-NoProfile','-File','scripts/start-local-preview.test.ps1'],{stdio:'inherit'})}else{console.log('Windows launcher tests skipped')}\"",
+    "test:deploy": "node --test scripts/production-deployment-files.test.mjs",
     "pilot:build": "pnpm --filter @pet/admin build --mode pilot",
     "pilot:start": "pnpm pilot:build && pnpm --filter @pet/api start:pilot",
     "pilot:bootstrap": "pnpm --silent --filter @pet/api bootstrap:pilot",
