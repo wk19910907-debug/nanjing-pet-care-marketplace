@@ -71,7 +71,7 @@ describe('PilotApp', () => {
     expect(screen.getByRole('button', { name: '以服务人员身份进入' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '以平台管理员身份进入' })).toBeTruthy();
     expect(screen.getByText('当前版本仅记录线下费用，不收集联系方式')).toBeTruthy();
-    expect(screen.getByRole('heading', { name: '出门放心，宠物在家也被认真照顾' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '熟悉的家，安心的照护' })).toBeTruthy();
     expect(within(screen.getByRole('group', { name: '身份入口' })).getAllByRole('button').map((button) => button.textContent)).toEqual([
       '以宠主身份进入', '以服务人员身份进入', '以平台管理员身份进入',
     ]);
