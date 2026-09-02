@@ -454,15 +454,25 @@ describe('pilot application composition', () => {
         head: async () => null,
       },
     });
+    const beforeAdmin = await application.app.inject({ method: 'GET', url: '/health/ready' });
+    const admin = await application.prisma.user.create({
+      data: { role: 'ADMIN', displayName: '就绪管理员' }, select: { id: true },
+    });
+    await application.prisma.staffCredential.create({
+      data: { userId: admin.id, usernameNormalized: 'readiness.admin', passwordHash: 'test-only-hash' },
+    });
     const ready = await application.app.inject({ method: 'GET', url: '/health/ready' });
     const localRoute = await application.app.inject({
       method: 'GET', url: '/api/v1/pilot/local-evidence?token=unused',
     });
 
+    expect(beforeAdmin.statusCode).toBe(503);
     expect(ready.statusCode).toBe(200);
     expect(ready.json()).toMatchObject({ objectStorage: true, objectStorageProvider: 's3' });
     expect(localRoute.statusCode).toBe(404);
     await expect(readFile(forbiddenDiskRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+    await application.prisma.staffCredential.delete({ where: { userId: admin.id } });
+    await application.prisma.user.delete({ where: { id: admin.id } });
     await application.app.close();
   });
 
