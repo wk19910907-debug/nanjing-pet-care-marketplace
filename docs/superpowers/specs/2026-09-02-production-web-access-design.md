@@ -217,6 +217,7 @@
 - `POST /api/v1/public/owner-recovery-sessions`
 - `POST /api/v1/staff/sessions`
 - `PATCH /api/v1/staff/password`
+- `GET /api/v1/admin/staff-accounts`
 - `POST /api/v1/admin/staff-accounts`
 - `PATCH /api/v1/admin/staff-accounts/:userId`
 - `POST /api/v1/admin/staff-accounts/:userId/reset-password`
