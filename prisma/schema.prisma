@@ -86,6 +86,9 @@ model User {
   pilotSessions        PilotSession[]
   pilotInvitesCreated  PilotInvite[]    @relation("PilotInviteCreator")
   pilotInvitesTargeted PilotInvite[]    @relation("PilotInviteTarget")
+  ownerRecoveryCredential OwnerRecoveryCredential?
+  staffCredential      StaffCredential?
+  orderMessagesAuthored OrderMessage[] @relation("OrderMessageAuthor")
 }
 
 model OperationsCatalog {
@@ -245,11 +248,57 @@ model Order {
   refunds            Refund[]
   settlement         Settlement?
   disputes           Dispute[]
+  messages           OrderMessage[]
 
   @@unique([idempotencyKey, ownerId])
   @@index([status, startsAt])
   @@index([ownerId, createdAt])
   @@index([assignedProviderId, startsAt])
+}
+
+model OwnerRecoveryCredential {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @unique @db.Uuid
+  lookupPrefix String    @db.Char(12)
+  tokenHash          String    @unique @db.Char(64)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  rotatedAt    DateTime? @db.Timestamptz(3)
+  lastUsedAt   DateTime? @db.Timestamptz(3)
+  revokedAt    DateTime? @db.Timestamptz(3)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([lookupPrefix])
+}
+
+model StaffCredential {
+  id                 String    @id @default(uuid()) @db.Uuid
+  userId             String    @unique @db.Uuid
+  usernameNormalized String    @unique @db.VarChar(64)
+  passwordHash       String
+  mustChangePassword Boolean   @default(true)
+  failedAttempts     Int       @default(0)
+  lockedUntil        DateTime? @db.Timestamptz(3)
+  passwordChangedAt  DateTime? @db.Timestamptz(3)
+  disabledAt         DateTime? @db.Timestamptz(3)
+  createdAt          DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime  @updatedAt @db.Timestamptz(3)
+  user               User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+}
+
+model OrderMessage {
+  id                   String    @id @default(uuid()) @db.Uuid
+  orderId              String    @db.Uuid
+  authorUserId         String    @db.Uuid
+  authorRole           ActorRole
+  bodyCiphertext       Bytes
+  bodyNonce            Bytes
+  bodyAuthTag          Bytes
+  encryptionKeyVersion Int
+  createdAt            DateTime  @default(now()) @db.Timestamptz(3)
+  order                Order     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  author               User      @relation("OrderMessageAuthor", fields: [authorUserId], references: [id], onDelete: Restrict)
+
+  @@index([orderId, createdAt, id])
 }
 
 model OrderPet {

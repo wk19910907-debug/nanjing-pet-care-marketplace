@@ -3,6 +3,11 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const migrationUrl = new URL('../../../prisma/migrations/202608230001_initial/migration.sql', import.meta.url);
+const productionWebAccessMigrationUrl = new URL(
+  '../../../prisma/migrations/202609020001_production_web_access/migration.sql',
+  import.meta.url,
+);
+const schemaUrl = new URL('../../../prisma/schema.prisma', import.meta.url);
 
 describe('initial database migration', () => {
   it('defines every marketplace table', async () => {
@@ -31,5 +36,22 @@ describe('initial database migration', () => {
     expect(sql).toContain('"encryptionKeyVersion" INTEGER NOT NULL');
     expect(sql).toContain('CREATE OR REPLACE FUNCTION prevent_audit_mutation()');
     expect(sql).toContain('BEFORE UPDATE OR DELETE ON "AuditEvent"');
+  });
+});
+
+describe('production web access schema', () => {
+  it('adds guest recovery, staff credential and encrypted order message storage', async () => {
+    const schema = await readFile(fileURLToPath(schemaUrl), 'utf8');
+    const sql = await readFile(fileURLToPath(productionWebAccessMigrationUrl), 'utf8');
+
+    for (const model of ['OwnerRecoveryCredential', 'StaffCredential', 'OrderMessage']) {
+      expect(schema).toContain(`model ${model}`);
+      expect(sql).toContain(`CREATE TABLE "${model}"`);
+    }
+
+    expect(schema).toContain('tokenHash          String    @unique @db.Char(64)');
+    expect(schema).toContain('usernameNormalized String    @unique @db.VarChar(64)');
+    expect(schema).toContain('bodyCiphertext       Bytes');
+    expect(sql).toContain('CHECK ("authorRole" IN (\'OWNER\', \'ADMIN\'))');
   });
 });
