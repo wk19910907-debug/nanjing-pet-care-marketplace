@@ -67,13 +67,14 @@
 
 - `id`
 - `userId`，唯一关联 OWNER
+- `lookupPrefix`，恢复凭证 Base64URL 原文的前 12 字符，只用于把候选范围限制到极小集合
 - `tokenHash`，唯一，保存 `HMAC-SHA256(pepper, "owner-recovery-v1\0" + token)`
 - `createdAt`
 - `rotatedAt`
 - `lastUsedAt`
 - `revokedAt`
 
-恢复凭证使用加密安全随机数生成 32 字节并编码为 Base64URL。原文不入库、不进日志、不放 URL 查询参数。已登录宠主可以轮换凭证；轮换后旧凭证立即失效。
+恢复凭证使用加密安全随机数生成 32 字节并编码为 Base64URL。服务端先按 12 字符前缀读取至多 8 个候选，再使用固定时间比较验证完整 HMAC；候选超过上限时失败关闭。除短前缀外原文不入库、不进日志、不放 URL 查询参数。已登录宠主可以轮换凭证；轮换后旧凭证立即失效。
 
 ### 5.2 `StaffCredential`
 
