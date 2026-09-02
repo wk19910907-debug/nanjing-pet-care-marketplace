@@ -8,5 +8,7 @@ describe('staff:create-admin arguments', () => {
       .toThrow('PASSWORD_ARG_FORBIDDEN');
     expect(() => parseCreateStaffArgs(['--username', 'ops.admin', '--unexpected']))
       .toThrow('CREATE_STAFF_ARGS_INVALID');
+    expect(() => parseCreateStaffArgs(['--username', 'Kabc']))
+      .toThrow('USERNAME_INVALID');
   });
 });

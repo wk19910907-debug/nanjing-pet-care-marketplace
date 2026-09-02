@@ -10,6 +10,7 @@ const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{2,63}$/;
 const MAXIMUM_LOGIN_NAME_LENGTH = 256;
 const MAXIMUM_FAILURES = 5;
 const LOCK_DURATION_MILLISECONDS = 10 * 60 * 1_000;
+const DEFAULT_LIMITER_MAXIMUM_ENTRIES = 10_000;
 const DUMMY_PASSWORD_HASH = '$argon2id$v=19$m=19456,p=1,t=2$M4G/wSx/4x1W8pLMNGQqOA$+4kpsw1biX1TRbn0QQ1PYY7fKCVjfWNLidfiCVyIVjU';
 const DUMMY_PASSWORD = 'staff-login-dummy-password-value';
 
@@ -36,36 +37,74 @@ export type CreateProviderInput = {
 
 export type InitialAdminInput = CreateProviderInput;
 
+export type StaffPasswordActor = ActorContext & {
+  staffPasswordChangedAt: Date | null;
+};
+
 export type StaffCredentialServiceOptions = {
   usernamePepper: Buffer;
   now?: () => Date;
+  limiterMaximumEntries?: number;
+  limiterWindowMilliseconds?: number;
 };
 
-type RateLimitState = { failures: number; lockedUntil: Date | null };
+export type StaffLoginLimiterOptions = {
+  maximumEntries?: number;
+  windowMilliseconds?: number;
+};
 
-class LoginRateLimiter {
+type RateLimitState = { failures: number; expiresAt: Date; lockedUntil: Date | null };
+
+export class StaffLoginLimiter {
   private readonly states = new Map<string, RateLimitState>();
+  private readonly maximumEntries: number;
+  private readonly windowMilliseconds: number;
 
-  isLocked(key: string, now: Date): boolean {
-    const current = this.states.get(key);
-    if (!current?.lockedUntil) return false;
-    if (current.lockedUntil > now) return true;
-    this.states.delete(key);
-    return false;
+  public constructor(options: StaffLoginLimiterOptions = {}) {
+    this.maximumEntries = options.maximumEntries ?? DEFAULT_LIMITER_MAXIMUM_ENTRIES;
+    this.windowMilliseconds = options.windowMilliseconds ?? LOCK_DURATION_MILLISECONDS;
+    if (!Number.isInteger(this.maximumEntries) || this.maximumEntries < 1
+      || !Number.isInteger(this.windowMilliseconds) || this.windowMilliseconds < 1) {
+      throw new Error('STAFF_LIMITER_OPTIONS_INVALID');
+    }
   }
 
-  recordFailure(key: string, now: Date): void {
-    const current = this.states.get(key);
+  public get size(): number { return this.states.size; }
+
+  public isLocked(key: string, now: Date): boolean {
+    const current = this.active(key, now);
+    if (!current?.lockedUntil) return false;
+    return current.lockedUntil > now;
+  }
+
+  public recordFailure(key: string, now: Date): void {
+    const current = this.active(key, now);
     if (current?.lockedUntil && current.lockedUntil > now) return;
     const failures = (current?.failures ?? 0) + 1;
+    if (!current && this.states.size >= this.maximumEntries) {
+      const oldest = this.states.keys().next().value as string | undefined;
+      if (oldest) this.states.delete(oldest);
+    }
+    if (current) this.states.delete(key);
     this.states.set(key, {
       failures,
+      expiresAt: addMilliseconds(now, this.windowMilliseconds),
       lockedUntil: failures >= MAXIMUM_FAILURES ? addMilliseconds(now, LOCK_DURATION_MILLISECONDS) : null,
     });
   }
 
-  reset(key: string): void {
+  public reset(key: string): void {
     this.states.delete(key);
+  }
+
+  private active(key: string, now: Date): RateLimitState | undefined {
+    const current = this.states.get(key);
+    if (!current) return undefined;
+    if (current.expiresAt <= now) {
+      this.states.delete(key);
+      return undefined;
+    }
+    return current;
   }
 }
 
@@ -74,6 +113,7 @@ function addMilliseconds(value: Date, milliseconds: number): Date {
 }
 
 function normalizeUsername(value: string): string {
+  if (!/^[\x00-\x7F]+$/.test(value)) throw new Error('USERNAME_INVALID');
   const normalized = value.toLowerCase();
   if (!USERNAME_PATTERN.test(normalized)) throw new Error('USERNAME_INVALID');
   return normalized;
@@ -98,19 +138,31 @@ function isRetryable(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2034'].includes(error.code);
 }
 
+function sameInstant(left: Date | null, right: Date | null): boolean {
+  return left?.getTime() === right?.getTime() || (left === null && right === null);
+}
+
+function nextPasswordChangedAt(previous: Date | null, now: Date): Date {
+  return previous !== null && previous >= now ? addMilliseconds(previous, 1) : now;
+}
+
 export class StaffCredentialService {
   private readonly now: () => Date;
   private readonly passwordHasher = new PasswordHasher();
-  private readonly rateLimiter = new LoginRateLimiter();
+  private readonly rateLimiter: StaffLoginLimiter;
 
   public constructor(
     private readonly prisma: PrismaClient,
-    private readonly sessions: Pick<PilotSessionService, 'createSessionForUser'>,
+    private readonly sessions: Pick<PilotSessionService, 'createSessionForUserInTransaction'>,
     private readonly audit: AuditRepository = new PrismaAuditRepository(prisma),
     private readonly options: StaffCredentialServiceOptions,
   ) {
     if (options.usernamePepper.byteLength < 32) throw new Error('STAFF_USERNAME_PEPPER_INVALID');
     this.now = options.now ?? (() => new Date());
+    this.rateLimiter = new StaffLoginLimiter({
+      maximumEntries: options.limiterMaximumEntries ?? DEFAULT_LIMITER_MAXIMUM_ENTRIES,
+      windowMilliseconds: options.limiterWindowMilliseconds ?? LOCK_DURATION_MILLISECONDS,
+    });
   }
 
   public async login(username: string, password: string, ipKey: string): Promise<StaffLoginResult> {
@@ -118,47 +170,65 @@ export class StaffCredentialService {
     const usernameKey = this.usernameKey(normalized ?? `invalid\0${username.slice(0, MAXIMUM_LOGIN_NAME_LENGTH)}`);
     const clientKey = this.clientKey(ipKey);
     const now = this.now();
-    const credential = normalized
-      ? await this.prisma.staffCredential.findUnique({
-        where: { usernameNormalized: normalized },
-        include: { user: { select: { id: true, role: true } } },
-      })
-      : null;
     const passwordToVerify = password.length >= 1 && password.length <= 128 ? password : DUMMY_PASSWORD;
-    const verified = await this.passwordHasher.verify(
-      credential?.passwordHash ?? DUMMY_PASSWORD_HASH,
-      passwordToVerify,
-    ) && passwordToVerify === password;
-    const rateLocked = this.rateLimiter.isLocked(usernameKey, now) || this.rateLimiter.isLocked(clientKey, now);
-    const credentialLocked = credential?.lockedUntil !== null && credential?.lockedUntil !== undefined
-      && credential.lockedUntil > now;
-    const active = credential !== null && (credential.user.role === 'PROVIDER' || credential.user.role === 'ADMIN')
-      && credential.disabledAt === null && !credentialLocked;
-
-    if (!verified || !active || rateLocked) {
-      this.rateLimiter.recordFailure(usernameKey, now);
-      this.rateLimiter.recordFailure(clientKey, now);
-      if (credential && credential.disabledAt === null && !credentialLocked && !verified) {
-        await this.recordCredentialFailure(credential.userId, credential.lockedUntil, now);
-      }
+    if (this.rateLimiter.isLocked(usernameKey, now) || this.rateLimiter.isLocked(clientKey, now)) {
+      await this.passwordHasher.verify(DUMMY_PASSWORD_HASH, passwordToVerify);
       throw new Error('STAFF_LOGIN_INVALID');
     }
 
-    await this.prisma.staffCredential.update({
-      where: { id: credential.id },
-      data: { failedAttempts: 0, lockedUntil: null },
-    });
-    this.rateLimiter.reset(usernameKey);
-    this.rateLimiter.reset(clientKey);
-    const session = await this.sessions.createSessionForUser(credential.userId);
-    return { session, mustChangePassword: credential.mustChangePassword };
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const result = await this.prisma.$transaction(async (transaction) => {
+          const credential = normalized
+            ? await transaction.staffCredential.findUnique({
+              where: { usernameNormalized: normalized },
+              include: { user: { select: { id: true, role: true } } },
+            })
+            : null;
+          const verified = await this.passwordHasher.verify(
+            credential?.passwordHash ?? DUMMY_PASSWORD_HASH,
+            passwordToVerify,
+          ) && passwordToVerify === password;
+          const credentialLocked = credential?.lockedUntil !== null && credential?.lockedUntil !== undefined
+            && credential.lockedUntil > now;
+          const active = credential !== null && (credential.user.role === 'PROVIDER' || credential.user.role === 'ADMIN')
+            && credential.disabledAt === null && !credentialLocked;
+          if (!verified || !active) {
+            if (credential && credential.disabledAt === null && !credentialLocked && !verified) {
+              await this.recordCredentialFailure(transaction, credential.userId, credential.lockedUntil, now);
+            }
+            return null;
+          }
+          await transaction.staffCredential.update({
+            where: { id: credential.id },
+            data: { failedAttempts: 0, lockedUntil: null },
+          });
+          const session = await this.sessions.createSessionForUserInTransaction(transaction, credential.userId, now);
+          return { session, mustChangePassword: credential.mustChangePassword };
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        if (!result) {
+          this.rateLimiter.recordFailure(usernameKey, now);
+          this.rateLimiter.recordFailure(clientKey, now);
+          throw new Error('STAFF_LOGIN_INVALID');
+        }
+        this.rateLimiter.reset(usernameKey);
+        this.rateLimiter.reset(clientKey);
+        return result;
+      } catch (error) {
+        if (isRetryable(error) && attempt < 2) continue;
+        if (isRetryable(error)) break;
+        throw error;
+      }
+    }
+    await this.passwordHasher.verify(DUMMY_PASSWORD_HASH, passwordToVerify);
+    throw new Error('STAFF_LOGIN_INVALID');
   }
 
-  public async changePassword(actor: ActorContext, password: string): Promise<StaffLoginResult> {
+  public async changePassword(actor: StaffPasswordActor, password: string): Promise<StaffLoginResult> {
     authorizeRole(actor, ['PROVIDER', 'ADMIN']);
     const passwordHash = await this.passwordHasher.hash(password);
     const now = this.now();
-    const credential = await this.prisma.$transaction(async (transaction) => {
+    return this.serializable(async (transaction) => {
       const current = await transaction.staffCredential.findUnique({
         where: { userId: actor.userId },
         include: { user: { select: { role: true } } },
@@ -166,16 +236,18 @@ export class StaffCredentialService {
       if (!current || (current.user.role !== 'PROVIDER' && current.user.role !== 'ADMIN') || current.disabledAt !== null) {
         throw new Error('FORBIDDEN');
       }
-      const updated = await transaction.staffCredential.update({
+      if (!sameInstant(current.passwordChangedAt, actor.staffPasswordChangedAt)) {
+        throw new Error('UNAUTHENTICATED');
+      }
+      await transaction.staffCredential.update({
         where: { id: current.id },
         data: {
           passwordHash,
           mustChangePassword: false,
           failedAttempts: 0,
           lockedUntil: null,
-          passwordChangedAt: now,
+          passwordChangedAt: nextPasswordChangedAt(current.passwordChangedAt, now),
         },
-        select: { userId: true },
       });
       await transaction.pilotSession.updateMany({
         where: { userId: actor.userId, revokedAt: null, expiresAt: { gt: now } },
@@ -189,10 +261,9 @@ export class StaffCredentialService {
         entityId: actor.userId,
         metadata: { mustChangePassword: false },
       }, transaction);
-      return updated;
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-    const session = await this.sessions.createSessionForUser(credential.userId);
-    return { session, mustChangePassword: false };
+      const session = await this.sessions.createSessionForUserInTransaction(transaction, actor.userId, now);
+      return { session, mustChangePassword: false };
+    });
   }
 
   public async list(actor: ActorContext): Promise<StaffAccountDto[]> {
@@ -241,7 +312,7 @@ export class StaffCredentialService {
   public async setDisabled(actor: ActorContext, userId: string, disabled: boolean): Promise<StaffAccountDto> {
     authorizeRole(actor, ['ADMIN']);
     const now = this.now();
-    const updated = await this.prisma.$transaction(async (transaction) => {
+    const updated = await this.serializable(async (transaction) => {
       const current = await this.providerCredential(transaction, userId);
       const credential = await transaction.staffCredential.update({
         where: { id: current.id },
@@ -260,7 +331,7 @@ export class StaffCredentialService {
         metadata: { role: 'PROVIDER', disabled },
       }, transaction);
       return { ...credential, user: current.user };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    });
     return this.asProviderDto(updated);
   }
 
@@ -268,8 +339,8 @@ export class StaffCredentialService {
     authorizeRole(actor, ['ADMIN']);
     const passwordHash = await this.passwordHasher.hash(temporaryPassword);
     const now = this.now();
-    await this.prisma.$transaction(async (transaction) => {
-      await this.providerCredential(transaction, userId);
+    await this.serializable(async (transaction) => {
+      const current = await this.providerCredential(transaction, userId);
       await transaction.staffCredential.update({
         where: { userId },
         data: {
@@ -277,7 +348,7 @@ export class StaffCredentialService {
           mustChangePassword: true,
           failedAttempts: 0,
           lockedUntil: null,
-          passwordChangedAt: now,
+          passwordChangedAt: nextPasswordChangedAt(current.passwordChangedAt, now),
         },
       });
       await transaction.pilotSession.updateMany({
@@ -292,7 +363,7 @@ export class StaffCredentialService {
         entityId: userId,
         metadata: { role: 'PROVIDER', mustChangePassword: true },
       }, transaction);
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    });
   }
 
   public async bootstrapInitialAdmin(input: InitialAdminInput): Promise<{ userId: string; username: string }> {
@@ -342,8 +413,13 @@ export class StaffCredentialService {
     throw new Error('ADMIN_BOOTSTRAP_UNAVAILABLE');
   }
 
-  private async recordCredentialFailure(userId: string, previousLock: Date | null, now: Date): Promise<void> {
-    const credential = await this.prisma.staffCredential.update({
+  private async recordCredentialFailure(
+    transaction: Prisma.TransactionClient,
+    userId: string,
+    previousLock: Date | null,
+    now: Date,
+  ): Promise<void> {
+    const credential = await transaction.staffCredential.update({
       where: { userId },
       data: previousLock !== null && previousLock <= now
         ? { failedAttempts: 1, lockedUntil: null }
@@ -351,7 +427,7 @@ export class StaffCredentialService {
       select: { id: true, failedAttempts: true },
     });
     if (credential.failedAttempts >= MAXIMUM_FAILURES) {
-      await this.prisma.staffCredential.update({
+      await transaction.staffCredential.update({
         where: { id: credential.id },
         data: { failedAttempts: MAXIMUM_FAILURES, lockedUntil: addMilliseconds(now, LOCK_DURATION_MILLISECONDS) },
       });
@@ -395,6 +471,21 @@ export class StaffCredentialService {
       disabledAt: credential.disabledAt?.toISOString() ?? null,
       createdAt: credential.createdAt.toISOString(),
     };
+  }
+
+  private async serializable<T>(operation: (transaction: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(operation, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+      } catch (error) {
+        if (isRetryable(error) && attempt < 2) continue;
+        if (isRetryable(error)) throw new Error('STAFF_OPERATION_UNAVAILABLE');
+        throw error;
+      }
+    }
+    throw new Error('STAFF_OPERATION_UNAVAILABLE');
   }
 }
 

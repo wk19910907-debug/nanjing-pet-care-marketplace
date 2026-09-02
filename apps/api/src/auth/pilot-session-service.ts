@@ -36,6 +36,8 @@ type RedeemResult = {
 export type PilotSessionContext = ActorContext & {
   displayName: string | null;
   expiresAt: Date;
+  mustChangePassword?: boolean;
+  staffPasswordChangedAt?: Date | null;
 };
 
 function addHours(value: Date, hours: number): Date {
@@ -199,16 +201,23 @@ export class PilotSessionService implements AuthService {
   }
 
   async createSessionForUser(userId: string): Promise<RedeemResult> {
-    const now = this.now();
-    const expiresAt = addDays(now, this.sessionDays);
+    return this.prisma.$transaction((transaction) => this.createSessionForUserInTransaction(transaction, userId));
+  }
+
+  async createSessionForUserInTransaction(
+    transaction: Prisma.TransactionClient,
+    userId: string,
+    createdAt = this.now(),
+  ): Promise<RedeemResult> {
+    const expiresAt = addDays(createdAt, this.sessionDays);
     const token = this.token();
-    await this.prisma.pilotSession.create({
+    await transaction.pilotSession.create({
       data: {
         tokenHash: digestPilotCredential(this.pepper, 'session', token),
         userId,
         expiresAt,
-        createdAt: now,
-        lastSeenAt: now,
+        createdAt,
+        lastSeenAt: createdAt,
       },
     });
     return { token, expiresAt };
@@ -229,9 +238,20 @@ export class PilotSessionService implements AuthService {
     const now = this.now();
     const session = await this.prisma.pilotSession.findFirst({
       where: { tokenHash, revokedAt: null, expiresAt: { gt: now } },
-      include: { user: { select: { id: true, role: true, displayName: true } } },
+      include: {
+        user: {
+          select: {
+            id: true,
+            role: true,
+            displayName: true,
+            staffCredential: { select: { disabledAt: true, mustChangePassword: true, passwordChangedAt: true } },
+          },
+        },
+      },
     });
-    if (!session) throw new Error('UNAUTHENTICATED');
+    if (!session || session.user.staffCredential?.disabledAt !== null && session.user.staffCredential?.disabledAt !== undefined) {
+      throw new Error('UNAUTHENTICATED');
+    }
 
     const active = await this.prisma.pilotSession.updateMany({
       where: { id: session.id, revokedAt: null, expiresAt: { gt: now } },
@@ -243,6 +263,8 @@ export class PilotSessionService implements AuthService {
       role: session.user.role,
       displayName: session.user.displayName,
       expiresAt: session.expiresAt,
+      mustChangePassword: session.user.staffCredential?.mustChangePassword ?? false,
+      staffPasswordChangedAt: session.user.staffCredential?.passwordChangedAt ?? null,
     };
   }
 

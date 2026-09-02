@@ -7,7 +7,11 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PrismaAuditRepository } from '../src/audit/audit-repository.js';
 import type { ActorContext } from '../src/auth/auth-service.js';
 import { PilotSessionService } from '../src/auth/pilot-session-service.js';
-import { StaffCredentialService } from '../src/auth/staff-credential-service.js';
+import {
+  normalizeStaffUsername,
+  StaffCredentialService,
+  StaffLoginLimiter,
+} from '../src/auth/staff-credential-service.js';
 
 const execFileAsync = promisify(execFile);
 const databaseBaseUrl = process.env.DATABASE_URL
@@ -153,8 +157,9 @@ describe('StaffCredentialService', () => {
     await expect(service.login(account.username, input.temporaryPassword, 'ip:127.0.0.3'))
       .rejects.toThrow('STAFF_LOGIN_INVALID');
     const afterReset = await service.login(account.username, 'Reset-password-2026', 'ip:127.0.0.3');
+    const afterResetCredential = await prisma.staffCredential.findUniqueOrThrow({ where: { userId: account.userId } });
     const changed = await service.changePassword(
-      { userId: account.userId, role: 'PROVIDER' },
+      { userId: account.userId, role: 'PROVIDER', staffPasswordChangedAt: afterResetCredential.passwordChangedAt },
       'Changed-password-2026',
     );
 
@@ -199,5 +204,119 @@ describe('StaffCredentialService', () => {
     await expect(service.bootstrapInitialAdmin({
       username: 'ops.admin', displayName: '系统管理员', temporaryPassword: 'Bootstrap-password-2026',
     })).rejects.toThrow('ADMIN_BOOTSTRAP_EXISTS');
+  });
+
+  it('rejects non-ASCII username source text before case normalization', async () => {
+    expect(() => normalizeStaffUsername('Kabc')).toThrow('USERNAME_INVALID');
+    expect(() => normalizeStaffUsername('provider。one')).toThrow('USERNAME_INVALID');
+  });
+
+  it('expires subthreshold limiter failures and evicts the oldest bounded key', () => {
+    const limiter = new StaffLoginLimiter({ maximumEntries: 2, windowMilliseconds: 1_000 });
+    const start = new Date('2026-09-02T08:00:00Z');
+
+    for (let attempt = 0; attempt < 4; attempt += 1) limiter.recordFailure('first', start);
+    expect(limiter.isLocked('first', start)).toBe(false);
+    limiter.recordFailure('first', new Date('2026-09-02T08:00:01Z'));
+    expect(limiter.isLocked('first', new Date('2026-09-02T08:00:01Z'))).toBe(false);
+
+    for (let attempt = 0; attempt < 5; attempt += 1) limiter.recordFailure('second', start);
+    for (let attempt = 0; attempt < 5; attempt += 1) limiter.recordFailure('third', start);
+    expect(limiter.size).toBe(2);
+    expect(limiter.isLocked('first', start)).toBe(false);
+    expect(limiter.isLocked('second', start)).toBe(true);
+    expect(limiter.isLocked('third', start)).toBe(true);
+  });
+
+  it('requires transactional session issuance and leaves no active session after concurrent login and disable', async () => {
+    const now = () => new Date('2026-09-02T08:00:00Z');
+    const realSessions = new PilotSessionService(prisma, {
+      pepper, inviteHours: 24, sessionDays: 7, now, token: () => randomUUID(),
+    });
+    const sessions = {
+      createSessionForUser: async () => { throw new Error('SESSION_MUST_BE_TRANSACTIONAL'); },
+      createSessionForUserInTransaction: async (transaction: Parameters<
+        PilotSessionService['createSessionForUserInTransaction']
+      >[0], userId: string) => realSessions.createSessionForUserInTransaction(transaction, userId),
+    };
+    const service = new StaffCredentialService(prisma, sessions, new PrismaAuditRepository(prisma), {
+      usernamePepper: pepper, now,
+    });
+    const admin = await adminActor();
+    const input = providerInput();
+    const account = await service.createProvider(admin, input);
+
+    const [login] = await Promise.allSettled([
+      service.login(account.username, input.temporaryPassword, 'ip:127.0.0.1'),
+      service.setDisabled(admin, account.userId, true),
+    ]);
+
+    expect(await prisma.pilotSession.count({ where: { userId: account.userId, revokedAt: null } })).toBe(0);
+    if (login.status === 'fulfilled') {
+      await expect(realSessions.authenticate(`Bearer ${login.value.session.token}`)).rejects.toThrow('UNAUTHENTICATED');
+    } else {
+      expect(login.reason).toMatchObject({ message: 'STAFF_LOGIN_INVALID' });
+    }
+  });
+
+  it('leaves no active replacement session when password change and reset run concurrently', async () => {
+    const now = () => new Date('2026-09-02T08:00:00Z');
+    const service = createService(now);
+    const admin = await adminActor();
+    const input = providerInput();
+    const account = await service.createProvider(admin, input);
+
+    const results = await Promise.allSettled([
+      service.changePassword({ userId: account.userId, role: 'PROVIDER', staffPasswordChangedAt: null }, 'Changed-password-2026'),
+      service.resetPassword(admin, account.userId, 'Reset-password-2026'),
+    ]);
+
+    expect(results.every((result) => result.status === 'fulfilled'
+      || (result.reason as Error).message === 'UNAUTHENTICATED')).toBe(true);
+    expect(await prisma.pilotSession.count({ where: { userId: account.userId, revokedAt: null } })).toBe(0);
+  });
+
+  it('rejects a stale password-change context when two resets share the same clock instant', async () => {
+    const now = () => new Date('2026-09-02T08:00:00Z');
+    const service = createService(now);
+    const admin = await adminActor();
+    const input = providerInput();
+    const account = await service.createProvider(admin, input);
+    await service.resetPassword(admin, account.userId, 'Reset-password-2026');
+    const session = await service.login(account.username, 'Reset-password-2026', 'ip:127.0.0.1');
+    const credential = await prisma.staffCredential.findUniqueOrThrow({ where: { userId: account.userId } });
+    await service.resetPassword(admin, account.userId, 'Reset-password-two-2026');
+
+    await expect(service.changePassword({
+      userId: account.userId, role: 'PROVIDER', staffPasswordChangedAt: credential.passwordChangedAt,
+    }, 'Changed-password-2026')).rejects.toThrow('UNAUTHENTICATED');
+    expect(await prisma.pilotSession.count({ where: { userId: account.userId, revokedAt: null } })).toBe(0);
+    await expect(createService(now).login(account.username, 'Reset-password-two-2026', 'ip:127.0.0.2'))
+      .resolves.toMatchObject({ session: { token: expect.any(String) } });
+    expect(session.session.token).toMatch(/^[0-9a-f-]+$/);
+  });
+
+  it('retries serializable concurrent staff writers instead of surfacing P2034', async () => {
+    const now = () => new Date('2026-09-02T08:00:00Z');
+    const service = createService(now);
+    const admin = await adminActor();
+    const input = providerInput();
+    const account = await service.createProvider(admin, input);
+
+    await expect(Promise.all([
+      service.setDisabled(admin, account.userId, true),
+      service.setDisabled(admin, account.userId, false),
+    ])).resolves.toHaveLength(2);
+    await service.setDisabled(admin, account.userId, false);
+    await expect(Promise.all([
+      service.resetPassword(admin, account.userId, 'Reset-password-2026'),
+      service.resetPassword(admin, account.userId, 'Reset-password-two-2026'),
+    ])).resolves.toHaveLength(2);
+    const changes = await Promise.allSettled([
+      service.changePassword({ userId: account.userId, role: 'PROVIDER', staffPasswordChangedAt: null }, 'Changed-password-2026'),
+      service.changePassword({ userId: account.userId, role: 'PROVIDER', staffPasswordChangedAt: null }, 'Changed-password-two-2026'),
+    ]);
+    expect(changes.every((result) => result.status === 'fulfilled'
+      || (result.reason as Error).message === 'UNAUTHENTICATED')).toBe(true);
   });
 });
