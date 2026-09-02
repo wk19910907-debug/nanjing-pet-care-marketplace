@@ -198,6 +198,31 @@ export class PilotSessionService implements AuthService {
     throw new Error('LOCAL_SESSION_UNAVAILABLE');
   }
 
+  async createSessionForUser(userId: string): Promise<RedeemResult> {
+    const now = this.now();
+    const expiresAt = addDays(now, this.sessionDays);
+    const token = this.token();
+    await this.prisma.pilotSession.create({
+      data: {
+        tokenHash: digestPilotCredential(this.pepper, 'session', token),
+        userId,
+        expiresAt,
+        createdAt: now,
+        lastSeenAt: now,
+      },
+    });
+    return { token, expiresAt };
+  }
+
+  async revokeAllForUser(userId: string): Promise<number> {
+    const now = this.now();
+    const revoked = await this.prisma.pilotSession.updateMany({
+      where: { userId, revokedAt: null, expiresAt: { gt: now } },
+      data: { revokedAt: now },
+    });
+    return revoked.count;
+  }
+
   async authenticate(authorizationHeader: string | undefined): Promise<PilotSessionContext> {
     const raw = bearerToken(authorizationHeader);
     const tokenHash = digestPilotCredential(this.pepper, 'session', raw);

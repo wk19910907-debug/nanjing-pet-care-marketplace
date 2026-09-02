@@ -81,6 +81,39 @@ describe('PilotSessionService', () => {
     await admin.$disconnect();
   });
 
+  it('issues sessions with only a digest persisted and revokes every active session for a user', async () => {
+    await resetTables();
+    const user = await prisma.user.create({ data: { role: 'ADMIN' } });
+    const pepper = Buffer.alloc(32, 7);
+    const service = new PilotSessionService(prisma, {
+      pepper,
+      inviteHours: 24,
+      sessionDays: 7,
+      now: () => new Date('2026-09-02T08:00:00Z'),
+      token: sequenceTokens('staff-session-one', 'staff-session-two'),
+    });
+
+    const first = await service.createSessionForUser(user.id);
+    const second = await service.createSessionForUser(user.id);
+    const stored = await prisma.pilotSession.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    expect(first.expiresAt).toEqual(new Date('2026-09-09T08:00:00Z'));
+    expect(stored.map((session) => session.tokenHash)).toEqual([
+      digestPilotCredential(pepper, 'session', first.token),
+      digestPilotCredential(pepper, 'session', second.token),
+    ]);
+    expect(JSON.stringify(stored)).not.toContain(first.token);
+    expect(JSON.stringify(stored)).not.toContain(second.token);
+
+    await expect(service.revokeAllForUser(user.id)).resolves.toBe(2);
+    expect(await prisma.pilotSession.count({
+      where: { userId: user.id, revokedAt: null },
+    })).toBe(0);
+  });
+
   it('bootstraps an admin invite, persists only digests, and redeems a targeted invite', async () => {
     await resetTables();
     const service = new PilotSessionService(prisma, {
