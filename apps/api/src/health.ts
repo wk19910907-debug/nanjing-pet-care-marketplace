@@ -3,7 +3,7 @@ import type { AppConfig } from './config.js';
 
 export function readinessSnapshot(
   config: AppConfig,
-  probes: { database: boolean; objectStorage: boolean },
+  probes: { database: boolean; objectStorage: boolean; adminCredential?: boolean },
 ) {
   const production = config.production;
   const encryptionConfigured = Boolean(
@@ -11,7 +11,7 @@ export function readinessSnapshot(
   );
   if (config.pilot) return {
     ready: probes.database && probes.objectStorage && encryptionConfigured
-      && (config.nodeEnv !== 'production' || Boolean(production)),
+      && (config.nodeEnv !== 'production' || (Boolean(production) && probes.adminCredential !== false)),
     database: probes.database,
     objectStorage: probes.objectStorage,
     encryption: encryptionConfigured,
@@ -38,11 +38,14 @@ export function registerHealthRoutes(
   config: AppConfig,
   databaseProbe: () => Promise<boolean>,
   objectStorageProbe: () => Promise<boolean>,
+  adminCredentialProbe: () => Promise<boolean> = async () => true,
 ) {
   app.get('/health/live', async () => ({ alive: true }));
   app.get('/health/ready', async (_request, reply) => {
-    const [database, objectStorage] = await Promise.all([databaseProbe(), objectStorageProbe()]);
-    const snapshot = readinessSnapshot(config, { database, objectStorage });
+    const [database, objectStorage, adminCredential] = await Promise.all([
+      databaseProbe(), objectStorageProbe(), adminCredentialProbe(),
+    ]);
+    const snapshot = readinessSnapshot(config, { database, objectStorage, adminCredential });
     return reply.code(snapshot.ready ? 200 : 503).send(snapshot);
   });
 }

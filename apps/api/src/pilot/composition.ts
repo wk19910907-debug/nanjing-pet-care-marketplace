@@ -12,6 +12,8 @@ import { createApp } from '../app.js';
 import { PrismaAuditRepository } from '../audit/audit-repository.js';
 import type { AuthService } from '../auth/auth-service.js';
 import { PilotSessionService } from '../auth/pilot-session-service.js';
+import { PublicOwnerAccessService } from '../auth/public-owner-access-service.js';
+import { StaffCredentialService } from '../auth/staff-credential-service.js';
 import { WechatLoginGateway } from '../auth/wechat-login-gateway.js';
 import { QuoteService } from '../catalog/quote-service.js';
 import { PrismaOperationsCatalogRepository } from '../catalog/operations-catalog-repository.js';
@@ -120,9 +122,24 @@ export async function createPilotApplication(
     const onboardedAuth: AuthService = {
       authenticate: async (authorizationHeader) => {
         const actor = await sessions.authenticate(authorizationHeader);
+        if (actor.mustChangePassword) throw new Error('PASSWORD_CHANGE_REQUIRED');
         if (actor.displayName === null) throw new Error('ONBOARDING_REQUIRED');
         return actor;
       },
+    };
+    const publicOwnerAccess = new PublicOwnerAccessService(prisma, sessions, audit, {
+      pepper: config.pilot.authPepper,
+    });
+    const staffCredentials = new StaffCredentialService(prisma, sessions, audit, {
+      usernamePepper: config.pilot.authPepper,
+    });
+    const businessSessions = {
+      authenticate: async (authorizationHeader: string | undefined) => {
+        const actor = await sessions.authenticate(authorizationHeader);
+        if (actor.mustChangePassword) throw new Error('PASSWORD_CHANGE_REQUIRED');
+        return actor;
+      },
+      createInvite: sessions.createInvite.bind(sessions),
     };
     const wechatGateway = config.wechatLogin
       ? new WechatLoginGateway(config.wechatLogin, overrides.wechatTransport)
@@ -189,13 +206,14 @@ export async function createPilotApplication(
       settlements,
       refunds,
       disputes,
-      pilot: { config, sessions, ...(wechatGateway ? {
+      pilot: { config, sessions, publicOwnerAccess, staffCredentials, ...(wechatGateway ? {
         wechatLogin: { login: async (code: string) => sessions.createWechatSession(await wechatGateway.exchange(code)) },
       } : {}) },
       pilotBusiness: {
         fees: new ManualFeeService(prisma, audit),
         read: new PilotReadModel(prisma),
         fulfillment,
+        sessions: businessSessions,
       },
       operationsCatalog: { service: operationsCatalog, sessions },
     }, {
@@ -223,6 +241,18 @@ export async function createPilotApplication(
       }),
       config.nodeEnv === 'production'
         ? () => overrides.s3Signer!.probe()
+        : async () => true,
+      config.nodeEnv === 'production'
+        ? async () => {
+            try {
+              return Boolean(await prisma.staffCredential.findFirst({
+                where: { disabledAt: null, user: { role: 'ADMIN' } },
+                select: { id: true },
+              }));
+            } catch {
+              return false;
+            }
+          }
         : async () => true,
     );
     app.addHook('onSend', async (request, reply, payload) => {

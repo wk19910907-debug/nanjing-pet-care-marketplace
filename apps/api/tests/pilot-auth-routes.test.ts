@@ -427,6 +427,7 @@ describe('pilot authentication routes', () => {
     expect(session.statusCode).toBe(200);
     expect(session.json()).toEqual({
       userId: 'owner-1', role: 'OWNER', displayName: null, expiresAt: expiresAt.toISOString(),
+      mustChangePassword: false,
     });
     await app.close();
   });

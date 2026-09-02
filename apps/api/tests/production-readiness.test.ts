@@ -80,6 +80,14 @@ describe('production readiness', () => {
     });
     expect(response).toMatchObject({ ready: false, database: true, objectStorage: false });
   });
+
+  it('requires an active administrator credential before a pilot production instance is ready', () => {
+    const config = loadConfig(pilotProductionEnvironment);
+    expect(readinessSnapshot(config, { database: true, objectStorage: true, adminCredential: false }))
+      .toMatchObject({ ready: false });
+    expect(readinessSnapshot(config, { database: true, objectStorage: true, adminCredential: true }))
+      .toMatchObject({ ready: true });
+  });
 });
 
 describe('scheduled job entry points', () => {

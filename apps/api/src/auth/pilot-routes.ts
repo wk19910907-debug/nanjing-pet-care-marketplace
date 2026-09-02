@@ -47,13 +47,16 @@ function cookieOptions(secure: boolean): FastifyCookieOptions['parseOptions'] {
   return { httpOnly: true, sameSite: 'lax', path: '/', secure };
 }
 
-function writeSessionCookie(
+export function writeSessionCookie(
   reply: FastifyReply,
   secure: boolean,
   session?: { token: string; expiresAt: Date },
 ): void {
   const options = cookieOptions(secure);
-  if (session) reply.setCookie(SESSION_COOKIE, session.token, { ...options, expires: session.expiresAt });
+  if (session) {
+    const maxAge = Math.max(0, Math.floor((session.expiresAt.getTime() - Date.now()) / 1_000));
+    reply.setCookie(SESSION_COOKIE, session.token, { ...options, expires: session.expiresAt, maxAge });
+  }
   else reply.clearCookie(SESSION_COOKIE, options);
 }
 
@@ -103,9 +106,16 @@ export async function registerPilotAuthRoutes(
     });
   }
 
-  app.get('/api/v1/pilot/session', async (request) => (
-    dependencies.sessions.authenticate(authorization(request))
-  ));
+  app.get('/api/v1/pilot/session', async (request) => {
+    const session = await dependencies.sessions.authenticate(authorization(request));
+    return {
+      userId: session.userId,
+      role: session.role,
+      displayName: session.displayName,
+      expiresAt: session.expiresAt.toISOString(),
+      mustChangePassword: session.mustChangePassword ?? false,
+    };
+  });
 
   app.route({ method: ['PATCH', 'POST'], url: '/api/v1/pilot/me', handler: async (request) => {
     const actor = await dependencies.sessions.authenticate(authorization(request));

@@ -11,6 +11,10 @@ import {
   type PilotAuthRoutesDependencies,
 } from './auth/pilot-routes.js';
 import { requirePilotOrigin } from './auth/pilot-origin-guard.js';
+import {
+  registerProductionAccessRoutes,
+  type ProductionAccessRoutesDependencies,
+} from './auth/production-access-routes.js';
 import { WECHAT_SESSION_PATH } from './auth/wechat-login-routes.js';
 import { registerPilotRoutes, type PilotRoutesDependencies } from './pilot/pilot-routes.js';
 import {
@@ -30,8 +34,8 @@ type AppDependencies = PetRoutesDependencies
   & Partial<Omit<FulfillmentRoutesDependencies, 'auth'>>
   & Partial<Omit<DisputeRoutesDependencies, 'auth'>>
   & {
-    pilot?: PilotAuthRoutesDependencies;
-    pilotBusiness?: Omit<PilotRoutesDependencies, 'sessions'>;
+    pilot?: PilotAuthRoutesDependencies & Partial<ProductionAccessRoutesDependencies>;
+    pilotBusiness?: Omit<PilotRoutesDependencies, 'sessions'> & Partial<Pick<PilotRoutesDependencies, 'sessions'>>;
     operationsCatalog?: OperationsCatalogRoutesDependencies;
   };
 
@@ -57,6 +61,18 @@ export function createApp(dependencies: AppDependencies, options: AppOptions = {
     if (error instanceof Error && error.message === 'UNAUTHENTICATED') {
       return reply.code(401).send({ code: 'UNAUTHENTICATED' });
     }
+    if (error instanceof Error && ['RECOVERY_INVALID', 'STAFF_LOGIN_INVALID'].includes(error.message)) {
+      return reply.code(401).send({ code: error.message });
+    }
+    if (error instanceof Error && error.message === 'RECOVERY_ALREADY_ISSUED') {
+      return reply.code(409).send({ code: 'RECOVERY_ALREADY_ISSUED' });
+    }
+    if (error instanceof Error && error.message === 'RECOVERY_NOT_ISSUED') {
+      return reply.code(409).send({ code: 'RECOVERY_NOT_ISSUED' });
+    }
+    if (error instanceof Error && error.message === 'STAFF_LOGIN_BUSY') {
+      return reply.code(429).send({ code: 'STAFF_LOGIN_BUSY' });
+    }
     if (error instanceof Error && error.message === 'INVITE_INVALID') {
       return reply.code(401).send({ code: 'INVITE_INVALID' });
     }
@@ -68,6 +84,9 @@ export function createApp(dependencies: AppDependencies, options: AppOptions = {
     }
     if (error instanceof Error && error.message === 'ONBOARDING_REQUIRED') {
       return reply.code(403).send({ code: 'ONBOARDING_REQUIRED' });
+    }
+    if (error instanceof Error && error.message === 'PASSWORD_CHANGE_REQUIRED') {
+      return reply.code(403).send({ code: 'PASSWORD_CHANGE_REQUIRED' });
     }
     if (error instanceof Error && error.message === 'VALIDATION_ERROR') {
       return reply.code(400).send({ code: 'VALIDATION_ERROR' });
@@ -121,7 +140,13 @@ export function createApp(dependencies: AppDependencies, options: AppOptions = {
     ].includes(error.message)) {
       return reply.code(409).send({ code: error.message });
     }
-    if (request.url.startsWith('/api/v1/pilot/') || request.url.split('?', 1)[0] === WECHAT_SESSION_PATH) {
+    if (
+      request.url.startsWith('/api/v1/pilot/')
+      || request.url.startsWith('/api/v1/public/')
+      || request.url.startsWith('/api/v1/staff/')
+      || request.url.startsWith('/api/v1/admin/staff-accounts')
+      || request.url.split('?', 1)[0] === WECHAT_SESSION_PATH
+    ) {
       const frameworkCode = typeof error === 'object' && error !== null
         && 'code' in error && typeof error.code === 'string'
         ? error.code
@@ -144,11 +169,14 @@ export function createApp(dependencies: AppDependencies, options: AppOptions = {
       app.addHook('onRequest', requirePilotOrigin(origin));
     }
     void app.register(registerPilotAuthRoutes, dependencies.pilot);
+    if (dependencies.pilot.publicOwnerAccess && dependencies.pilot.staffCredentials) {
+      void app.register(registerProductionAccessRoutes, dependencies.pilot as ProductionAccessRoutesDependencies);
+    }
   }
   if (dependencies.pilotBusiness) {
     void app.register(registerPilotRoutes, {
       ...dependencies.pilotBusiness,
-      sessions: dependencies.pilot!.sessions,
+      sessions: dependencies.pilotBusiness.sessions ?? dependencies.pilot!.sessions,
     });
   }
   if (dependencies.operationsCatalog) {
