@@ -71,6 +71,7 @@
 - Modify: `prisma/schema.prisma`
 - Create: `prisma/migrations/202609020001_production_web_access/migration.sql`
 - Modify: `apps/api/package.json`
+- Modify: root `package.json`
 - Modify: `pnpm-lock.yaml`
 - Test: `apps/api/tests/schema.test.ts`
 
@@ -156,7 +157,7 @@ Add `ownerRecoveryCredential`, `staffCredential`, `orderMessagesAuthored`, and `
 
 - [ ] **Step 4: Pin Argon2id and regenerate Prisma**
 
-Run: `pnpm --filter @pet/api add argon2@0.45.1 && pnpm exec prisma generate`
+Run: `pnpm --filter @pet/api add argon2@0.45.1`, add `argon2` to the root `pnpm.onlyBuiltDependencies` allowlist together with the existing Prisma/esbuild build dependencies, then run `pnpm install --frozen-lockfile && pnpm exec prisma generate`.
 
 Expected: package and lockfile change; Prisma Client generation succeeds under Node 22.
 
@@ -169,7 +170,7 @@ Expected: schema tests and workspace typecheck PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add prisma apps/api/package.json pnpm-lock.yaml apps/api/tests/schema.test.ts
+git add prisma apps/api/package.json package.json pnpm-lock.yaml apps/api/tests/schema.test.ts
 git commit -m "feat: add production web access schema"
 ```
 
