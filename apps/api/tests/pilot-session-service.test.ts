@@ -97,14 +97,14 @@ describe('PilotSessionService', () => {
     const second = await service.createSessionForUser(user.id);
     const stored = await prisma.pilotSession.findMany({
       where: { userId: user.id },
-      orderBy: { createdAt: 'asc' },
     });
 
     expect(first.expiresAt).toEqual(new Date('2026-09-09T08:00:00Z'));
-    expect(stored.map((session) => session.tokenHash)).toEqual([
+    expect(stored).toHaveLength(2);
+    expect(new Set(stored.map((session) => session.tokenHash))).toEqual(new Set([
       digestPilotCredential(pepper, 'session', first.token),
       digestPilotCredential(pepper, 'session', second.token),
-    ]);
+    ]));
     expect(JSON.stringify(stored)).not.toContain(first.token);
     expect(JSON.stringify(stored)).not.toContain(second.token);
 
