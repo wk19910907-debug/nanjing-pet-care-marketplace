@@ -25,7 +25,7 @@ const prismaCli = fileURLToPath(new URL('../../../node_modules/prisma/build/inde
 const schemaPath = fileURLToPath(new URL('../../../prisma/schema.prisma', import.meta.url));
 const pepper = Buffer.alloc(32, 23);
 
-function createService(now: () => Date) {
+function createService(now: () => Date, overrides: Record<string, unknown> = {}) {
   const sessions = new PilotSessionService(prisma, {
     pepper,
     inviteHours: 24,
@@ -36,7 +36,18 @@ function createService(now: () => Date) {
   return new StaffCredentialService(prisma, sessions, new PrismaAuditRepository(prisma), {
     usernamePepper: pepper,
     now,
+    ...overrides,
   });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
 
 async function adminActor(): Promise<ActorContext> {
@@ -228,6 +239,40 @@ describe('StaffCredentialService', () => {
     expect(limiter.isLocked('third', start)).toBe(true);
   });
 
+  it('keeps a locked limiter entry through its full lock duration when its failure window is shorter', () => {
+    const limiter = new StaffLoginLimiter({ maximumEntries: 2, windowMilliseconds: 1_000 });
+    const start = new Date('2026-09-02T08:00:00Z');
+    for (let attempt = 0; attempt < 5; attempt += 1) limiter.recordFailure('locked', start);
+
+    expect(limiter.isLocked('locked', new Date('2026-09-02T08:00:01Z'))).toBe(true);
+    expect(limiter.isLocked('locked', new Date('2026-09-02T08:10:00Z'))).toBe(false);
+  });
+
+  it('bounds concurrent login work before starting extra Argon2 verification or database work', async () => {
+    const now = () => new Date('2026-09-02T08:00:00Z');
+    const verificationStarted = deferred<void>();
+    const releaseVerification = deferred<void>();
+    const service = createService(now, {
+      loginMaximumConcurrent: 1,
+      loginMaximumQueued: 0,
+      passwordHasher: {
+        hash: async () => 'unused',
+        verify: async () => {
+          verificationStarted.resolve();
+          await releaseVerification.promise;
+          return false;
+        },
+      },
+    });
+
+    const first = service.login('unknown.staff', 'any-password', 'ip:127.0.0.1');
+    await verificationStarted.promise;
+    await expect(service.login('other.staff', 'any-password', 'ip:127.0.0.2'))
+      .rejects.toThrow('STAFF_LOGIN_BUSY');
+    releaseVerification.resolve();
+    await expect(first).rejects.toThrow('STAFF_LOGIN_INVALID');
+  });
+
   it('requires transactional session issuance and leaves no active session after concurrent login and disable', async () => {
     const now = () => new Date('2026-09-02T08:00:00Z');
     const realSessions = new PilotSessionService(prisma, {
@@ -246,12 +291,13 @@ describe('StaffCredentialService', () => {
     const input = providerInput();
     const account = await service.createProvider(admin, input);
 
-    const [login] = await Promise.allSettled([
+    const [login, disabled] = await Promise.allSettled([
       service.login(account.username, input.temporaryPassword, 'ip:127.0.0.1'),
       service.setDisabled(admin, account.userId, true),
     ]);
 
     expect(await prisma.pilotSession.count({ where: { userId: account.userId, revokedAt: null } })).toBe(0);
+    expect(disabled).toMatchObject({ status: 'fulfilled' });
     if (login.status === 'fulfilled') {
       await expect(realSessions.authenticate(`Bearer ${login.value.session.token}`)).rejects.toThrow('UNAUTHENTICATED');
     } else {

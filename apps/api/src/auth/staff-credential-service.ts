@@ -11,6 +11,8 @@ const MAXIMUM_LOGIN_NAME_LENGTH = 256;
 const MAXIMUM_FAILURES = 5;
 const LOCK_DURATION_MILLISECONDS = 10 * 60 * 1_000;
 const DEFAULT_LIMITER_MAXIMUM_ENTRIES = 10_000;
+const DEFAULT_LOGIN_MAXIMUM_CONCURRENT = 8;
+const DEFAULT_LOGIN_MAXIMUM_QUEUED = 32;
 const DUMMY_PASSWORD_HASH = '$argon2id$v=19$m=19456,p=1,t=2$M4G/wSx/4x1W8pLMNGQqOA$+4kpsw1biX1TRbn0QQ1PYY7fKCVjfWNLidfiCVyIVjU';
 const DUMMY_PASSWORD = 'staff-login-dummy-password-value';
 
@@ -46,11 +48,19 @@ export type StaffCredentialServiceOptions = {
   now?: () => Date;
   limiterMaximumEntries?: number;
   limiterWindowMilliseconds?: number;
+  loginMaximumConcurrent?: number;
+  loginMaximumQueued?: number;
+  passwordHasher?: Pick<PasswordHasher, 'hash' | 'verify'>;
 };
 
 export type StaffLoginLimiterOptions = {
   maximumEntries?: number;
   windowMilliseconds?: number;
+};
+
+export type StaffLoginWorkLimiterOptions = {
+  maximumConcurrent?: number;
+  maximumQueued?: number;
 };
 
 type RateLimitState = { failures: number; expiresAt: Date; lockedUntil: Date | null };
@@ -86,10 +96,13 @@ export class StaffLoginLimiter {
       if (oldest) this.states.delete(oldest);
     }
     if (current) this.states.delete(key);
+    const lockedUntil = failures >= MAXIMUM_FAILURES ? addMilliseconds(now, LOCK_DURATION_MILLISECONDS) : null;
     this.states.set(key, {
       failures,
-      expiresAt: addMilliseconds(now, this.windowMilliseconds),
-      lockedUntil: failures >= MAXIMUM_FAILURES ? addMilliseconds(now, LOCK_DURATION_MILLISECONDS) : null,
+      expiresAt: lockedUntil && lockedUntil > addMilliseconds(now, this.windowMilliseconds)
+        ? lockedUntil
+        : addMilliseconds(now, this.windowMilliseconds),
+      lockedUntil,
     });
   }
 
@@ -105,6 +118,37 @@ export class StaffLoginLimiter {
       return undefined;
     }
     return current;
+  }
+}
+
+/** Bounds expensive login work across all username and IP keys in this process. */
+export class StaffLoginWorkLimiter {
+  private activeCount = 0;
+  private readonly queued: Array<() => void> = [];
+  private readonly maximumConcurrent: number;
+  private readonly maximumQueued: number;
+
+  public constructor(options: StaffLoginWorkLimiterOptions = {}) {
+    this.maximumConcurrent = options.maximumConcurrent ?? DEFAULT_LOGIN_MAXIMUM_CONCURRENT;
+    this.maximumQueued = options.maximumQueued ?? DEFAULT_LOGIN_MAXIMUM_QUEUED;
+    if (!Number.isInteger(this.maximumConcurrent) || this.maximumConcurrent < 1
+      || !Number.isInteger(this.maximumQueued) || this.maximumQueued < 0) {
+      throw new Error('STAFF_LOGIN_WORK_LIMITER_OPTIONS_INVALID');
+    }
+  }
+
+  public async run<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.activeCount >= this.maximumConcurrent) {
+      if (this.queued.length >= this.maximumQueued) throw new Error('STAFF_LOGIN_BUSY');
+      await new Promise<void>((resolve) => this.queued.push(resolve));
+    }
+    this.activeCount += 1;
+    try {
+      return await operation();
+    } finally {
+      this.activeCount -= 1;
+      this.queued.shift()?.();
+    }
   }
 }
 
@@ -148,8 +192,9 @@ function nextPasswordChangedAt(previous: Date | null, now: Date): Date {
 
 export class StaffCredentialService {
   private readonly now: () => Date;
-  private readonly passwordHasher = new PasswordHasher();
+  private readonly passwordHasher: Pick<PasswordHasher, 'hash' | 'verify'>;
   private readonly rateLimiter: StaffLoginLimiter;
+  private readonly loginWorkLimiter: StaffLoginWorkLimiter;
 
   public constructor(
     private readonly prisma: PrismaClient,
@@ -163,9 +208,18 @@ export class StaffCredentialService {
       maximumEntries: options.limiterMaximumEntries ?? DEFAULT_LIMITER_MAXIMUM_ENTRIES,
       windowMilliseconds: options.limiterWindowMilliseconds ?? LOCK_DURATION_MILLISECONDS,
     });
+    this.loginWorkLimiter = new StaffLoginWorkLimiter({
+      maximumConcurrent: options.loginMaximumConcurrent ?? DEFAULT_LOGIN_MAXIMUM_CONCURRENT,
+      maximumQueued: options.loginMaximumQueued ?? DEFAULT_LOGIN_MAXIMUM_QUEUED,
+    });
+    this.passwordHasher = options.passwordHasher ?? new PasswordHasher();
   }
 
   public async login(username: string, password: string, ipKey: string): Promise<StaffLoginResult> {
+    return this.loginWorkLimiter.run(() => this.loginWithinWorkLimit(username, password, ipKey));
+  }
+
+  private async loginWithinWorkLimit(username: string, password: string, ipKey: string): Promise<StaffLoginResult> {
     const normalized = loginUsername(username);
     const usernameKey = this.usernameKey(normalized ?? `invalid\0${username.slice(0, MAXIMUM_LOGIN_NAME_LENGTH)}`);
     const clientKey = this.clientKey(ipKey);
@@ -178,6 +232,19 @@ export class StaffCredentialService {
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
+        const snapshot = normalized
+          ? await this.prisma.staffCredential.findUnique({
+            where: { usernameNormalized: normalized },
+            include: { user: { select: { id: true, role: true } } },
+          })
+          : null;
+        const verified = await this.passwordHasher.verify(
+          snapshot?.passwordHash ?? DUMMY_PASSWORD_HASH,
+          passwordToVerify,
+        ) && passwordToVerify === password;
+        if (this.rateLimiter.isLocked(usernameKey, this.now()) || this.rateLimiter.isLocked(clientKey, this.now())) {
+          throw new Error('STAFF_LOGIN_INVALID');
+        }
         const result = await this.prisma.$transaction(async (transaction) => {
           const credential = normalized
             ? await transaction.staffCredential.findUnique({
@@ -185,10 +252,7 @@ export class StaffCredentialService {
               include: { user: { select: { id: true, role: true } } },
             })
             : null;
-          const verified = await this.passwordHasher.verify(
-            credential?.passwordHash ?? DUMMY_PASSWORD_HASH,
-            passwordToVerify,
-          ) && passwordToVerify === password;
+          if (!this.sameCredentialVersion(snapshot, credential)) return { retry: true } as const;
           const credentialLocked = credential?.lockedUntil !== null && credential?.lockedUntil !== undefined
             && credential.lockedUntil > now;
           const active = credential !== null && (credential.user.role === 'PROVIDER' || credential.user.role === 'ADMIN')
@@ -197,16 +261,17 @@ export class StaffCredentialService {
             if (credential && credential.disabledAt === null && !credentialLocked && !verified) {
               await this.recordCredentialFailure(transaction, credential.userId, credential.lockedUntil, now);
             }
-            return null;
+            return { invalid: true } as const;
           }
           await transaction.staffCredential.update({
             where: { id: credential.id },
             data: { failedAttempts: 0, lockedUntil: null },
           });
           const session = await this.sessions.createSessionForUserInTransaction(transaction, credential.userId, now);
-          return { session, mustChangePassword: credential.mustChangePassword };
+          return { session, mustChangePassword: credential.mustChangePassword } as const;
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-        if (!result) {
+        if ('retry' in result) continue;
+        if ('invalid' in result) {
           this.rateLimiter.recordFailure(usernameKey, now);
           this.rateLimiter.recordFailure(clientKey, now);
           throw new Error('STAFF_LOGIN_INVALID');
@@ -432,6 +497,27 @@ export class StaffCredentialService {
         data: { failedAttempts: MAXIMUM_FAILURES, lockedUntil: addMilliseconds(now, LOCK_DURATION_MILLISECONDS) },
       });
     }
+  }
+
+  private sameCredentialVersion(
+    snapshot: {
+      id: string;
+      passwordHash: string;
+      mustChangePassword: boolean;
+      passwordChangedAt: Date | null;
+    } | null,
+    current: {
+      id: string;
+      passwordHash: string;
+      mustChangePassword: boolean;
+      passwordChangedAt: Date | null;
+    } | null,
+  ): boolean {
+    if (snapshot === null || current === null) return snapshot === current;
+    return snapshot.id === current.id
+      && snapshot.passwordHash === current.passwordHash
+      && snapshot.mustChangePassword === current.mustChangePassword
+      && sameInstant(snapshot.passwordChangedAt, current.passwordChangedAt);
   }
 
   private usernameKey(value: string): string {
