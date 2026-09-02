@@ -8,6 +8,7 @@ import {
   LOCAL_PILOT_ROLES,
   type PilotSessionService,
 } from './pilot-session-service.js';
+import { authenticateStaffAction } from './staff-action-auth.js';
 
 const SESSION_COOKIE = 'petcare_pilot_session';
 const LoginSchema = z.object({ inviteCode: z.string().min(1).max(512) });
@@ -118,7 +119,9 @@ export async function registerPilotAuthRoutes(
   });
 
   app.route({ method: ['PATCH', 'POST'], url: '/api/v1/pilot/me', handler: async (request) => {
-    const actor = await dependencies.sessions.authenticate(authorization(request));
+    const actor = await authenticateStaffAction(
+      dependencies.sessions.authenticate.bind(dependencies.sessions), authorization(request),
+    );
     const { displayName } = DisplayNameSchema.parse(request.body);
     return dependencies.sessions.setDisplayName(actor, displayName);
   },

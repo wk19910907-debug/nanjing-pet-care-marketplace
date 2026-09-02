@@ -1,8 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { ActorContext } from '../auth/auth-service.js';
 import type { OperationsCatalogService } from './operations-catalog-service.js';
+import { authenticateStaffAction } from '../auth/staff-action-auth.js';
 
-type CatalogSession = ActorContext & { displayName: string | null };
+type CatalogSession = ActorContext & { displayName: string | null; mustChangePassword?: boolean };
 
 export type OperationsCatalogRoutesDependencies = {
   service: Pick<OperationsCatalogService, 'getPublic' | 'getAdmin' | 'update'>;
@@ -16,7 +17,9 @@ export async function registerOperationsCatalogRoutes(
   dependencies: OperationsCatalogRoutesDependencies,
 ): Promise<void> {
   const actor = async (request: FastifyRequest) => {
-    const session = await dependencies.sessions.authenticate(request.headers.authorization);
+    const session = await authenticateStaffAction(
+      dependencies.sessions.authenticate.bind(dependencies.sessions), request.headers.authorization,
+    );
     if (session.displayName === null) throw new Error('ONBOARDING_REQUIRED');
     return session;
   };

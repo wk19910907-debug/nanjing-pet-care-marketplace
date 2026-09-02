@@ -8,6 +8,7 @@ import {
   ownerRecoveryLookupPrefix,
 } from './owner-recovery-credential.js';
 import type { PilotSessionService } from './pilot-session-service.js';
+import { GuestOwnerLimiter } from './guest-owner-limiter.js';
 
 const SERIALIZABLE_TRANSACTION_ATTEMPTS = 3;
 
@@ -20,6 +21,7 @@ export type OwnerSessionResult = {
 export type PublicOwnerAccessOptions = {
   pepper: Buffer;
   now?: () => Date;
+  guestLimiter?: GuestOwnerLimiter;
 };
 
 type RecoveryResult = { token: string; recoveryPath: string };
@@ -32,6 +34,7 @@ function isTransactionRetry(error: unknown): boolean {
 export class PublicOwnerAccessService {
   private readonly pepper: Buffer;
   private readonly now: () => Date;
+  private readonly guestLimiter: GuestOwnerLimiter;
 
   public constructor(
     private readonly prisma: PrismaClient,
@@ -42,6 +45,7 @@ export class PublicOwnerAccessService {
     if (options.pepper.byteLength < 32) throw new Error('PILOT_AUTH_PEPPER_INVALID');
     this.pepper = options.pepper;
     this.now = options.now ?? (() => new Date());
+    this.guestLimiter = options.guestLimiter ?? new GuestOwnerLimiter();
   }
 
   public async ensureOwnerSession(authorization?: string): Promise<OwnerSessionResult> {
@@ -55,7 +59,7 @@ export class PublicOwnerAccessService {
       return { created: false, expiresAt };
     }
 
-    const owner = await this.withSerializableRetries(async (tx) => {
+    const owner = await this.guestLimiter.run(() => this.withSerializableRetries(async (tx) => {
       const user = await tx.user.create({
         data: { role: 'OWNER', displayName: '访客宠主' },
         select: { id: true },
@@ -69,7 +73,7 @@ export class PublicOwnerAccessService {
         metadata: { userId: user.id },
       }, tx);
       return user;
-    });
+    }));
     const session = await this.sessions.createSessionForUser(owner.id);
     return { created: true, session, expiresAt: session.expiresAt };
   }

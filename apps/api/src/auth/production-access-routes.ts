@@ -6,6 +6,7 @@ import type { PublicOwnerAccessService } from './public-owner-access-service.js'
 import { writeSessionCookie } from './pilot-routes.js';
 import type { PilotSessionService } from './pilot-session-service.js';
 import type { StaffCredentialService } from './staff-credential-service.js';
+import { authenticateStaffAction } from './staff-action-auth.js';
 
 const EMPTY_BODY = z.object({}).strict();
 const RECOVERY_SESSION = z.object({ token: z.string().min(1).max(256) }).strict();
@@ -42,18 +43,18 @@ export async function registerProductionAccessRoutes(app: FastifyInstance, depen
   });
 
   app.post('/api/v1/public/owner-sessions', { bodyLimit: SMALL_BODY_LIMIT, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (request, reply) => {
-    EMPTY_BODY.parse(request.body ?? {});
+    EMPTY_BODY.parse(request.body === undefined ? {} : request.body);
     const result = await dependencies.publicOwnerAccess.ensureOwnerSession(auth(request));
     if (result.session) writeSessionCookie(reply, secureCookies, result.session);
     return reply.code(result.created ? 201 : 200).send(sessionResponse(result));
   });
   app.post('/api/v1/public/owner-recovery-credentials', { bodyLimit: SMALL_BODY_LIMIT, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request, reply) => {
-    EMPTY_BODY.parse(request.body ?? {});
+    EMPTY_BODY.parse(request.body === undefined ? {} : request.body);
     const result = await dependencies.publicOwnerAccess.issueRecovery(await dependencies.sessions.authenticate(auth(request)));
     return reply.code(201).send(result);
   });
   app.post('/api/v1/public/owner-recovery-credentials/rotate', { bodyLimit: SMALL_BODY_LIMIT, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request, reply) => {
-    EMPTY_BODY.parse(request.body ?? {});
+    EMPTY_BODY.parse(request.body === undefined ? {} : request.body);
     return reply.send(await dependencies.publicOwnerAccess.rotateRecovery(await dependencies.sessions.authenticate(auth(request))));
   });
   app.post('/api/v1/public/owner-recovery-sessions', { bodyLimit: SMALL_BODY_LIMIT, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request, reply) => {
@@ -77,20 +78,23 @@ export async function registerProductionAccessRoutes(app: FastifyInstance, depen
     writeSessionCookie(reply, secureCookies, result.session);
     return reply.send(sessionResponse(result.session, { mustChangePassword: false }));
   });
-  app.get('/api/v1/admin/staff-accounts', async (request) => dependencies.staffCredentials.list(await dependencies.sessions.authenticate(auth(request))));
+  const staffAction = (request: FastifyRequest) => authenticateStaffAction(
+    dependencies.sessions.authenticate.bind(dependencies.sessions), auth(request),
+  );
+  app.get('/api/v1/admin/staff-accounts', async (request) => dependencies.staffCredentials.list(await staffAction(request)));
   app.post('/api/v1/admin/staff-accounts', { bodyLimit: SMALL_BODY_LIMIT }, async (request, reply) => {
     const input = CREATE_PROVIDER.parse(request.body);
-    return reply.code(201).send(await dependencies.staffCredentials.createProvider(await dependencies.sessions.authenticate(auth(request)), input));
+    return reply.code(201).send(await dependencies.staffCredentials.createProvider(await staffAction(request), input));
   });
   app.patch<{ Params: { userId: string } }>('/api/v1/admin/staff-accounts/:userId', { bodyLimit: SMALL_BODY_LIMIT }, async (request) => {
     const userId = USER_ID.parse(request.params.userId);
     const { disabled } = DISABLE.parse(request.body);
-    return dependencies.staffCredentials.setDisabled(await dependencies.sessions.authenticate(auth(request)), userId, disabled);
+    return dependencies.staffCredentials.setDisabled(await staffAction(request), userId, disabled);
   });
   app.post<{ Params: { userId: string } }>('/api/v1/admin/staff-accounts/:userId/reset-password', { bodyLimit: SMALL_BODY_LIMIT }, async (request, reply) => {
     const userId = USER_ID.parse(request.params.userId);
     const { temporaryPassword } = RESET_PASSWORD.parse(request.body);
-    await dependencies.staffCredentials.resetPassword(await dependencies.sessions.authenticate(auth(request)), userId, temporaryPassword);
+    await dependencies.staffCredentials.resetPassword(await staffAction(request), userId, temporaryPassword);
     return reply.code(204).send();
   });
 }

@@ -14,6 +14,7 @@ import type { AuthService } from '../auth/auth-service.js';
 import { PilotSessionService } from '../auth/pilot-session-service.js';
 import { PublicOwnerAccessService } from '../auth/public-owner-access-service.js';
 import { StaffCredentialService } from '../auth/staff-credential-service.js';
+import { authenticateStaffAction } from '../auth/staff-action-auth.js';
 import { WechatLoginGateway } from '../auth/wechat-login-gateway.js';
 import { QuoteService } from '../catalog/quote-service.js';
 import { PrismaOperationsCatalogRepository } from '../catalog/operations-catalog-repository.js';
@@ -82,6 +83,9 @@ export async function createPilotApplication(
   overrides: PilotCompositionOverrides = {},
 ) {
   if (!config.pilot) throw new Error('PILOT_MODE_REQUIRED');
+  if (config.nodeEnv === 'production' && !config.pilot.sharedIngressRateLimiting) {
+    throw new Error('PILOT_SHARED_INGRESS_RATE_LIMITING_REQUIRED');
+  }
   const staticDir = path.resolve(overrides.staticDir ?? DEFAULT_STATIC_DIR);
   if (!path.isAbsolute(staticDir)) throw new Error('PILOT_STATIC_DIR_INVALID');
   await access(path.join(staticDir, 'index.html'));
@@ -121,8 +125,7 @@ export async function createPilotApplication(
     });
     const onboardedAuth: AuthService = {
       authenticate: async (authorizationHeader) => {
-        const actor = await sessions.authenticate(authorizationHeader);
-        if (actor.mustChangePassword) throw new Error('PASSWORD_CHANGE_REQUIRED');
+        const actor = await authenticateStaffAction(sessions.authenticate.bind(sessions), authorizationHeader);
         if (actor.displayName === null) throw new Error('ONBOARDING_REQUIRED');
         return actor;
       },
@@ -135,9 +138,7 @@ export async function createPilotApplication(
     });
     const businessSessions = {
       authenticate: async (authorizationHeader: string | undefined) => {
-        const actor = await sessions.authenticate(authorizationHeader);
-        if (actor.mustChangePassword) throw new Error('PASSWORD_CHANGE_REQUIRED');
-        return actor;
+        return authenticateStaffAction(sessions.authenticate.bind(sessions), authorizationHeader);
       },
       createInvite: sessions.createInvite.bind(sessions),
     };

@@ -21,6 +21,7 @@ const productionEnvironment = {
 const pilotProductionEnvironment = {
   NODE_ENV: 'production', DATABASE_URL: 'postgresql://db.internal/pilot',
   PILOT_MODE: 'enabled', PILOT_PUBLIC_ORIGIN: 'https://pilot.example.com',
+  PILOT_SHARED_INGRESS_RATE_LIMITING: 'enabled',
   PILOT_AUTH_PEPPER: Buffer.alloc(32, 9).toString('base64'),
   FIELD_ENCRYPTION_KEY_V1: Buffer.alloc(32, 2).toString('base64'),
   S3_ENDPOINT: 'https://objects.example.com', S3_BUCKET: 'pilot-evidence',
@@ -51,7 +52,7 @@ describe('production readiness', () => {
   it.each([
     'DATABASE_URL', 'PILOT_PUBLIC_ORIGIN', 'PILOT_AUTH_PEPPER', 'FIELD_ENCRYPTION_KEY_V1',
     'S3_ENDPOINT', 'S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY',
-    'S3_REGION',
+    'S3_REGION', 'PILOT_SHARED_INGRESS_RATE_LIMITING',
   ])('fails closed when pilot production configuration omits %s', (key) => {
     expect(() => loadConfig({ ...pilotProductionEnvironment, [key]: undefined })).toThrow(key);
   });

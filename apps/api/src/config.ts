@@ -74,6 +74,7 @@ const EnvironmentSchema = z.object({
   PILOT_INVITE_HOURS: z.coerce.number().int().min(1).max(168).default(24),
   PILOT_EVIDENCE_DIR: z.string().trim().min(1).optional(),
   PILOT_TRUST_PROXY: TrustedProxiesSchema.optional(),
+  PILOT_SHARED_INGRESS_RATE_LIMITING: z.enum(['enabled']).optional(),
 }).superRefine((environment, context) => {
   const pilotEnabled = environment.PILOT_MODE === 'enabled';
   if (environment.WECHAT_LOGIN_ENABLED === 'true') {
@@ -96,6 +97,9 @@ const EnvironmentSchema = z.object({
   }
 
   if (environment.NODE_ENV !== 'production') return;
+  if (pilotEnabled && environment.PILOT_SHARED_INGRESS_RATE_LIMITING !== 'enabled') context.addIssue({
+    code: 'custom', path: ['PILOT_SHARED_INGRESS_RATE_LIMITING'], message: 'PILOT_SHARED_INGRESS_RATE_LIMITING is required in production',
+  });
   const required = pilotEnabled ? [
     'PILOT_PUBLIC_ORIGIN', 'FIELD_ENCRYPTION_KEY_V1', 'S3_ENDPOINT', 'S3_BUCKET',
     'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'S3_REGION',
@@ -121,6 +125,7 @@ export type PilotConfig = {
   evidenceDir?: string;
   trustedProxies?: string[];
   secureCookies: boolean;
+  sharedIngressRateLimiting?: boolean;
 };
 
 export type ObjectStorageConfig = {
@@ -167,6 +172,7 @@ export function loadConfig(environment: Record<string, string | undefined>): App
     ...(parsed.PILOT_EVIDENCE_DIR ? { evidenceDir: parsed.PILOT_EVIDENCE_DIR } : {}),
     ...(parsed.PILOT_TRUST_PROXY ? { trustedProxies: parsed.PILOT_TRUST_PROXY } : {}),
     secureCookies: parsed.NODE_ENV === 'production',
+    ...(parsed.PILOT_SHARED_INGRESS_RATE_LIMITING === 'enabled' ? { sharedIngressRateLimiting: true } : {}),
   } satisfies PilotConfig : undefined;
 
   const base: AppConfig = {

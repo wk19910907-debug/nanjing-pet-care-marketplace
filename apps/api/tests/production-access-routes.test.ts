@@ -9,9 +9,14 @@ const admin = { userId: '22222222-2222-4222-8222-222222222222', role: 'ADMIN' as
   displayName: '管理员', expiresAt, mustChangePassword: false, staffPasswordChangedAt: new Date() };
 
 function appWithProductionAccess() {
+  let passwordChanged = false;
   const sessions = {
-    authenticate: async (authorization: string | undefined) => authorization === 'Bearer admin-token' ? admin : owner,
+    authenticate: async (authorization: string | undefined) => {
+      if (authorization === 'Bearer changing-token') return { ...admin, mustChangePassword: !passwordChanged };
+      return authorization === 'Bearer admin-token' ? admin : owner;
+    },
     revoke: async () => undefined,
+    setDisplayName: async () => ({ displayName: '已改名' }),
   };
   const app = createApp({
     auth: { authenticate: sessions.authenticate }, pets: {}, addresses: {},
@@ -36,7 +41,10 @@ function appWithProductionAccess() {
           if (username === 'busy') throw new Error('STAFF_LOGIN_BUSY');
           return { session: { token: 'staff-token', expiresAt }, mustChangePassword: true };
         },
-        changePassword: async () => ({ session: { token: 'changed-token', expiresAt }, mustChangePassword: false }),
+        changePassword: async () => {
+          passwordChanged = true;
+          return { session: { token: 'changed-token', expiresAt }, mustChangePassword: false };
+        },
         list: async () => [{ userId: '33333333-3333-4333-8333-333333333333', username: 'provider.one', displayName: '服务员', role: 'PROVIDER' as const, mustChangePassword: true, disabledAt: null, createdAt: '2026-01-01T00:00:00.000Z' }],
         createProvider: async () => ({ userId: '33333333-3333-4333-8333-333333333333', username: 'provider.one', displayName: '服务员', role: 'PROVIDER' as const, mustChangePassword: true, disabledAt: null, createdAt: '2026-01-01T00:00:00.000Z' }),
         setDisabled: async () => ({ userId: '33333333-3333-4333-8333-333333333333', username: 'provider.one', displayName: '服务员', role: 'PROVIDER' as const, mustChangePassword: true, disabledAt: null, createdAt: '2026-01-01T00:00:00.000Z' }),
@@ -55,6 +63,7 @@ describe('production access routes', () => {
       const created = await app.inject({ method: 'POST', url: '/api/v1/public/owner-sessions', headers: { origin }, payload: {} });
       const crossOrigin = await app.inject({ method: 'POST', url: '/api/v1/public/owner-sessions', headers: { origin: 'https://attacker.example' }, payload: {} });
       const extraField = await app.inject({ method: 'POST', url: '/api/v1/public/owner-sessions', headers: { origin }, payload: { role: 'ADMIN' } });
+      const nullBody = await app.inject({ method: 'POST', url: '/api/v1/public/owner-sessions', headers: { origin, 'content-type': 'application/json' }, payload: 'null' });
       const localRole = await app.inject({ method: 'POST', url: '/api/v1/pilot/local-sessions', headers: { origin }, payload: { role: 'ADMIN' } });
 
       expect(created.statusCode).toBe(201);
@@ -65,10 +74,28 @@ describe('production access routes', () => {
       expect(JSON.stringify(created.json())).not.toMatch(/passwordHash|tokenHash|cookie|owner-token/i);
       expect(crossOrigin).toMatchObject({ statusCode: 403 });
       expect(extraField).toMatchObject({ statusCode: 400 });
+      expect(nullBody).toMatchObject({ statusCode: 400 });
       expect(localRole).toMatchObject({ statusCode: 404 });
     } finally {
       await app.close();
     }
+  });
+
+  it('blocks a must-change staff session from admin and profile writes until password change', async () => {
+    const app = appWithProductionAccess();
+    await app.ready();
+    try {
+      const changing = { origin, cookie: 'petcare_pilot_session=changing-token' };
+      const adminBefore = await app.inject({ method: 'GET', url: '/api/v1/admin/staff-accounts', headers: changing });
+      const profileBefore = await app.inject({ method: 'PATCH', url: '/api/v1/pilot/me', headers: changing, payload: { displayName: '管理员' } });
+      const changed = await app.inject({ method: 'PATCH', url: '/api/v1/staff/password', headers: changing, payload: { password: 'b'.repeat(12) } });
+      const adminAfter = await app.inject({ method: 'GET', url: '/api/v1/admin/staff-accounts', headers: changing });
+
+      expect(adminBefore).toMatchObject({ statusCode: 403 });
+      expect(profileBefore).toMatchObject({ statusCode: 403 });
+      expect(changed).toMatchObject({ statusCode: 200 });
+      expect(adminAfter).toMatchObject({ statusCode: 200 });
+    } finally { await app.close(); }
   });
 
   it('exposes recovery, staff and administrator contracts without session tokens', async () => {

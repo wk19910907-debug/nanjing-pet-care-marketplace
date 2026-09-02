@@ -69,6 +69,7 @@ function productionConfig(diskPath: string): AppConfig {
       inviteHours: 24,
       evidenceDir: diskPath,
       secureCookies: true,
+      sharedIngressRateLimiting: true,
     },
     production: {
       fieldEncryptionKey: Buffer.alloc(32, 5).toString('base64'),
