@@ -105,3 +105,21 @@ test('runbook covers prerequisites, secure deployment, recovery and acceptance',
   assert.match(runbook, /docker compose[\s\S]*logs/);
   assert.match(runbook, /不得把密钥、密码.*提交到 Git/);
 });
+
+test('production operations state the non-negotiable web boundary and operator controls', async () => {
+  const [runbook, quickstart, environment, readme] = await Promise.all([
+    source('deploy/README.md'), source('docs/operations/pilot-quickstart.md'),
+    source('deploy/.env.production.example'), source('README.md'),
+  ]);
+  for (const topic of [
+    'staff:create-admin', 'migrate deploy', '/health/ready', 'Secure', '同一 `https://` Origin',
+    '私有 S3', 'FIELD_ENCRYPTION_KEYRING', 'PILOT_AUTH_PEPPER', 'PILOT_SHARED_INGRESS_RATE_LIMITING', '备份',
+  ]) assert.ok(runbook.includes(topic) || quickstart.includes(topic) || environment.includes(topic), `missing ${topic}`);
+  assert.match(environment, /^PILOT_SHARED_INGRESS_RATE_LIMITING=enabled$/m);
+  assert.match(environment, /^FIELD_ENCRYPTION_KEYRING=$/m);
+  assert.match(environment, /^FIELD_ENCRYPTION_ACTIVE_VERSION=$/m);
+  assert.match(runbook, /GitHub Pages.*绝不能作为真实订单/);
+  assert.doesNotMatch(runbook, /本地角色直接入口/);
+  assert.doesNotMatch(quickstart, /邀请码登录|邀请管理/);
+  assert.match(readme, /未公开展示手机号、微信二维码、邀请码或邀请入口/);
+});

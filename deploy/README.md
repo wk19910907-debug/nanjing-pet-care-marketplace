@@ -39,6 +39,8 @@ chmod 600 deploy/.env.production
 - `SITE_DOMAIN` 是不带协议的域名；`PILOT_PUBLIC_ORIGIN` 必须是对应的完整 `https://` 源。
 - `APP_VERSION` 写本次已验证的 Git commit，便于镜像回滚。
 - 填入 PostgreSQL、两份 Base64 密钥和 S3配置。
+- `FIELD_ENCRYPTION_KEY_V1` 只用于首次部署；轮换时使用 `FIELD_ENCRYPTION_KEYRING` 和 `FIELD_ENCRYPTION_ACTIVE_VERSION`，保留旧版本直到重加密与恢复演练完成。
+- `PILOT_SHARED_INGRESS_RATE_LIMITING=enabled` 声明入口 WAF/反向代理已配置跨实例限流；应用内登录限流只是一台实例的内存边界。
 - `PILOT_TRUST_PROXY=172.30.0.2` 与 Compose 中固定的 Caddy 内网地址对应，不要改成任意公网网段。
 - 后端容器没有宿主机端口，但其 Docker 网络必须保留出站能力，才能连接外部 PostgreSQL 和 S3；不要把 `backend` 改成 `internal: true`。
 - `WECHAT_LOGIN_ENABLED=false` 保持关闭，直到真实 AppID/AppSecret、合法域名和真机验收完成。
@@ -51,7 +53,7 @@ docker compose --env-file deploy/.env.production -f deploy/compose.production.ym
 
 ## 4. 首次部署
 
-部署前确认数据库已经备份。生产迁移使用 Prisma `migrate deploy`，不会执行 `migrate dev` 或自动重置数据库。启动命令会先迁移，失败时应用不会启动。
+部署前确认数据库已经备份。生产迁移使用 Prisma `migrate deploy`，不会执行 `migrate dev` 或自动重置数据库。启动命令会先迁移，失败时应用不会启动。首次启动前，必须在受控 TTY 中交互执行 `pnpm staff:create-admin -- --username <管理员用户名>`；临时密码不得放入环境变量、命令行、文件、日志或截图，且必须在管理员第一次网页登录时改掉。没有管理员账户时不得把 `/health/ready` 视为可对外接单。
 
 ```sh
 docker compose --env-file deploy/.env.production -f deploy/compose.production.yml up -d --build
@@ -59,7 +61,7 @@ docker compose --env-file deploy/.env.production -f deploy/compose.production.ym
 docker compose --env-file deploy/.env.production -f deploy/compose.production.yml logs --tail=100 app caddy
 ```
 
-验证 `https://你的域名/health/ready` 返回200且 `ready/database/objectStorage/encryption` 均为true。确认浏览器证书有效、Cookie为Secure、HTTP自动跳转HTTPS。日志不得出现数据库 URL、S3凭据、会话或用户地址。
+验证 `https://你的域名/health/ready` 返回200且 `ready/database/objectStorage/encryption` 均为true。确认浏览器证书有效、Cookie 为 `Secure`、HTTP 自动跳转 HTTPS，并且站点和 `/api` 保持同一 `https://` Origin。日志不得出现数据库 URL、S3凭据、会话或用户地址。
 
 参考：[Docker Compose健康检查与启动顺序](https://docs.docker.com/compose/how-tos/startup-order/)、[Prisma生产迁移](https://docs.prisma.io/docs/cli/migrate/deploy)、[Caddy自动HTTPS](https://caddyserver.com/docs/automatic-https)。
 
@@ -99,3 +101,5 @@ docker compose --env-file deploy/.env.production -f deploy/compose.production.ym
 ## 8. 上线边界
 
 此部署包不替你购买主机/域名，不代办实名认证、ICP备案、协议签署或支付商户配置。只有 HTTPS、真实订单闭环、备份恢复和权限验收全部通过后，才能称为“可进行受控真实试点”。人工收款必须由运营线下核对并留存合规凭证，系统当前不会自动确认资金到账。
+
+GitHub Pages 只承载浏览器本地体验，绝不能作为真实订单、Cookie 会话或同源 API 的生产 Origin。生产网页不公开手机号、二维码、邀请码或邀请入口。

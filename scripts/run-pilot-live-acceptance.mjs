@@ -1,11 +1,12 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { mkdir, mkdtemp, rm, unlink } from 'node:fs/promises';
 import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   acquireAcceptanceState,
   acceptanceStatePath,
@@ -198,6 +199,8 @@ const databaseUrl = `postgresql://pilot:${encodeURIComponent(databasePassword)}@
 const pilotBaseUrl = `http://127.0.0.1:${pilotPort}`;
 const authPepper = randomBytes(32).toString('base64');
 const fieldKey = randomBytes(32).toString('base64');
+const adminUsername = `pilot.admin.${runId}`;
+const adminTemporaryPassword = randomBytes(24).toString('base64url');
 const serverEnvironment = {
   ...process.env,
   NODE_ENV: 'development',
@@ -217,6 +220,31 @@ let restartGeneration = 0;
 let cleanupPromise;
 let shuttingDown = false;
 let containerStartAttempted = false;
+
+async function bootstrapAcceptanceAdmin() {
+  // The test-only bootstrap stays inside this runner process.  The password never
+  // enters argv, environment, a file, a Playwright artifact, or a console stream.
+  await import(pathToFileURL(path.join(repositoryRoot, 'apps/api/node_modules/tsx/dist/loader.mjs')).href);
+  const { runCreateStaffCommand } = await import(pathToFileURL(path.join(repositoryRoot, 'apps/api/src/pilot/create-staff.ts')).href);
+  const passwords = [adminTemporaryPassword, adminTemporaryPassword];
+  const input = new EventEmitter();
+  Object.assign(input, {
+    isTTY: true,
+    resume: () => input,
+    setRawMode: () => input,
+  });
+  const originalOn = input.on.bind(input);
+  input.on = (event, listener) => {
+    originalOn(event, listener);
+    if (event === 'data') queueMicrotask(() => input.emit('data', Buffer.from(`${passwords.shift() ?? ''}\n`)));
+    return input;
+  };
+  await runCreateStaffCommand(['--username', adminUsername], serverEnvironment, {
+    input: input,
+    stdout: () => undefined,
+    stderr: () => undefined,
+  });
+}
 
 async function persistState(apiPid) {
   state = { ...state, apiPid };
@@ -357,6 +385,8 @@ try {
     path.join(repositoryRoot, 'node_modules/prisma/build/index.js'), 'migrate', 'deploy',
   ], { env: { ...process.env, DATABASE_URL: databaseUrl } });
 
+  await bootstrapAcceptanceAdmin();
+
   await run(process.execPath, [
     path.join(repositoryRoot, 'apps/admin/node_modules/vite/bin/vite.js'), 'build', '--mode', 'pilot',
   ], { cwd: path.join(repositoryRoot, 'apps/admin') });
@@ -368,15 +398,20 @@ try {
   const controlSecret = randomBytes(24).toString('base64url');
   const controlPath = `/control/${controlSecret}`;
   controlServer = http.createServer((request, response) => {
+    if (request.method === 'GET' && request.url === `${controlPath}/credentials`) {
+      response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', Connection: 'close' });
+      response.end(JSON.stringify({ adminUsername, adminTemporaryPassword }));
+      return;
+    }
     if (request.method !== 'POST' || request.url !== `${controlPath}/restart`) {
       response.writeHead(404).end();
       return;
     }
     void restartPilot().then(() => {
-      response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', Connection: 'close' });
       response.end(JSON.stringify({ generation: restartGeneration }));
     }).catch(() => {
-      response.writeHead(503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      response.writeHead(503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', Connection: 'close' });
       response.end(JSON.stringify({ code: 'RESTART_FAILED' }));
     });
   });
@@ -393,6 +428,7 @@ try {
     ...process.env,
     PILOT_ACCEPTANCE_BASE_URL: pilotBaseUrl,
     PILOT_ACCEPTANCE_CONTROL_URL: `http://127.0.0.1:${controlPort}${controlPath}`,
+    PILOT_ACCEPTANCE_CREDENTIALS_URL: `http://127.0.0.1:${controlPort}${controlPath}/credentials`,
     PILOT_ACCEPTANCE_OUTPUT_DIR: playwrightOutput,
   }});
   exitCode = 0;
