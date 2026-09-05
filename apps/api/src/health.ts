@@ -40,12 +40,15 @@ export function registerHealthRoutes(
   config: AppConfig,
   databaseProbe: () => Promise<boolean>,
   objectStorageProbe: () => Promise<boolean>,
-  adminCredentialProbe: () => Promise<boolean> = async () => true,
+  adminCredentialProbe?: () => Promise<boolean>,
 ) {
   app.get('/health/live', async () => ({ alive: true }));
   app.get('/health/ready', async (_request, reply) => {
+    const effectiveAdminProbe = adminCredentialProbe ?? (config.nodeEnv === 'production'
+      ? async () => false
+      : async () => true);
     const [database, objectStorage, adminCredential] = await Promise.all([
-      databaseProbe(), objectStorageProbe(), adminCredentialProbe(),
+      databaseProbe(), objectStorageProbe(), effectiveAdminProbe(),
     ]);
     const snapshot = readinessSnapshot(config, { database, objectStorage, adminCredential });
     return reply.code(snapshot.ready ? 200 : 503).send(snapshot);

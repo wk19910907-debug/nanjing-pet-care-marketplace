@@ -48,7 +48,7 @@ export class PublicOwnerAccessService {
     this.guestLimiter = options.guestLimiter ?? new GuestOwnerLimiter();
   }
 
-  public async ensureOwnerSession(authorization?: string): Promise<OwnerSessionResult> {
+  public async ensureOwnerSession(authorization?: string, signal?: AbortSignal): Promise<OwnerSessionResult> {
     if (authorization) {
       const actor = await this.sessions.authenticate(authorization);
       if (actor.role !== 'OWNER') throw new Error('FORBIDDEN');
@@ -73,7 +73,7 @@ export class PublicOwnerAccessService {
         metadata: { userId: user.id },
       }, tx);
       return user;
-    }));
+    }), signal);
     const session = await this.sessions.createSessionForUser(owner.id);
     return { created: true, session, expiresAt: session.expiresAt };
   }

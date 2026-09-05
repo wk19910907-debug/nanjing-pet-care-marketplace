@@ -31,6 +31,14 @@ function sessionResponse(session: { expiresAt: Date }, extra: Record<string, unk
 
 function auth(request: FastifyRequest) { return request.headers.authorization; }
 
+function requestAbort(request: FastifyRequest): { signal: AbortSignal; dispose: () => void } {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (request.raw.aborted) abort();
+  else request.raw.once('aborted', abort);
+  return { signal: controller.signal, dispose: () => request.raw.removeListener('aborted', abort) };
+}
+
 /** Cookie-only browser entry points; every route is intentionally non-cacheable. */
 export async function registerProductionAccessRoutes(app: FastifyInstance, dependencies: ProductionAccessRoutesDependencies): Promise<void> {
   const secureCookies = dependencies.config.nodeEnv === 'production' || dependencies.config.pilot?.secureCookies === true;
@@ -44,7 +52,10 @@ export async function registerProductionAccessRoutes(app: FastifyInstance, depen
 
   app.post('/api/v1/public/owner-sessions', { bodyLimit: SMALL_BODY_LIMIT, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (request, reply) => {
     EMPTY_BODY.parse(request.body === undefined ? {} : request.body);
-    const result = await dependencies.publicOwnerAccess.ensureOwnerSession(auth(request));
+    const lifecycle = requestAbort(request);
+    let result;
+    try { result = await dependencies.publicOwnerAccess.ensureOwnerSession(auth(request), lifecycle.signal); }
+    finally { lifecycle.dispose(); }
     if (result.session) writeSessionCookie(reply, secureCookies, result.session);
     return reply.code(result.created ? 201 : 200).send(sessionResponse(result));
   });

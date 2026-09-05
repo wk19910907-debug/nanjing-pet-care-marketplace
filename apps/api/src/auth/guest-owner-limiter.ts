@@ -3,6 +3,7 @@ export type GuestOwnerLimiterOptions = { maximumConcurrent?: number; maximumQueu
 /** Bounded process-local protection; production additionally requires trusted shared ingress enforcement. */
 export class GuestOwnerLimiter {
   private active = 0;
+  private reservedCreates = 0;
   private readonly createdAt: number[] = [];
   private readonly maximumConcurrent: number;
   private readonly maximumQueued: number;
@@ -22,7 +23,7 @@ export class GuestOwnerLimiter {
   public async run<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     const now = this.now();
     while (this.createdAt[0] !== undefined && this.createdAt[0]! <= now - this.windowMilliseconds) this.createdAt.shift();
-    if (this.createdAt.length >= this.maximumCreates) throw new Error('GUEST_CREATION_RATE_LIMITED');
+    if (this.createdAt.length + this.reservedCreates >= this.maximumCreates) throw new Error('GUEST_CREATION_RATE_LIMITED');
     if (this.active >= this.maximumConcurrent) {
       if (this.queue.length >= this.maximumQueued) throw new Error('GUEST_CREATION_RATE_LIMITED');
       await new Promise<void>((resolve, reject) => {
@@ -41,16 +42,21 @@ export class GuestOwnerLimiter {
         this.drain();
         throw new Error('GUEST_CREATION_ABORTED');
       }
-      if (this.createdAt.length >= this.maximumCreates) {
+      if (this.createdAt.length + this.reservedCreates >= this.maximumCreates) {
         this.drain();
         throw new Error('GUEST_CREATION_RATE_LIMITED');
       }
     }
+    this.reservedCreates += 1;
     this.active += 1;
     try {
       const result = await operation();
+      this.reservedCreates -= 1;
       this.createdAt.push(this.now());
       return result;
+    } catch (error) {
+      this.reservedCreates -= 1;
+      throw error;
     } finally { this.active -= 1; this.drain(); }
   }
 
