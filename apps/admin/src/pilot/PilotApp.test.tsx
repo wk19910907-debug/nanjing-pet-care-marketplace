@@ -207,6 +207,69 @@ describe('PilotApp', () => {
     expect(screen.queryByRole('dialog', { name: '保存你的恢复凭据' })).toBeNull();
   });
 
+  it('serializes rotation across logout and same-owner recovery, then shows only the final server rotation', async () => {
+    const owner = { ...adminSession, userId: 'owner-1', role: 'OWNER' as const, displayName: '秦淮宠主' };
+    const first = deferred<{ token: string; recoveryPath: string }>();
+    const second = deferred<{ token: string; recoveryPath: string }>();
+    const getSession = vi.fn().mockResolvedValueOnce(owner).mockRejectedValueOnce(new PilotApiError(401, 'UNAUTHENTICATED')).mockResolvedValueOnce(owner);
+    const rotateRecoveryCredential = vi.fn().mockImplementationOnce(() => first.promise).mockImplementationOnce(() => second.promise);
+    const api = fakeApi({ getSession, rotateRecoveryCredential, recoverOwnerSession: vi.fn().mockResolvedValue({ expiresAt: adminSession.expiresAt }) });
+    const user = userEvent.setup();
+    render(<PilotApp api={api}/>);
+    await user.click(await screen.findByRole('button', { name: '生成新的恢复凭据' }));
+    await user.click(screen.getByRole('button', { name: '退出登录' }));
+    await user.click(await screen.findByRole('button', { name: '恢复订单' }));
+    await user.type(screen.getByLabelText('恢复凭据'), 'r'.repeat(43));
+    await user.click(screen.getByRole('button', { name: '恢复我的订单' }));
+    const blocked = await screen.findByRole('button', { name: '正在生成…' });
+    expect((blocked as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(blocked);
+    expect(rotateRecoveryCredential).toHaveBeenCalledOnce();
+    await act(async () => first.resolve({ token: 'old'.padEnd(43, 'x'), recoveryPath: '/#/orders/access/' + 'old'.padEnd(43, 'x') }));
+    expect(screen.queryByRole('dialog', { name: '保存你的恢复凭据' })).toBeNull();
+    await user.click(await screen.findByRole('button', { name: '生成新的恢复凭据' }));
+    await act(async () => second.resolve({ token: 'new'.padEnd(43, 'y'), recoveryPath: '/#/orders/access/' + 'new'.padEnd(43, 'y') }));
+    expect(await screen.findByRole('dialog', { name: '保存你的恢复凭据' })).toBeTruthy();
+    expect(rotateRecoveryCredential).toHaveBeenCalledTimes(2);
+  });
+
+  it('clears a pending recovery credential on session expiry before its request resolves', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-08-01T00:00:00.000Z'));
+    const owner = { ...adminSession, userId: 'owner-1', role: 'OWNER' as const, displayName: '秦淮宠主', expiresAt: '2026-08-01T00:00:01.000Z' };
+    const rotation = deferred<{ token: string; recoveryPath: string }>();
+    const api = fakeApi({ getSession: vi.fn().mockResolvedValue(owner), rotateRecoveryCredential: vi.fn().mockImplementation(() => rotation.promise) });
+    render(<PilotApp api={api}/>);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    fireEvent.click(screen.getByRole('button', { name: '生成新的恢复凭据' }));
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(screen.getByRole('button', { name: '员工登录' })).toBeTruthy();
+    await act(async () => rotation.resolve({ token: 'expired'.padEnd(43, 'x'), recoveryPath: '/#/orders/access/' + 'expired'.padEnd(43, 'x') }));
+    expect(screen.queryByRole('dialog', { name: '保存你的恢复凭据' })).toBeNull();
+  });
+
+  it('clears a pending recovery credential after a protected-request 401', async () => {
+    const owner = { ...adminSession, userId: 'owner-1', role: 'OWNER' as const, displayName: '秦淮宠主' };
+    const rotation = deferred<{ token: string; recoveryPath: string }>();
+    const api = fakeApi({
+      getSession: vi.fn().mockResolvedValueOnce(owner).mockResolvedValueOnce(owner),
+      rotateRecoveryCredential: vi.fn().mockImplementation(() => rotation.promise),
+      recoverOwnerSession: vi.fn().mockResolvedValue({ expiresAt: adminSession.expiresAt }),
+      listOrders: vi.fn().mockResolvedValueOnce([]).mockRejectedValueOnce(new PilotApiError(401, 'UNAUTHENTICATED')).mockResolvedValueOnce([]),
+    });
+    const user = userEvent.setup();
+    render(<PilotApp api={api}/>);
+    await user.click(await screen.findByRole('button', { name: '生成新的恢复凭据' }));
+    await user.click(screen.getByRole('button', { name: '刷新' }));
+    expect(await screen.findByRole('button', { name: '员工登录' })).toBeTruthy();
+    await act(async () => rotation.resolve({ token: 'forbidden'.padEnd(43, 'x'), recoveryPath: '/#/orders/access/' + 'forbidden'.padEnd(43, 'x') }));
+    expect(screen.queryByRole('dialog', { name: '保存你的恢复凭据' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: '恢复订单' }));
+    await user.type(screen.getByLabelText('恢复凭据'), 'r'.repeat(43));
+    await user.click(screen.getByRole('button', { name: '恢复我的订单' }));
+    expect(await screen.findByRole('heading', { name: '我的订单' })).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: '保存你的恢复凭据' })).toBeNull();
+  });
+
   it('clears the session-bound booking intent before a later recovery session', async () => {
     const initialOwner = { ...adminSession, userId: 'owner-1', role: 'OWNER' as const, displayName: '初始宠主' };
     const recoveredOwner = { ...adminSession, userId: 'owner-2', role: 'OWNER' as const, displayName: '恢复宠主' };
@@ -234,6 +297,7 @@ describe('PilotApp', () => {
     render(<PilotApp api={api}/>);
     expect(await screen.findByRole('heading', { name: '请先修改临时密码' })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: '服务人员工作区' })).toBeNull();
+    expect(screen.getByRole('button', { name: '退出登录' }).className).toContain('access-text-button');
     await user.type(screen.getByLabelText('新密码'), 'Changed-password-2026');
     await user.type(screen.getByLabelText('确认新密码'), 'Changed-password-2026');
     await user.click(screen.getByRole('button', { name: '保存新密码' }));

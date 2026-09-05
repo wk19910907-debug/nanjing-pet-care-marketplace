@@ -31,17 +31,28 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
   const [startBooking, setStartBooking] = useState(false);
   const [ownerPending, setOwnerPending] = useState(false);
   const sessionUserId = useRef<string | null>(null);
-  const recoveryRotationLock = useRef(false);
-  const recoveryRotationVersion = useRef(0);
+  const recoveryRotationLock = useRef<number | null>(null);
+  const recoveryRotationRequest = useRef(0);
+  const recoveryRotationDisplayVersion = useRef(0);
+  const recoveryFocusTimer = useRef<number | undefined>(undefined);
   const [recoveryRotating, setRecoveryRotating] = useState(false);
 
   const clearSessionBoundUi = useCallback(() => {
-    recoveryRotationVersion.current++;
-    recoveryRotationLock.current = false;
-    setRecoveryRotating(false);
+    recoveryRotationDisplayVersion.current++;
+    if (recoveryFocusTimer.current !== undefined) {
+      window.clearTimeout(recoveryFocusTimer.current);
+      recoveryFocusTimer.current = undefined;
+    }
     setRecoveryCredential(null);
     setStartBooking(false);
+    setRecoveryRotating(recoveryRotationLock.current !== null);
   }, []);
+
+  const invalidateSession = useCallback(() => {
+    sessionUserId.current = null;
+    clearSessionBoundUi();
+    setSession(null);
+  }, [clearSessionBoundUi]);
 
   const loadSession = useCallback(async () => {
     setSession(undefined);
@@ -50,9 +61,7 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
       const current = await api.getSession();
       const expiresAt = Date.parse(current.expiresAt);
       if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
-        sessionUserId.current = null;
-        clearSessionBoundUi();
-        setSession(null);
+        invalidateSession();
         return;
       }
       if (sessionUserId.current !== null && sessionUserId.current !== current.userId) clearSessionBoundUi();
@@ -60,14 +69,12 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
       setSession(current);
     } catch (caught) {
       if (caught instanceof PilotApiError && caught.status === 401) {
-        sessionUserId.current = null;
-        clearSessionBoundUi();
-        setSession(null);
+        invalidateSession();
         return;
       }
       setFailure(pilotErrorMessage(caught));
     }
-  }, [api, clearSessionBoundUi]);
+  }, [api, clearSessionBoundUi, invalidateSession]);
 
   const loadCatalog = useCallback(async () => {
     setCatalogFailed(false);
@@ -93,10 +100,10 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
       } catch (caught) {
         setAccessMode('RECOVERY');
         setAccessError(pilotErrorMessage(caught));
-        setSession(null);
+        invalidateSession();
       }
     })();
-  }, [api, loadSession]);
+  }, [api, invalidateSession, loadSession]);
 
   useEffect(() => {
     if (catalogBootstrapped.current) return;
@@ -110,7 +117,7 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
     const checkExpiry = () => {
       const remaining = Date.parse(session.expiresAt) - Date.now();
       if (!Number.isFinite(remaining) || remaining <= 0) {
-        setSession(null);
+        invalidateSession();
         return;
       }
       timer = window.setTimeout(checkExpiry, Math.min(remaining, 2_147_483_647));
@@ -119,21 +126,20 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
     return () => {
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [session]);
+  }, [invalidateSession, session]);
 
   const handleProtectedError = useCallback((caught: unknown): string | null => {
     if (caught instanceof PilotApiError && caught.status === 401) {
       setFailure('');
-      setSession(null);
+      invalidateSession();
       return null;
     }
     return pilotErrorMessage(caught);
-  }, []);
+  }, [invalidateSession]);
 
   const logout = async () => {
     setFailure('');
-    sessionUserId.current = null;
-    clearSessionBoundUi();
+    invalidateSession();
     try {
       await api.deleteSession();
     } catch (caught) {
@@ -166,26 +172,27 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
   };
 
   const recover = async (token: string) => {
-    clearSessionBoundUi();
+    invalidateSession();
     setAccessError('');
     try { await api.recoverOwnerSession(token); setAccessMode('NONE'); await loadSession(); }
     catch (caught) { setAccessError(pilotErrorMessage(caught)); }
   };
 
   const issueReplacementRecovery = async () => {
-    if (recoveryRotationLock.current) return;
-    recoveryRotationLock.current = true;
-    const requestVersion = ++recoveryRotationVersion.current;
+    if (recoveryRotationLock.current !== null) return;
+    const requestId = ++recoveryRotationRequest.current;
+    recoveryRotationLock.current = requestId;
+    const displayVersion = ++recoveryRotationDisplayVersion.current;
     setRecoveryRotating(true);
     try {
       const credential = await api.rotateRecoveryCredential();
-      if (requestVersion !== recoveryRotationVersion.current) return;
+      if (displayVersion !== recoveryRotationDisplayVersion.current) return;
       setRecoveryCredential(credential);
     } catch (caught) {
-      if (requestVersion === recoveryRotationVersion.current) setFailure(pilotErrorMessage(caught));
+      if (displayVersion === recoveryRotationDisplayVersion.current) setFailure(pilotErrorMessage(caught));
     } finally {
-      if (requestVersion === recoveryRotationVersion.current) {
-        recoveryRotationLock.current = false;
+      if (recoveryRotationLock.current === requestId) {
+        recoveryRotationLock.current = null;
         setRecoveryRotating(false);
       }
     }
@@ -193,7 +200,8 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
 
   const closeRecoveryCredential = () => {
     setRecoveryCredential(null);
-    window.setTimeout(() => {
+    recoveryFocusTimer.current = window.setTimeout(() => {
+      recoveryFocusTimer.current = undefined;
       const target = document.querySelector<HTMLElement>('[data-access-return-focus]');
       if (target?.isConnected) target.focus();
     }, 0);

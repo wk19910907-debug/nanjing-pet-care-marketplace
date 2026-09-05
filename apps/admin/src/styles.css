@@ -74,7 +74,7 @@ textarea { min-height: 86px; resize: vertical; }.demo-shell { min-height: 100vh;
 .pilot-shell { --store-line: #e1e8e2; --store-muted: #60736b; --store-brand: #28634f; min-height: 100vh; background: #f6f2e8; overflow-x: hidden; }
 .pilot-shell .owner-recovery { margin: 24px 0; padding: 18px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border: 1px solid #e1e8e2; border-radius: 16px; background: #f8faf7; }
 .pilot-shell .owner-recovery p { margin: 5px 0 0; color: #60736b; font-size: 13px; }
-.pilot-shell .access-text-button { min-height: 44px; margin: 0; padding: 8px 0; color: #28634f; background: transparent; font-weight: 800; text-decoration: underline; text-underline-offset: 4px; }
+.pilot-shell .access-text-button,.pilot-state-page .access-text-button { min-height: 44px; margin: 0; padding: 8px 0; color: #28634f; background: transparent; font-weight: 800; text-decoration: underline; text-underline-offset: 4px; }
 .pilot-header { min-height: 76px; padding: 12px max(24px,calc((100vw - 1040px)/2)); display: flex; align-items: center; justify-content: space-between; gap: 18px; background: #173f33; color: #fff; }
 .pilot-header strong,.pilot-header span { display: block; }.pilot-header span { margin-top: 3px; color: #d6e4dc; font-size: 13px; }
 .pilot-session-summary { display: flex; align-items: center; gap: 12px; text-align: right; }.pilot-session-summary span { overflow-wrap: anywhere; }
