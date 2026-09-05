@@ -38,7 +38,7 @@ describe('production readiness', () => {
 
   it('exposes only readiness booleans and provider names, never credentials', () => {
     const config = loadConfig(productionEnvironment);
-    const response = readinessSnapshot(config, { database: true, objectStorage: true });
+    const response = readinessSnapshot(config, { database: true, objectStorage: true, adminCredential: true });
     expect(response).toEqual({
       ready: true, database: true, objectStorage: true, encryption: true,
       paymentProvider: 'wechat', objectStorageProvider: 's3', notificationProvider: 'wechat',
