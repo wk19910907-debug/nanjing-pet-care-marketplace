@@ -17,3 +17,8 @@
 ## Residual
 
 - This host’s default `pnpm` resolves Node 26.3.0, so it correctly refuses `pnpm test:e2e:live`; use Node 22 on PATH. A full live run was started with Node 22 and reached PostgreSQL migration, built UI, real Fastify readiness, and Chrome test launch. It was stopped while debugging the runner’s control-server close behavior; an exact stale-run marker/container remains and the runner will safely reclaim it on the next `pnpm test:e2e:live`. No credentials were logged.
+
+## Debug follow-up
+
+- Reproduced the first CTA failure with bounded browser diagnostics. The navigation was `200`, the real session endpoint was expected `401 UNAUTHENTICATED`, and the built pilot landing rendered without page errors. At the configured 390px mobile viewport, the CSS hides the header CTA: its HTML text was present but it was absent from Playwright's visible role tree; the visible mobile alternatives were the service-specific booking controls.
+- The acceptance now sets the owner/attacker viewport to desktop before asserting the required visible `立即预约` path, while all remaining contexts retain the configured mobile viewport. Clipboard extraction was replaced by an authenticated, browser-origin recovery-rotation response after exercising copy/download, avoiding an unbounded browser clipboard read.
