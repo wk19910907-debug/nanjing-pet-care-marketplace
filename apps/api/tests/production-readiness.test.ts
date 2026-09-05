@@ -89,6 +89,13 @@ describe('production readiness', () => {
     expect(readinessSnapshot(config, { database: true, objectStorage: true, adminCredential: true }))
       .toMatchObject({ ready: true });
   });
+
+  it('fails closed when production ingress rate-limit enforcement is absent', () => {
+    const config = loadConfig(pilotProductionEnvironment);
+    const unsafe = { ...config, pilot: { ...config.pilot!, sharedIngressRateLimiting: false } };
+    expect(readinessSnapshot(unsafe, { database: true, objectStorage: true, adminCredential: true }))
+      .toMatchObject({ ready: false });
+  });
 });
 
 describe('scheduled job entry points', () => {

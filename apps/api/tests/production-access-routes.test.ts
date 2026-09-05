@@ -98,6 +98,27 @@ describe('production access routes', () => {
     } finally { await app.close(); }
   });
 
+  it('returns a safe 429 for public and staff route-limit exhaustion', async () => {
+    const app = appWithProductionAccess();
+    await app.ready();
+    try {
+      const headers = { origin, 'x-forwarded-for': '203.0.113.9' };
+      for (let index = 0; index < 20; index += 1) {
+        expect((await app.inject({ method: 'POST', url: '/api/v1/public/owner-sessions', headers, payload: {} })).statusCode).toBe(201);
+      }
+      const publicLimited = await app.inject({ method: 'POST', url: '/api/v1/public/owner-sessions', headers, payload: {} });
+      for (let index = 0; index < 10; index += 1) {
+        expect((await app.inject({ method: 'POST', url: '/api/v1/staff/sessions', headers, payload: { username: `user${index}`, password: 'a'.repeat(12) } })).statusCode).toBe(201);
+      }
+      const staffLimited = await app.inject({ method: 'POST', url: '/api/v1/staff/sessions', headers, payload: { username: 'user-last', password: 'a'.repeat(12) } });
+      expect(publicLimited).toMatchObject({ statusCode: 429 });
+      expect(publicLimited.json()).toEqual({ code: 'RATE_LIMITED' });
+      expect(staffLimited).toMatchObject({ statusCode: 429 });
+      expect(staffLimited.json()).toEqual({ code: 'RATE_LIMITED' });
+      expect(staffLimited.headers['retry-after']).toMatch(/^\d+$/);
+    } finally { await app.close(); }
+  });
+
   it('exposes recovery, staff and administrator contracts without session tokens', async () => {
     const app = appWithProductionAccess();
     await app.ready();

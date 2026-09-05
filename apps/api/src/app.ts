@@ -55,6 +55,9 @@ export function createApp(dependencies: AppDependencies, options: AppOptions = {
     ...(trustedProxies ? { trustProxy: trustedProxies } : {}),
   });
   app.setErrorHandler((error, request, reply) => {
+    if (typeof error === 'object' && error !== null && 'statusCode' in error && error.statusCode === 429) {
+      return reply.code(429).send({ code: 'RATE_LIMITED' });
+    }
     if (error instanceof ZodError) {
       return reply.code(400).send({ code: 'VALIDATION_ERROR', issues: error.issues });
     }

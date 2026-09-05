@@ -11,7 +11,9 @@ export function readinessSnapshot(
   );
   if (config.pilot) return {
     ready: probes.database && probes.objectStorage && encryptionConfigured
-      && (config.nodeEnv !== 'production' || (Boolean(production) && probes.adminCredential !== false)),
+      && (config.nodeEnv !== 'production' || (
+        Boolean(production) && probes.adminCredential !== false && config.pilot.sharedIngressRateLimiting === true
+      )),
     database: probes.database,
     objectStorage: probes.objectStorage,
     encryption: encryptionConfigured,
