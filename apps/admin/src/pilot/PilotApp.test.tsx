@@ -173,6 +173,59 @@ describe('PilotApp', () => {
     expect(api.recoverOwnerSession).toHaveBeenCalledWith(token);
   });
 
+  it('single-flights recovery rotation, shows the newest credential, and restores focus after closing it', async () => {
+    const owner = { ...adminSession, userId: 'owner-1', role: 'OWNER' as const, displayName: '秦淮宠主' };
+    const rotation = deferred<{ token: string; recoveryPath: string }>();
+    const api = fakeApi({
+      getSession: vi.fn().mockResolvedValue(owner),
+      rotateRecoveryCredential: vi.fn().mockImplementation(() => rotation.promise),
+    });
+    const user = userEvent.setup();
+    render(<PilotApp api={api}/>);
+    const trigger = await screen.findByRole('button', { name: '生成新的恢复凭据' });
+    await user.click(trigger); await user.click(trigger);
+    expect(api.rotateRecoveryCredential).toHaveBeenCalledOnce();
+    expect((screen.getByRole('button', { name: '正在生成…' }) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => rotation.resolve({ token: 'z'.repeat(43), recoveryPath: '/#/orders/access/' + 'z'.repeat(43) }));
+    expect(await screen.findByRole('dialog', { name: '保存你的恢复凭据' })).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '复制恢复链接' }));
+    await user.click(screen.getByRole('button', { name: '我已保存' }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: '生成新的恢复凭据' })));
+  });
+
+  it('ignores a late recovery rotation response after the owner session has changed', async () => {
+    const owner = { ...adminSession, userId: 'owner-1', role: 'OWNER' as const, displayName: '秦淮宠主' };
+    const rotation = deferred<{ token: string; recoveryPath: string }>();
+    const getSession = vi.fn().mockResolvedValueOnce(owner).mockRejectedValueOnce(new PilotApiError(401, 'UNAUTHENTICATED'));
+    const api = fakeApi({ getSession, rotateRecoveryCredential: vi.fn().mockImplementation(() => rotation.promise) });
+    const user = userEvent.setup();
+    render(<PilotApp api={api}/>);
+    await user.click(await screen.findByRole('button', { name: '生成新的恢复凭据' }));
+    await user.click(screen.getByRole('button', { name: '退出登录' }));
+    expect(await screen.findByRole('button', { name: '员工登录' })).toBeTruthy();
+    await act(async () => rotation.resolve({ token: 'late'.padEnd(43, 'x'), recoveryPath: '/#/orders/access/' + 'late'.padEnd(43, 'x') }));
+    expect(screen.queryByRole('dialog', { name: '保存你的恢复凭据' })).toBeNull();
+  });
+
+  it('clears the session-bound booking intent before a later recovery session', async () => {
+    const initialOwner = { ...adminSession, userId: 'owner-1', role: 'OWNER' as const, displayName: '初始宠主' };
+    const recoveredOwner = { ...adminSession, userId: 'owner-2', role: 'OWNER' as const, displayName: '恢复宠主' };
+    const getSession = vi.fn().mockRejectedValueOnce(new PilotApiError(401, 'UNAUTHENTICATED'))
+      .mockResolvedValueOnce(initialOwner).mockResolvedValueOnce(recoveredOwner);
+    const api = fakeApi({ getSession, issueRecoveryCredential: vi.fn().mockRejectedValue(new PilotApiError(409, 'RECOVERY_ALREADY_ISSUED')) });
+    const user = userEvent.setup();
+    render(<PilotApp api={api}/>);
+    await user.click((await screen.findAllByRole('button', { name: '立即预约' }))[0]!);
+    expect(await screen.findByRole('heading', { name: '服务与时间' })).toBeTruthy();
+    window.history.replaceState(null, '', `/#/orders/access/${'s'.repeat(43)}`);
+    await api.recoverOwnerSession('s'.repeat(43));
+    // A full page reload applies the recovery DTO; the recovered owner must start on home, not a stale booking flow.
+    cleanup();
+    render(<PilotApp api={api}/>);
+    expect(await screen.findByRole('heading', { name: '今天需要照顾谁？' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: '服务与时间' })).toBeNull();
+  });
+
   it('shows password change before every staff workspace and survives reload from the session DTO', async () => {
     const changing = { ...adminSession, role: 'PROVIDER' as const, userId: 'provider-1', displayName: '秦淮小周', mustChangePassword: true };
     const getSession = vi.fn().mockResolvedValueOnce(changing).mockResolvedValueOnce({ ...changing, mustChangePassword: false });

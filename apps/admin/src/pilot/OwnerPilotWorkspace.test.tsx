@@ -96,6 +96,21 @@ describe('OwnerPilotWorkspace', () => {
     expect(document.body.textContent).not.toMatch(/搜索|商城|社区|消息中心/);
   });
 
+  it('consumes a start-booking intent once so a later refresh cannot reopen a closed flow', async () => {
+    const consumed = vi.fn();
+    const user = userEvent.setup();
+    render(<OwnerPilotWorkspace displayName="建邺宠主" startBooking onStartBookingConsumed={consumed}
+      api={fakeApi({ listOrders: vi.fn().mockResolvedValue([]) })} onError={() => 'error'}
+    />);
+
+    expect(await screen.findByRole('heading', { name: '服务与时间' })).toBeTruthy();
+    expect(consumed).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole('button', { name: '关闭预约' }));
+    await user.click(screen.getByRole('button', { name: '刷新' }));
+    expect(await screen.findByRole('heading', { name: '今天需要照顾谁？' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: '服务与时间' })).toBeNull();
+  });
+
   it('freezes the complete order payload and idempotency key across a lost-response retry', async () => {
     const createOrder = vi.fn()
       .mockRejectedValueOnce(new Error('network detail'))

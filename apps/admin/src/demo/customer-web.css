@@ -707,9 +707,6 @@
 .customer-web .access-confirm { width: 100%; min-height: 48px; margin-top: 16px; border: 1px solid var(--store-line); border-radius: 12px; color: var(--store-ink); background: #fff; font-weight: 800; }
 .access-overlay { position: fixed; z-index: 100; inset: 0; padding: 20px; display: grid; place-items: center; background: rgba(17, 29, 22, .48); }
 .access-overlay .access-card { width: min(100%, 480px); }
-.pilot-shell .owner-recovery { margin: 24px 0; padding: 18px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border: 1px solid var(--store-line); border-radius: 16px; background: #fafbf8; }
-.pilot-shell .owner-recovery p { margin: 5px 0 0; color: var(--store-muted); font-size: 13px; }
-.pilot-state-page .access-card { width: min(calc(100% - 32px), 440px); }
 
 @media (max-width: 980px) {
   .customer-web .store-nav-links > a { display: none; }
@@ -842,7 +839,6 @@
   .customer-web .public-staff-entry { text-align: left; }
   .customer-web .access-card { padding: 22px; }
   .customer-web .access-actions { grid-template-columns: 1fr; }
-  .pilot-shell .owner-recovery { display: block; }
 }
 
 @media (prefers-reduced-motion: reduce) {

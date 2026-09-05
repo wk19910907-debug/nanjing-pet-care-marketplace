@@ -30,6 +30,18 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
   const [accessError, setAccessError] = useState('');
   const [startBooking, setStartBooking] = useState(false);
   const [ownerPending, setOwnerPending] = useState(false);
+  const sessionUserId = useRef<string | null>(null);
+  const recoveryRotationLock = useRef(false);
+  const recoveryRotationVersion = useRef(0);
+  const [recoveryRotating, setRecoveryRotating] = useState(false);
+
+  const clearSessionBoundUi = useCallback(() => {
+    recoveryRotationVersion.current++;
+    recoveryRotationLock.current = false;
+    setRecoveryRotating(false);
+    setRecoveryCredential(null);
+    setStartBooking(false);
+  }, []);
 
   const loadSession = useCallback(async () => {
     setSession(undefined);
@@ -37,15 +49,25 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
     try {
       const current = await api.getSession();
       const expiresAt = Date.parse(current.expiresAt);
-      setSession(Number.isFinite(expiresAt) && expiresAt > Date.now() ? current : null);
+      if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+        sessionUserId.current = null;
+        clearSessionBoundUi();
+        setSession(null);
+        return;
+      }
+      if (sessionUserId.current !== null && sessionUserId.current !== current.userId) clearSessionBoundUi();
+      sessionUserId.current = current.userId;
+      setSession(current);
     } catch (caught) {
       if (caught instanceof PilotApiError && caught.status === 401) {
+        sessionUserId.current = null;
+        clearSessionBoundUi();
         setSession(null);
         return;
       }
       setFailure(pilotErrorMessage(caught));
     }
-  }, [api]);
+  }, [api, clearSessionBoundUi]);
 
   const loadCatalog = useCallback(async () => {
     setCatalogFailed(false);
@@ -110,6 +132,8 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
 
   const logout = async () => {
     setFailure('');
+    sessionUserId.current = null;
+    clearSessionBoundUi();
     try {
       await api.deleteSession();
     } catch (caught) {
@@ -142,14 +166,37 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
   };
 
   const recover = async (token: string) => {
+    clearSessionBoundUi();
     setAccessError('');
     try { await api.recoverOwnerSession(token); setAccessMode('NONE'); await loadSession(); }
     catch (caught) { setAccessError(pilotErrorMessage(caught)); }
   };
 
   const issueReplacementRecovery = async () => {
-    try { setRecoveryCredential(await api.rotateRecoveryCredential()); }
-    catch (caught) { setFailure(pilotErrorMessage(caught)); }
+    if (recoveryRotationLock.current) return;
+    recoveryRotationLock.current = true;
+    const requestVersion = ++recoveryRotationVersion.current;
+    setRecoveryRotating(true);
+    try {
+      const credential = await api.rotateRecoveryCredential();
+      if (requestVersion !== recoveryRotationVersion.current) return;
+      setRecoveryCredential(credential);
+    } catch (caught) {
+      if (requestVersion === recoveryRotationVersion.current) setFailure(pilotErrorMessage(caught));
+    } finally {
+      if (requestVersion === recoveryRotationVersion.current) {
+        recoveryRotationLock.current = false;
+        setRecoveryRotating(false);
+      }
+    }
+  };
+
+  const closeRecoveryCredential = () => {
+    setRecoveryCredential(null);
+    window.setTimeout(() => {
+      const target = document.querySelector<HTMLElement>('[data-access-return-focus]');
+      if (target?.isConnected) target.focus();
+    }, 0);
   };
 
   if (failure) return <main className="pilot-state-page">
@@ -189,7 +236,7 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
   if (session.mustChangePassword) return <StaffPasswordPanel api={api} onChanged={loadSession} onLogout={logout}/>;
 
   if (recoveryCredential) return <main className="pilot-state-page"><RecoveryCredentialCard
-    credential={recoveryCredential} onClose={() => setRecoveryCredential(null)}
+    credential={recoveryCredential} onClose={closeRecoveryCredential}
   /></main>;
 
   if (session.displayName === null) {
@@ -220,7 +267,8 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
       </div>}
       {session.role === 'OWNER' && <OwnerPilotWorkspace
         key={session.userId} api={api} displayName={session.displayName} onError={handleProtectedError}
-        startBooking={startBooking} onRecovery={() => void issueReplacementRecovery()}
+        startBooking={startBooking} onStartBookingConsumed={() => setStartBooking(false)}
+        onRecovery={() => void issueReplacementRecovery()} recoveryPending={recoveryRotating}
       />}
       {session.role === 'PROVIDER' && <ProviderPilotWorkspace
         key={session.userId} api={api} displayName={session.displayName} onError={handleProtectedError}

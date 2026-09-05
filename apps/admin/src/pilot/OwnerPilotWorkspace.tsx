@@ -22,7 +22,9 @@ type OwnerPilotWorkspaceProps = {
   displayName?: string;
   onError(caught: unknown): string | null;
   startBooking?: boolean;
+  onStartBookingConsumed?(): void;
   onRecovery?(): void;
+  recoveryPending?: boolean;
 };
 
 type OrderAttempt = { input: CreateOwnerOrder; key: string };
@@ -99,7 +101,7 @@ function OrderTimeline({ order }: { order: OwnerOrder }) {
   </ol>;
 }
 
-export function OwnerPilotWorkspace({ api, displayName = '宠主', onError, startBooking = false, onRecovery }: OwnerPilotWorkspaceProps) {
+export function OwnerPilotWorkspace({ api, displayName = '宠主', onError, startBooking = false, onStartBookingConsumed, onRecovery, recoveryPending = false }: OwnerPilotWorkspaceProps) {
   const [pets, setPets] = useState<OwnerPet[]>([]);
   const [addresses, setAddresses] = useState<OwnerAddress[]>([]);
   const [orders, setOrders] = useState<OwnerOrder[]>([]);
@@ -129,8 +131,11 @@ export function OwnerPilotWorkspace({ api, displayName = '宠主', onError, star
   const [evidenceErrors, setEvidenceErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (startBooking && catalog) setBookingOpen(true);
-  }, [catalog, startBooking]);
+    if (startBooking && catalog) {
+      setBookingOpen(true);
+      onStartBookingConsumed?.();
+    }
+  }, [catalog, onStartBookingConsumed, startBooking]);
 
   const isCurrent = useCallback((generation: number) => (
     lifecycle.current.mounted && lifecycle.current.generation === generation
@@ -454,7 +459,7 @@ export function OwnerPilotWorkspace({ api, displayName = '宠主', onError, star
       </section>
       <section className="owner-recovery" aria-label="订单恢复">
         <div><strong>订单恢复</strong><p>如需在新设备查看订单，可重新生成恢复凭据。</p></div>
-        {onRecovery && <button type="button" className="access-text-button" onClick={onRecovery}>生成新的恢复凭据</button>}
+        {onRecovery && <button id="owner-recovery-trigger" data-access-return-focus type="button" className="access-text-button" disabled={recoveryPending} onClick={onRecovery}>{recoveryPending ? '正在生成…' : '生成新的恢复凭据'}</button>}
       </section>
       <nav className="owner-bottom-nav" aria-label="宠主导航">
         <a href="#owner-home" aria-current="page"><span aria-hidden="true">⌂</span>首页</a>

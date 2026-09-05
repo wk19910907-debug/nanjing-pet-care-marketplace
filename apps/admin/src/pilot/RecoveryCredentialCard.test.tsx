@@ -18,6 +18,7 @@ describe('RecoveryCredentialCard', () => {
     />);
 
     expect(screen.getByRole('heading', { name: '保存你的恢复凭据' })).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '复制恢复链接' }));
     expect(document.body.textContent).not.toContain('A'.repeat(43));
     await userEvent.click(screen.getByRole('button', { name: '复制恢复链接' }));
     expect(copy).toHaveBeenCalledWith(`${window.location.origin}/#/orders/access/${'A'.repeat(43)}`);

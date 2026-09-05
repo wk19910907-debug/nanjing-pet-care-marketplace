@@ -38,6 +38,7 @@ export function ProfilePanel({ api, onSaved, onLogout, onError }: ProfilePanelPr
         <label htmlFor="pilot-display-name">展示昵称</label>
         <input
           id="pilot-display-name"
+          data-access-return-focus
           value={displayName}
           onChange={(event) => setDisplayName(event.target.value)}
           minLength={1}

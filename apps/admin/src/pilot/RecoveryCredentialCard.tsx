@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { OwnerRecoveryCredential } from './models.js';
 
 type RecoveryCredentialCardProps = {
@@ -14,7 +14,10 @@ export function RecoveryCredentialCard({ credential, onClose }: RecoveryCredenti
   const [error, setError] = useState('');
   const [copying, setCopying] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const copyButton = useRef<HTMLButtonElement>(null);
   const masked = `${credential.token.slice(0, 5)}••••••••••••••••${credential.token.slice(-4)}`;
+
+  useEffect(() => { copyButton.current?.focus(); }, []);
 
   const copy = async () => {
     setCopying(true); setError('');
@@ -57,7 +60,7 @@ export function RecoveryCredentialCard({ credential, onClose }: RecoveryCredenti
     <output aria-label="恢复凭据（已隐藏）" className="recovery-masked">{masked}</output>
     <p className="access-warning">任何得到恢复链接的人都可进入你的订单。请勿转发、截图上传或存入公共设备。</p>
     <div className="access-actions">
-      <button type="button" className="access-primary" disabled={copying || downloading} onClick={() => void copy()}>{copying ? '正在复制…' : '复制恢复链接'}</button>
+      <button ref={copyButton} type="button" className="access-primary" disabled={copying || downloading} onClick={() => void copy()}>{copying ? '正在复制…' : '复制恢复链接'}</button>
       <button type="button" disabled={copying || downloading} onClick={download}>{downloading ? '正在下载…' : '下载文本文件'}</button>
     </div>
     {error && <p role="alert" className="pilot-error">{error}</p>}
