@@ -28,3 +28,10 @@
 - Refresh, later-page, and send responses merge safely, so an older GET cannot erase a confirmed POST; later-page loading locks cleanly and refresh is unavailable during that request.
 - Destructive staff confirmations now use focused `alertdialog` semantics and restore focus to the initiating control when dismissed or completed.
 - Node `v22.22.2` follow-up focused UI suite: 5 files / 35 tests passed, with admin typecheck, repository lint, build, and diff checks rerun successfully.
+
+## Final accessibility follow-up
+
+- Replaced the inline confirmation's unsupported modal claim with a labelled, live `group`; it is focused when opened without implying a focus trap or inert page.
+- Cancel restores focus only to a still-connected initiating control. Successful disable, enable, and password-reset actions wait for the refreshed row and focus its current primary action (or the stable panel heading), avoiding detached-node focus.
+- Added active-element coverage for cancel plus successful disable/enable and reset transitions; failed actions leave the confirmation in place for recovery.
+- Node `v22.22.2`: focused UI suite (5 files / 37 tests), admin typecheck, repository lint, admin production build, and `git diff --check` all passed.

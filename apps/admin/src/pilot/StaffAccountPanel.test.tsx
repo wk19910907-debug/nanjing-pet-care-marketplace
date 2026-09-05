@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PilotApi } from './api.js';
@@ -39,7 +39,7 @@ describe('StaffAccountPanel', () => {
     render(<StaffAccountPanel api={api} onError={() => '操作失败'}/>);
     await screen.findByRole('button', { name: '停用 provider.one' });
     await user.click(screen.getByRole('button', { name: '停用 provider.one' }));
-    const confirm = screen.getByRole('alertdialog', { name: '确认停用 provider.one' });
+    const confirm = screen.getByRole('group', { name: '确认停用 provider.one' });
     const button = within(confirm).getByRole('button', { name: '确认停用' });
     await user.click(button);
     await user.click(button);
@@ -48,15 +48,41 @@ describe('StaffAccountPanel', () => {
     release();
   });
 
-  it('moves focus into a destructive confirmation and restores it to its initiating control', async () => {
+  it('moves focus into a destructive confirmation group and restores it to its initiating control on cancel', async () => {
     const user = userEvent.setup();
     render(<StaffAccountPanel api={fakeApi()} onError={() => '操作失败'}/>);
     const trigger = await screen.findByRole('button', { name: '停用 provider.one' });
     await user.click(trigger);
-    const dialog = screen.getByRole('alertdialog', { name: '确认停用 provider.one' });
-    expect(document.activeElement).toBe(dialog);
-    await user.click(within(dialog).getByRole('button', { name: '取消' }));
+    const group = screen.getByRole('group', { name: '确认停用 provider.one' });
+    expect(document.activeElement).toBe(group);
+    await user.click(within(group).getByRole('button', { name: '取消' }));
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it('focuses a connected updated row action after successful disable and enable reloads', async () => {
+    const disabled = { ...staff, disabledAt: '2026-09-02T00:00:00.000Z' };
+    const listStaffAccounts = vi.fn().mockResolvedValueOnce([staff]).mockResolvedValueOnce([disabled]).mockResolvedValueOnce([staff]);
+    const api = fakeApi({ listStaffAccounts, updateStaffAccount: vi.fn().mockResolvedValue(disabled) });
+    const user = userEvent.setup();
+    render(<StaffAccountPanel api={api} onError={() => '操作失败'}/>);
+    await user.click(await screen.findByRole('button', { name: '停用 provider.one' }));
+    await user.click(within(screen.getByRole('group', { name: '确认停用 provider.one' })).getByRole('button', { name: '确认停用' }));
+    const enable = await screen.findByRole('button', { name: '启用 provider.one' });
+    await waitFor(() => expect(document.activeElement).toBe(enable));
+    await user.click(enable);
+    await user.click(within(screen.getByRole('group', { name: '确认启用 provider.one' })).getByRole('button', { name: '确认启用' }));
+    const reset = await screen.findByRole('button', { name: '重置 provider.one 临时密码' });
+    await waitFor(() => expect(document.activeElement).toBe(reset));
+  });
+
+  it('focuses a connected row action after a successful password reset reload', async () => {
+    const api = fakeApi({ listStaffAccounts: vi.fn().mockResolvedValueOnce([staff]).mockResolvedValueOnce([{ ...staff, mustChangePassword: true }]) });
+    const user = userEvent.setup();
+    render(<StaffAccountPanel api={api} onError={() => '操作失败'}/>);
+    await user.click(await screen.findByRole('button', { name: '重置 provider.one 临时密码' }));
+    await user.click(within(screen.getByRole('group', { name: '确认重置 provider.one 临时密码' })).getByRole('button', { name: '确认重置临时密码' }));
+    const reset = await screen.findByRole('button', { name: '重置 provider.one 临时密码' });
+    await waitFor(() => expect(document.activeElement).toBe(reset));
   });
 
   it('propagates protected API errors without retaining a reset password after dismissal', async () => {
@@ -65,7 +91,7 @@ describe('StaffAccountPanel', () => {
     render(<StaffAccountPanel api={api} onError={() => '你没有权限执行此操作'}/>);
     await screen.findByRole('button', { name: '停用 provider.one' });
     await user.click(screen.getByRole('button', { name: '重置 provider.one 临时密码' }));
-    await user.click(within(screen.getByRole('alertdialog', { name: '确认重置 provider.one 临时密码' })).getByRole('button', { name: '确认重置临时密码' }));
+    await user.click(within(screen.getByRole('group', { name: '确认重置 provider.one 临时密码' })).getByRole('button', { name: '确认重置临时密码' }));
     expect((await screen.findByRole('alert')).textContent).toContain('你没有权限执行此操作');
     expect(screen.queryByText('临时密码（仅显示一次）')).toBeNull();
   });
