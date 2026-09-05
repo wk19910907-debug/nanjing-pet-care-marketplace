@@ -39,7 +39,7 @@ describe('StaffAccountPanel', () => {
     render(<StaffAccountPanel api={api} onError={() => '操作失败'}/>);
     await screen.findByRole('button', { name: '停用 provider.one' });
     await user.click(screen.getByRole('button', { name: '停用 provider.one' }));
-    const confirm = screen.getByRole('group', { name: '确认停用 provider.one' });
+    const confirm = screen.getByRole('alertdialog', { name: '确认停用 provider.one' });
     const button = within(confirm).getByRole('button', { name: '确认停用' });
     await user.click(button);
     await user.click(button);
@@ -48,13 +48,24 @@ describe('StaffAccountPanel', () => {
     release();
   });
 
+  it('moves focus into a destructive confirmation and restores it to its initiating control', async () => {
+    const user = userEvent.setup();
+    render(<StaffAccountPanel api={fakeApi()} onError={() => '操作失败'}/>);
+    const trigger = await screen.findByRole('button', { name: '停用 provider.one' });
+    await user.click(trigger);
+    const dialog = screen.getByRole('alertdialog', { name: '确认停用 provider.one' });
+    expect(document.activeElement).toBe(dialog);
+    await user.click(within(dialog).getByRole('button', { name: '取消' }));
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it('propagates protected API errors without retaining a reset password after dismissal', async () => {
     const api = fakeApi({ resetStaffPassword: vi.fn().mockRejectedValue(new Error('forbidden')) });
     const user = userEvent.setup();
     render(<StaffAccountPanel api={api} onError={() => '你没有权限执行此操作'}/>);
     await screen.findByRole('button', { name: '停用 provider.one' });
     await user.click(screen.getByRole('button', { name: '重置 provider.one 临时密码' }));
-    await user.click(within(screen.getByRole('group', { name: '确认重置 provider.one 临时密码' })).getByRole('button', { name: '确认重置临时密码' }));
+    await user.click(within(screen.getByRole('alertdialog', { name: '确认重置 provider.one 临时密码' })).getByRole('button', { name: '确认重置临时密码' }));
     expect((await screen.findByRole('alert')).textContent).toContain('你没有权限执行此操作');
     expect(screen.queryByText('临时密码（仅显示一次）')).toBeNull();
   });

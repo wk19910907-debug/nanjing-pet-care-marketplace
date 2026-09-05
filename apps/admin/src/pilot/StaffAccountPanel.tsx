@@ -23,6 +23,20 @@ export function StaffAccountPanel({ api, onError }: Props) {
   const [oneTimePassword, setOneTimePassword] = useState('');
   const lifecycle = useRef({ mounted: false, load: 0 });
   const locks = useRef(new Set<string>());
+  const confirmationRef = useRef<HTMLDivElement | null>(null);
+  const confirmationOrigin = useRef<HTMLButtonElement | null>(null);
+  const hadConfirmation = useRef(false);
+
+  useEffect(() => {
+    if (confirmation) {
+      hadConfirmation.current = true;
+      confirmationRef.current?.focus();
+    } else if (hadConfirmation.current) {
+      confirmationOrigin.current?.focus();
+      confirmationOrigin.current = null;
+      hadConfirmation.current = false;
+    }
+  }, [confirmation]);
 
   const load = useCallback(async () => {
     const request = ++lifecycle.current.load;
@@ -78,6 +92,10 @@ export function StaffAccountPanel({ api, onError }: Props) {
     }
     void run(`account:${account.userId}`, () => api.updateStaffAccount(account.userId, { disabled: kind === 'disable' }).then(() => undefined));
   };
+  const openConfirmation = (next: Confirmation, origin: HTMLButtonElement) => {
+    confirmationOrigin.current = origin;
+    setConfirmation(next);
+  };
 
   return <section className="pilot-staff-panel" aria-labelledby="staff-accounts-title">
     <div className="pilot-panel-heading"><div><p className="pilot-kicker">员工权限</p><h2 id="staff-accounts-title">服务人员账号</h2></div>
@@ -94,12 +112,12 @@ export function StaffAccountPanel({ api, onError }: Props) {
       {accounts.length === 0 ? <p className="pilot-empty">目前没有服务人员账号。</p> : accounts.map((account) => <article className="pilot-staff-row" key={account.userId}>
         <div><strong>{account.displayName}</strong><span>{account.username} · 服务人员</span><small>{account.disabledAt ? '已停用' : account.mustChangePassword ? '首次登录需修改临时密码' : '可正常登录'}</small></div>
         <div className="pilot-staff-actions">
-          {account.disabledAt ? <button type="button" onClick={() => setConfirmation({ kind: 'enable', account })}>启用 {account.username}</button> : <>
-            <button type="button" onClick={() => setConfirmation({ kind: 'reset', account })}>重置 {account.username} 临时密码</button>
-            <button type="button" className="pilot-secondary" onClick={() => setConfirmation({ kind: 'disable', account })}>停用 {account.username}</button>
+          {account.disabledAt ? <button type="button" onClick={(event) => openConfirmation({ kind: 'enable', account }, event.currentTarget)}>启用 {account.username}</button> : <>
+            <button type="button" onClick={(event) => openConfirmation({ kind: 'reset', account }, event.currentTarget)}>重置 {account.username} 临时密码</button>
+            <button type="button" className="pilot-secondary" onClick={(event) => openConfirmation({ kind: 'disable', account }, event.currentTarget)}>停用 {account.username}</button>
           </>}
         </div>
-        {confirmation?.account.userId === account.userId && <div className="pilot-inline-confirm" role="group" aria-label={`确认${confirmation.kind === 'reset' ? '重置' : confirmation.kind === 'disable' ? '停用' : '启用'} ${account.username}${confirmation.kind === 'reset' ? ' 临时密码' : ''}`}>
+        {confirmation?.account.userId === account.userId && <div ref={confirmationRef} className="pilot-inline-confirm" role="alertdialog" aria-modal="true" tabIndex={-1} aria-label={`确认${confirmation.kind === 'reset' ? '重置' : confirmation.kind === 'disable' ? '停用' : '启用'} ${account.username}${confirmation.kind === 'reset' ? ' 临时密码' : ''}`}>
           <strong>{confirmation.kind === 'reset' ? '确认重置后，旧密码立即失效。' : `确认${confirmation.kind === 'disable' ? '停用' : '启用'}该服务人员账号。`}</strong>
           <div><button type="button" disabled={Boolean(pending)} onClick={confirm}>{pending ? '正在处理…' : confirmation.kind === 'reset' ? '确认重置临时密码' : `确认${confirmation.kind === 'disable' ? '停用' : '启用'}`}</button><button type="button" className="pilot-secondary" disabled={Boolean(pending)} onClick={() => setConfirmation(null)}>取消</button></div>
         </div>}

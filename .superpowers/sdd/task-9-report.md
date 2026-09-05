@@ -21,3 +21,10 @@
 - Files changed are limited to `apps/admin/src/pilot/`, `apps/admin/src/styles.css`, and this report.
 - Pre-existing `.superpowers/sdd/task-1-report.md` changes were not staged or modified.
 - No known Task 9 residuals.
+
+## Follow-up regression fixes
+
+- Conversation paging now follows the server's ascending after-cursor contract: `加载后续消息` appends chronological, ID-deduplicated messages.
+- Refresh, later-page, and send responses merge safely, so an older GET cannot erase a confirmed POST; later-page loading locks cleanly and refresh is unavailable during that request.
+- Destructive staff confirmations now use focused `alertdialog` semantics and restore focus to the initiating control when dismissed or completed.
+- Node `v22.22.2` follow-up focused UI suite: 5 files / 35 tests passed, with admin typecheck, repository lint, build, and diff checks rerun successfully.
