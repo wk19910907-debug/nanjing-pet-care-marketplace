@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import type { FieldCrypto } from '../adapters/field-crypto.js';
 import type { AuditRepository } from '../audit/audit-repository.js';
 import type { ActorContext } from '../auth/auth-service.js';
@@ -14,6 +15,14 @@ export type OrderMessageDto = {
   body: string;
   createdAt: string;
 };
+
+export function orderMessageAssociatedData(
+  orderId: string,
+  messageId: string,
+  authorRole: 'OWNER' | 'ADMIN',
+): Buffer {
+  return Buffer.from(JSON.stringify(['petcare.order-message', 1, orderId, messageId, authorRole]), 'utf8');
+}
 
 type MessageCursor = { createdAt: Date; id: string };
 
@@ -65,9 +74,13 @@ export class OrderConversationService {
     if (!normalizedBody || [...normalizedBody].length > MAX_BODY_CHARACTERS) {
       throw new Error('VALIDATION_ERROR');
     }
-    const encrypted = this.fieldCrypto.encrypt(normalizedBody);
+    const id = randomUUID();
+    const encrypted = this.fieldCrypto.encrypt(normalizedBody, {
+      associatedData: orderMessageAssociatedData(orderId, id, actor.role),
+    });
     const message = await this.prisma.$transaction(async (transaction) => {
       const created = await transaction.orderMessage.create({ data: {
+        id,
         orderId,
         authorUserId: actor.userId,
         authorRole: actor.role,
@@ -122,7 +135,7 @@ export class OrderConversationService {
           nonce: Buffer.from(message.bodyNonce),
           authTag: Buffer.from(message.bodyAuthTag),
           keyVersion: message.encryptionKeyVersion,
-        }),
+        }, { associatedData: orderMessageAssociatedData(message.orderId, message.id, message.authorRole) }),
         createdAt: message.createdAt.toISOString(),
       };
     } catch {
@@ -154,5 +167,13 @@ function decodeCursor(value: string): MessageCursor {
   if (!UUID_PATTERN.test(object.id) || Number.isNaN(createdAt.getTime()) || createdAt.toISOString() !== object.createdAt) {
     throw new Error('VALIDATION_ERROR');
   }
+  if (decodedJson(value) !== JSON.stringify({ createdAt: object.createdAt, id: object.id })) {
+    throw new Error('VALIDATION_ERROR');
+  }
   return { createdAt, id: object.id };
+}
+
+function decodedJson(value: string): string {
+  try { return Buffer.from(value, 'base64url').toString('utf8'); }
+  catch { throw new Error('VALIDATION_ERROR'); }
 }

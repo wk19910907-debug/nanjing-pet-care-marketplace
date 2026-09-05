@@ -51,6 +51,8 @@ const EnvironmentSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   DATABASE_URL: z.string().startsWith('postgresql://'),
   FIELD_ENCRYPTION_KEY_V1: z.string().optional(),
+  FIELD_ENCRYPTION_KEYRING: z.string().max(16_384).optional(),
+  FIELD_ENCRYPTION_ACTIVE_VERSION: z.string().optional(),
   WECHAT_PAY_MCH_ID: z.string().optional(),
   WECHAT_PAY_API_V3_KEY: z.string().optional(),
   WECHAT_PAY_PRIVATE_KEY: z.string().optional(),
@@ -101,10 +103,10 @@ const EnvironmentSchema = z.object({
     code: 'custom', path: ['PILOT_SHARED_INGRESS_RATE_LIMITING'], message: 'PILOT_SHARED_INGRESS_RATE_LIMITING is required in production',
   });
   const required = pilotEnabled ? [
-    'PILOT_PUBLIC_ORIGIN', 'FIELD_ENCRYPTION_KEY_V1', 'S3_ENDPOINT', 'S3_BUCKET',
+    'PILOT_PUBLIC_ORIGIN', 'S3_ENDPOINT', 'S3_BUCKET',
     'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'S3_REGION',
   ] as const : [
-    'FIELD_ENCRYPTION_KEY_V1', 'WECHAT_PAY_MCH_ID', 'WECHAT_PAY_API_V3_KEY',
+    'WECHAT_PAY_MCH_ID', 'WECHAT_PAY_API_V3_KEY',
     'WECHAT_PAY_PRIVATE_KEY', 'WECHAT_PAY_PLATFORM_CERT', 'PAYMENT_WEBHOOK_BASE_URL',
     'S3_ENDPOINT', 'S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'S3_REGION',
     'WECHAT_APP_ID', 'WECHAT_APP_SECRET',
@@ -112,7 +114,15 @@ const EnvironmentSchema = z.object({
   for (const key of required) if (!environment[key]) context.addIssue({
     code: 'custom', path: [key], message: `${key} is required in production`,
   });
+  if (!environment.FIELD_ENCRYPTION_KEY_V1 && !environment.FIELD_ENCRYPTION_KEYRING) context.addIssue({
+    code: 'custom', path: ['FIELD_ENCRYPTION_KEY_V1'], message: 'FIELD_ENCRYPTION_KEY_V1 or FIELD_ENCRYPTION_KEYRING is required in production',
+  });
 });
+
+export type FieldEncryptionKeyringConfig = {
+  activeVersion: number;
+  keys: Map<number, string>;
+};
 
 export type PilotConfig = {
   enabled: true;
@@ -138,7 +148,8 @@ export type ObjectStorageConfig = {
 };
 
 type ProductionConfig = {
-  fieldEncryptionKey: string;
+  fieldEncryptionKey?: string;
+  fieldEncryptionKeyring?: FieldEncryptionKeyringConfig;
   objectStorage: ObjectStorageConfig;
   wechatPay?: {
     merchantId: string;
@@ -154,6 +165,7 @@ export type AppConfig = {
   nodeEnv: 'development' | 'test' | 'production';
   databaseUrl: string;
   fieldEncryptionKey?: string;
+  fieldEncryptionKeyring?: FieldEncryptionKeyringConfig;
   pilot?: PilotConfig;
   production?: ProductionConfig;
   wechatLogin?: { appId: string; appSecret: string };
@@ -161,6 +173,11 @@ export type AppConfig = {
 
 export function loadConfig(environment: Record<string, string | undefined>): AppConfig {
   const parsed = EnvironmentSchema.parse(environment);
+  const fieldEncryptionKeyring = parseFieldEncryptionKeyring(
+    parsed.FIELD_ENCRYPTION_KEYRING,
+    parsed.FIELD_ENCRYPTION_ACTIVE_VERSION,
+    parsed.FIELD_ENCRYPTION_KEY_V1,
+  );
   const pilot = parsed.PILOT_MODE === 'enabled' ? {
     enabled: true as const,
     host: parsed.PILOT_HOST,
@@ -181,6 +198,7 @@ export function loadConfig(environment: Record<string, string | undefined>): App
     ...(parsed.FIELD_ENCRYPTION_KEY_V1
       ? { fieldEncryptionKey: parsed.FIELD_ENCRYPTION_KEY_V1 }
       : {}),
+    ...(fieldEncryptionKeyring ? { fieldEncryptionKeyring } : {}),
     ...(pilot ? { pilot } : {}),
     ...(parsed.WECHAT_LOGIN_ENABLED === 'true' ? {
       wechatLogin: { appId: parsed.WECHAT_APP_ID!, appSecret: parsed.WECHAT_APP_SECRET! },
@@ -189,7 +207,8 @@ export function loadConfig(environment: Record<string, string | undefined>): App
   if (parsed.NODE_ENV !== 'production') return base;
 
   const productionBase = {
-    fieldEncryptionKey: parsed.FIELD_ENCRYPTION_KEY_V1!,
+    ...(parsed.FIELD_ENCRYPTION_KEY_V1 ? { fieldEncryptionKey: parsed.FIELD_ENCRYPTION_KEY_V1 } : {}),
+    ...(fieldEncryptionKeyring ? { fieldEncryptionKeyring } : {}),
     objectStorage: {
       endpoint: parsed.S3_ENDPOINT!, bucket: parsed.S3_BUCKET!, accessKeyId: parsed.S3_ACCESS_KEY_ID!,
       secretAccessKey: parsed.S3_SECRET_ACCESS_KEY!, region: parsed.S3_REGION!,
@@ -207,4 +226,45 @@ export function loadConfig(environment: Record<string, string | undefined>): App
     },
     wechatNotifications: { appId: parsed.WECHAT_APP_ID!, appSecret: parsed.WECHAT_APP_SECRET! },
   }};
+}
+
+function parseFieldEncryptionKeyring(
+  encoded: string | undefined,
+  activeVersionText: string | undefined,
+  legacyKey: string | undefined,
+): FieldEncryptionKeyringConfig | undefined {
+  if (!encoded && !activeVersionText) return undefined;
+  if (!encoded || !activeVersionText || legacyKey) throw new Error('FIELD_ENCRYPTION_KEYRING_INVALID');
+  if (!/^[1-9]\d{0,9}$/.test(activeVersionText)) throw new Error('FIELD_ENCRYPTION_ACTIVE_VERSION_INVALID');
+  const activeVersion = Number(activeVersionText);
+  if (!Number.isSafeInteger(activeVersion) || activeVersion > 2_147_483_647) {
+    throw new Error('FIELD_ENCRYPTION_ACTIVE_VERSION_INVALID');
+  }
+  let entries: unknown;
+  try { entries = JSON.parse(encoded); }
+  catch { throw new Error('FIELD_ENCRYPTION_KEYRING_INVALID'); }
+  if (!Array.isArray(entries) || entries.length === 0 || entries.length > 16) {
+    throw new Error('FIELD_ENCRYPTION_KEYRING_INVALID');
+  }
+  const keys = new Map<number, string>();
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new Error('FIELD_ENCRYPTION_KEYRING_INVALID');
+    const object = entry as Record<string, unknown>;
+    const version = object.version;
+    const key = object.key;
+    if (Object.keys(object).length !== 2 || !Object.hasOwn(object, 'version') || !Object.hasOwn(object, 'key')
+      || typeof version !== 'number' || !Number.isSafeInteger(version) || version < 1 || version > 2_147_483_647
+      || typeof key !== 'string' || keys.has(version) || !isCanonicalFieldKey(key)) {
+      throw new Error('FIELD_ENCRYPTION_KEYRING_INVALID');
+    }
+    keys.set(version, key);
+  }
+  if (!keys.has(activeVersion)) throw new Error('FIELD_ENCRYPTION_ACTIVE_VERSION_INVALID');
+  return { activeVersion, keys };
+}
+
+function isCanonicalFieldKey(value: string): boolean {
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) return false;
+  const decoded = Buffer.from(value, 'base64');
+  return decoded.byteLength === 32 && decoded.toString('base64') === value;
 }

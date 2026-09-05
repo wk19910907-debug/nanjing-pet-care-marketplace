@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AppConfig } from '../src/config.js';
+import { PasswordHasher } from '../src/auth/password-hasher.js';
 import { bootstrapAdminInvite, runBootstrapCommand } from '../src/pilot/bootstrap.js';
 import { createPilotApplication } from '../src/pilot/composition.js';
 import { runPilotServer } from '../src/server.js';
@@ -566,6 +567,63 @@ describe('pilot application composition', () => {
     expect(legacyCheckIn.statusCode).toBe(404);
     expect(legacyReport.statusCode).toBe(404);
     await application.app.close();
+  });
+
+  it('blocks must-change ADMIN sessions from message reads and writes until password rotation', async () => {
+    const config = productionConfig(path.join(temporaryRoot, 'message-password-change-disk'));
+    const application = await createPilotApplication(config, {
+      staticDir,
+      s3Signer: {
+        probe: async () => true,
+        presignPut: async () => 'https://objects.example.com/upload',
+        presignGet: async () => 'https://objects.example.com/read',
+        head: async () => null,
+      },
+    });
+    try {
+      const origin = config.pilot!.publicOrigin!;
+      const owner = await application.prisma.user.create({ data: { role: 'OWNER', phoneHash: randomUUID() } });
+      const address = await application.prisma.serviceAddress.create({ data: {
+        ownerId: owner.id, city: '南京市', district: '建邺区', serviceZone: '建邺区', latitude: 32.01, longitude: 118.73,
+        detailCiphertext: Buffer.from('test-address'), detailNonce: Buffer.alloc(12),
+        detailAuthTag: Buffer.alloc(16), encryptionKeyVersion: 1,
+      } });
+      const order = await application.prisma.order.create({ data: {
+        ownerId: owner.id, addressId: address.id, idempotencyKey: randomUUID(), serviceType: 'CAT_FEEDING',
+        status: 'PENDING_DISPATCH', startsAt: new Date('2030-01-01T00:00:00.000Z'), durationMinutes: 30,
+        quoteSnapshot: { totalFen: 3900 }, totalFen: 3900,
+      } });
+      const admin = await application.prisma.user.create({ data: { role: 'ADMIN', displayName: '改密管理员' } });
+      await application.prisma.staffCredential.create({ data: {
+        userId: admin.id, usernameNormalized: 'message.admin',
+        passwordHash: await new PasswordHasher().hash('Initial-password-123!'),
+      } });
+      const login = await application.app.inject({
+        method: 'POST', url: '/api/v1/staff/sessions', headers: { origin },
+        payload: { username: 'message.admin', password: 'Initial-password-123!' },
+      });
+      const changingCookie = login.headers['set-cookie']!;
+      const messageUrl = `/api/v1/pilot/orders/${order.id}/messages`;
+      const blockedGet = await application.app.inject({ method: 'GET', url: messageUrl, headers: { origin, cookie: changingCookie } });
+      const blockedPost = await application.app.inject({ method: 'POST', url: messageUrl,
+        headers: { origin, cookie: changingCookie }, payload: { body: '不应写入' } });
+      const changed = await application.app.inject({ method: 'PATCH', url: '/api/v1/staff/password',
+        headers: { origin, cookie: changingCookie }, payload: { password: 'Rotated-password-456!' } });
+      const activeCookie = changed.headers['set-cookie']!;
+      const allowedGet = await application.app.inject({ method: 'GET', url: messageUrl, headers: { origin, cookie: activeCookie } });
+      const allowedPost = await application.app.inject({ method: 'POST', url: messageUrl,
+        headers: { origin, cookie: activeCookie }, payload: { body: '已完成改密' } });
+
+      expect(login.statusCode).toBe(201);
+      expect(blockedGet).toMatchObject({ statusCode: 403 });
+      expect(blockedGet.json()).toEqual({ code: 'PASSWORD_CHANGE_REQUIRED' });
+      expect(blockedPost).toMatchObject({ statusCode: 403 });
+      expect(blockedPost.json()).toEqual({ code: 'PASSWORD_CHANGE_REQUIRED' });
+      expect(changed.statusCode).toBe(200);
+      expect(allowedGet).toMatchObject({ statusCode: 200 });
+      expect(allowedPost).toMatchObject({ statusCode: 201 });
+      expect(allowedPost.json()).toMatchObject({ authorRole: 'ADMIN', body: '已完成改密' });
+    } finally { await application.app.close(); }
   });
 
   it('refuses to listen when its dependency readiness probe fails', async () => {

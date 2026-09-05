@@ -79,6 +79,7 @@ describe('loadConfig', () => {
       PILOT_EVIDENCE_DIR: 'D:\\pilot-evidence',
       PILOT_TRUST_PROXY: '127.0.0.1/32, ::1/128',
       FIELD_ENCRYPTION_KEY_V1: Buffer.alloc(32, 1).toString('base64'),
+      PILOT_SHARED_INGRESS_RATE_LIMITING: 'enabled',
       S3_ENDPOINT: 'https://objects.example.com', S3_BUCKET: 'pilot-evidence',
       S3_ACCESS_KEY_ID: 'access-id', S3_SECRET_ACCESS_KEY: 'access-secret',
       S3_REGION: 'auto', S3_FORCE_PATH_STYLE: 'true',
@@ -88,6 +89,7 @@ describe('loadConfig', () => {
       publicOrigin: 'https://pilot.example.com', authPepper: Buffer.alloc(48, 9),
       sessionDays: 30, inviteHours: 168, evidenceDir: 'D:\\pilot-evidence',
       trustedProxies: ['127.0.0.1/32', '::1/128'], secureCookies: true,
+      sharedIngressRateLimiting: true,
     });
     expect(config.production).not.toHaveProperty('wechatPay');
     expect(config.production).not.toHaveProperty('wechatNotifications');
@@ -96,6 +98,46 @@ describe('loadConfig', () => {
       accessKeyId: 'access-id', secretAccessKey: 'access-secret',
       region: 'auto', forcePathStyle: true,
     });
+  });
+
+  it('parses an explicit active field-encryption keyring and rejects ambiguous or invalid forms', () => {
+    const v1 = Buffer.alloc(32, 12).toString('base64');
+    const v2 = Buffer.alloc(32, 13).toString('base64');
+    const environment = {
+      DATABASE_URL: 'postgresql://petcare:petcare@localhost:54329/petcare',
+      FIELD_ENCRYPTION_KEYRING: JSON.stringify([{ version: 1, key: v1 }, { version: 2, key: v2 }]),
+      FIELD_ENCRYPTION_ACTIVE_VERSION: '2',
+    };
+    expect(loadConfig(environment).fieldEncryptionKeyring).toEqual({
+      activeVersion: 2,
+      keys: new Map([[1, v1], [2, v2]]),
+    });
+    for (const overrides of [
+      { FIELD_ENCRYPTION_KEYRING: JSON.stringify([{ version: 1, key: v1 }, { version: 1, key: v2 }]) },
+      { FIELD_ENCRYPTION_KEYRING: JSON.stringify([{ version: 1, key: `${v1}\n` }]) },
+      { FIELD_ENCRYPTION_KEYRING: JSON.stringify([{ version: 1, key: v1 }]), FIELD_ENCRYPTION_ACTIVE_VERSION: '2' },
+      { FIELD_ENCRYPTION_KEYRING: JSON.stringify([{ version: 1, key: v1 }]), FIELD_ENCRYPTION_ACTIVE_VERSION: undefined },
+      { FIELD_ENCRYPTION_KEYRING: 'not-json', FIELD_ENCRYPTION_ACTIVE_VERSION: '1' },
+      { FIELD_ENCRYPTION_KEYRING: JSON.stringify([{ version: 1, key: v1 }]), FIELD_ENCRYPTION_ACTIVE_VERSION: '1', FIELD_ENCRYPTION_KEY_V1: v1 },
+    ]) {
+      expect(() => loadConfig({ ...environment, ...overrides })).toThrow(/FIELD_ENCRYPTION_(KEYRING|ACTIVE_VERSION)/);
+    }
+  });
+
+  it('accepts a keyring without legacy v1 configuration in production pilot mode', () => {
+    const v1 = Buffer.alloc(32, 14).toString('base64');
+    const v2 = Buffer.alloc(32, 15).toString('base64');
+    const config = loadConfig({
+      NODE_ENV: 'production', DATABASE_URL: 'postgresql://db.internal/pilot', PILOT_MODE: 'enabled',
+      PILOT_PUBLIC_ORIGIN: 'https://pilot.example.com', PILOT_SHARED_INGRESS_RATE_LIMITING: 'enabled',
+      PILOT_AUTH_PEPPER: Buffer.alloc(32, 16).toString('base64'),
+      FIELD_ENCRYPTION_KEYRING: JSON.stringify([{ version: 1, key: v1 }, { version: 2, key: v2 }]),
+      FIELD_ENCRYPTION_ACTIVE_VERSION: '2',
+      S3_ENDPOINT: 'https://objects.example.com', S3_BUCKET: 'pilot-evidence',
+      S3_ACCESS_KEY_ID: 'access-id', S3_SECRET_ACCESS_KEY: 'access-secret', S3_REGION: 'auto',
+    });
+    expect(config.production?.fieldEncryptionKey).toBeUndefined();
+    expect(config.production?.fieldEncryptionKeyring).toEqual({ activeVersion: 2, keys: new Map([[1, v1], [2, v2]]) });
   });
 
   it.each(['TRUE', '1', 'yes', ''])('rejects malformed S3_FORCE_PATH_STYLE value %j', (value) => {

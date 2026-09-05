@@ -46,3 +46,23 @@ The conversation test databases were uniquely named and verified absent after th
 ## Residual
 
 The approved API contract intentionally has no client message idempotency key and the existing `OrderMessage` schema has no such column; repeated valid sends therefore remain distinct conversation entries, with independently randomized AES-GCM nonces. No plaintext deduplication fingerprint was introduced.
+
+## Security review follow-up
+
+- Message UUIDs are allocated before encryption. Every message uses AES-GCM associated data serialized as the stable JSON tuple `['petcare.order-message', 1, orderId, messageId, authorRole]`. Decryption reconstructs the same tuple from persisted metadata, so cross-order, cross-row, role, authentication-tag, and unknown-key-version substitutions fail closed as `MESSAGE_DECRYPTION_FAILED`.
+- `FieldCrypto` now supports optional AAD without changing existing address or packed-field callers. `fromKeyring` supports an explicit active key and decrypts by persisted version; the existing `fromBase64(..., 1)` configuration remains valid for legacy single-key deployments.
+- Added `FIELD_ENCRYPTION_KEYRING` (strict JSON array of `{version,key}` entries) and `FIELD_ENCRYPTION_ACTIVE_VERSION`. Entries must be canonical Base64 32-byte values with unique positive versions; keyring/legacy-key ambiguity and unknown active versions are rejected without including key values in errors. Production accepts either the existing V1 key or a complete unambiguous keyring.
+- Cursors now require the decoded JSON text to exactly equal the canonical serialization. Reordered keys, whitespace, duplicate keys, and extra keys are rejected.
+- Added a production-composition integration test with real staff credentials: an ADMIN with `mustChangePassword` receives `PASSWORD_CHANGE_REQUIRED` for both message GET and POST; the newly rotated session can read and send.
+
+Follow-up verification under Node `v22.22.2` and disposable PostgreSQL 16:
+
+```powershell
+pnpm --filter @pet/api test -- field-crypto.test.ts config.test.ts order-conversation-service.test.ts order-conversation-routes.test.ts sensitive-access.test.ts
+pnpm --filter @pet/api test -- pilot-composition.test.ts --testNamePattern "must-change ADMIN sessions"
+pnpm --filter @pet/api typecheck
+pnpm --filter @pet/api lint
+git diff --check
+```
+
+Results: 41 focused tests plus the real-auth production-composition test passed; typecheck, lint, and whitespace checks passed. The disposable PostgreSQL 16 container is stopped after commit.

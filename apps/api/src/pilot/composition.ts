@@ -70,6 +70,12 @@ function fieldEncryptionKey(config: AppConfig): string {
   return key;
 }
 
+function createFieldCrypto(config: AppConfig): FieldCrypto {
+  const keyring = config.fieldEncryptionKeyring ?? config.production?.fieldEncryptionKeyring;
+  if (keyring) return FieldCrypto.fromKeyring(keyring.keys, keyring.activeVersion);
+  return FieldCrypto.fromBase64(fieldEncryptionKey(config), 1);
+}
+
 function isApiPath(url: string): boolean {
   const pathname = url.split('?', 1)[0];
   return pathname === '/api' || pathname?.startsWith('/api/') === true;
@@ -91,7 +97,7 @@ export async function createPilotApplication(
   if (!path.isAbsolute(staticDir)) throw new Error('PILOT_STATIC_DIR_INVALID');
   await access(path.join(staticDir, 'index.html'));
 
-  const fieldCrypto = FieldCrypto.fromBase64(fieldEncryptionKey(config), 1);
+  const fieldCrypto = createFieldCrypto(config);
   let localStorage: LocalPilotObjectStorage | undefined;
   const storage = config.nodeEnv === 'production'
     ? (() => {

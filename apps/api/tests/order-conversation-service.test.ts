@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { FieldCrypto } from '../src/adapters/field-crypto.js';
 import { PrismaAuditRepository } from '../src/audit/audit-repository.js';
 import type { ActorContext } from '../src/auth/auth-service.js';
-import { OrderConversationService } from '../src/conversations/order-conversation-service.js';
+import { OrderConversationService, orderMessageAssociatedData } from '../src/conversations/order-conversation-service.js';
 
 const execFileAsync = promisify(execFile);
 const databaseName = `petcare_conversations_${randomUUID().replaceAll('-', '')}`;
@@ -145,7 +145,9 @@ describe('OrderConversationService', () => {
     const sharedTime = new Date('2030-01-01T00:00:00.000Z');
     const ids = Array.from({ length: 51 }, () => randomUUID()).sort();
     await prisma.orderMessage.createMany({ data: ids.map((id, index) => {
-      const encrypted = crypto.encrypt(`message-${index}`);
+      const encrypted = crypto.encrypt(`message-${index}`, {
+        associatedData: orderMessageAssociatedData(order.id, id, 'OWNER'),
+      });
       return {
         id, orderId: order.id, authorUserId: owner.id, authorRole: 'OWNER',
         bodyCiphertext: Uint8Array.from(encrypted.ciphertext),
@@ -165,6 +167,65 @@ describe('OrderConversationService', () => {
     await expect(service.list(actor(owner.id, 'OWNER'), order.id, 'not-a-cursor')).rejects.toThrow('VALIDATION_ERROR');
     const cursor = Buffer.from(JSON.stringify({ createdAt: sharedTime.toISOString(), id: ids[0], extra: true })).toString('base64url');
     await expect(service.list(actor(owner.id, 'OWNER'), order.id, cursor)).rejects.toThrow('VALIDATION_ERROR');
+    for (const invalidCursor of [
+      Buffer.from(`{\"id\":\"${ids[0]}\",\"createdAt\":\"${sharedTime.toISOString()}\"}`).toString('base64url'),
+      Buffer.from(`{ \"createdAt\": \"${sharedTime.toISOString()}\", \"id\": \"${ids[0]}\" }`).toString('base64url'),
+      Buffer.from(`{\"createdAt\":\"${sharedTime.toISOString()}\",\"id\":\"${ids[0]}\",\"id\":\"${ids[0]}\"}`).toString('base64url'),
+    ]) {
+      await expect(service.list(actor(owner.id, 'OWNER'), order.id, invalidCursor)).rejects.toThrow('VALIDATION_ERROR');
+    }
+  });
+
+  it('binds each message ciphertext to its order, row identity, and author role', async () => {
+    const owner = await createUser('OWNER');
+    const firstOrder = await createOrder(owner.id);
+    const secondOrder = await createOrder(owner.id);
+    const service = new OrderConversationService(prisma, crypto, new PrismaAuditRepository(prisma));
+    const first = await service.send(actor(owner.id, 'OWNER'), firstOrder.id, 'first secret');
+    const second = await service.send(actor(owner.id, 'OWNER'), firstOrder.id, 'second secret');
+    const crossOrder = await service.send(actor(owner.id, 'OWNER'), secondOrder.id, 'cross-order secret');
+    const firstStored = await prisma.orderMessage.findUniqueOrThrow({ where: { id: first.id } });
+    const secondStored = await prisma.orderMessage.findUniqueOrThrow({ where: { id: second.id } });
+    const crossOrderStored = await prisma.orderMessage.findUniqueOrThrow({ where: { id: crossOrder.id } });
+
+    await prisma.orderMessage.update({ where: { id: first.id }, data: {
+      bodyCiphertext: secondStored.bodyCiphertext, bodyNonce: secondStored.bodyNonce,
+      bodyAuthTag: secondStored.bodyAuthTag, encryptionKeyVersion: secondStored.encryptionKeyVersion,
+    } });
+    await expect(service.list(actor(owner.id, 'OWNER'), firstOrder.id)).rejects.toThrow('MESSAGE_DECRYPTION_FAILED');
+    await prisma.orderMessage.update({ where: { id: first.id }, data: {
+      bodyCiphertext: crossOrderStored.bodyCiphertext, bodyNonce: crossOrderStored.bodyNonce,
+      bodyAuthTag: crossOrderStored.bodyAuthTag, encryptionKeyVersion: crossOrderStored.encryptionKeyVersion,
+    } });
+    await expect(service.list(actor(owner.id, 'OWNER'), firstOrder.id)).rejects.toThrow('MESSAGE_DECRYPTION_FAILED');
+    await prisma.orderMessage.update({ where: { id: first.id }, data: {
+      bodyCiphertext: firstStored.bodyCiphertext, bodyNonce: firstStored.bodyNonce,
+      bodyAuthTag: firstStored.bodyAuthTag, encryptionKeyVersion: firstStored.encryptionKeyVersion,
+      authorRole: 'ADMIN',
+    } });
+    await expect(service.list(actor(owner.id, 'OWNER'), firstOrder.id)).rejects.toThrow('MESSAGE_DECRYPTION_FAILED');
+    await prisma.orderMessage.update({ where: { id: first.id }, data: { encryptionKeyVersion: 99, authorRole: 'OWNER' } });
+    await expect(service.list(actor(owner.id, 'OWNER'), firstOrder.id)).rejects.toThrow('MESSAGE_DECRYPTION_FAILED');
+  });
+
+  it('reads v1 messages after switching the active key to v2 and rejects unknown row versions', async () => {
+    const owner = await createUser('OWNER');
+    const order = await createOrder(owner.id);
+    const v1 = Buffer.alloc(32, 29).toString('base64');
+    const v2 = Buffer.alloc(32, 30).toString('base64');
+    const legacy = new OrderConversationService(prisma, FieldCrypto.fromBase64(v1, 1), new PrismaAuditRepository(prisma));
+    const v1Message = await legacy.send(actor(owner.id, 'OWNER'), order.id, 'v1 message');
+    const rotated = new OrderConversationService(
+      prisma, FieldCrypto.fromKeyring([[1, v1], [2, v2]], 2), new PrismaAuditRepository(prisma),
+    );
+
+    expect(await rotated.list(actor(owner.id, 'OWNER'), order.id)).toEqual({ items: [v1Message] });
+    await expect(rotated.send(actor(owner.id, 'OWNER'), order.id, 'v2 message'))
+      .resolves.toMatchObject({ body: 'v2 message' });
+    const v2Row = await prisma.orderMessage.findFirstOrThrow({ where: { orderId: order.id, encryptionKeyVersion: 2 } });
+    expect(v2Row.encryptionKeyVersion).toBe(2);
+    await prisma.orderMessage.update({ where: { id: v1Message.id }, data: { encryptionKeyVersion: 99 } });
+    await expect(rotated.list(actor(owner.id, 'OWNER'), order.id)).rejects.toThrow('MESSAGE_DECRYPTION_FAILED');
   });
 
   it('fails closed without returning plaintext if the stored authentication tag is tampered', async () => {
