@@ -77,7 +77,7 @@ export function createApp(dependencies: AppDependencies, options: AppOptions = {
       return reply.code(429).send({ code: 'STAFF_LOGIN_BUSY' });
     }
     if (error instanceof Error && error.message === 'GUEST_CREATION_RATE_LIMITED') {
-      return reply.code(429).send({ code: 'GUEST_CREATION_RATE_LIMITED' });
+      return reply.header('Retry-After', '60').code(429).send({ code: 'GUEST_CREATION_RATE_LIMITED' });
     }
     if (error instanceof Error && error.message === 'INVITE_INVALID') {
       return reply.code(401).send({ code: 'INVITE_INVALID' });

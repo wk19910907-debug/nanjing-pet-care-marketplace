@@ -96,6 +96,11 @@ describe('production readiness', () => {
     expect(readinessSnapshot(unsafe, { database: true, objectStorage: true, adminCredential: true }))
       .toMatchObject({ ready: false });
   });
+
+  it('fails closed when the production administrator probe is omitted', () => {
+    expect(readinessSnapshot(loadConfig(pilotProductionEnvironment), { database: true, objectStorage: true }))
+      .toMatchObject({ ready: false });
+  });
 });
 
 describe('scheduled job entry points', () => {
