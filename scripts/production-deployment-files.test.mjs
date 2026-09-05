@@ -55,11 +55,21 @@ test('Compose publishes only Caddy and waits for the private application healthc
   assert.match(compose, /restart: unless-stopped/g);
   assert.match(compose, /max-size: "10m"/);
   assert.doesNotMatch(compose, /internal: true/);
+  assert.match(
+    compose,
+    /WAF_TRUSTED_PROXY_CIDRS:\s*\$\{WAF_TRUSTED_PROXY_CIDRS:\?[^}]+\}/,
+    'Caddy must fail closed until the operator supplies the actual WAF IP/CIDR allow-list',
+  );
 });
 
-test('Caddy terminates HTTPS without weakening browser origin protections', async () => {
+test('Caddy terminates HTTPS and forwards only a client IP derived from trusted WAF CIDRs', async () => {
   const caddy = await source('deploy/Caddyfile');
 
+  assert.match(caddy, /servers\s*\{[\s\S]*trusted_proxies static \{\$WAF_TRUSTED_PROXY_CIDRS\}/);
+  assert.match(caddy, /trusted_proxies_strict/);
+  assert.match(caddy, /client_ip_headers X-Forwarded-For/);
+  assert.match(caddy, /header_up X-Forwarded-For \{client_ip\}/);
+  assert.doesNotMatch(caddy, /trusted_proxies static private_ranges/);
   assert.match(caddy, /\{\$SITE_DOMAIN\}/);
   assert.match(caddy, /reverse_proxy app:3000/);
   assert.match(caddy, /encode zstd gzip/);
@@ -71,7 +81,7 @@ test('Caddy terminates HTTPS without weakening browser origin protections', asyn
 test('production environment template is complete but contains no usable secrets', async () => {
   const environment = await source('deploy/.env.production.example');
   const required = [
-    'SITE_DOMAIN', 'NODE_ENV', 'DATABASE_URL', 'FIELD_ENCRYPTION_KEY_V1',
+    'SITE_DOMAIN', 'WAF_TRUSTED_PROXY_CIDRS', 'NODE_ENV', 'DATABASE_URL', 'FIELD_ENCRYPTION_KEY_V1',
     'PILOT_MODE', 'PILOT_HOST', 'PILOT_PORT', 'PILOT_PUBLIC_ORIGIN',
     'PILOT_AUTH_PEPPER', 'PILOT_SESSION_DAYS', 'PILOT_INVITE_HOURS',
     'S3_ENDPOINT', 'S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY',
@@ -83,14 +93,16 @@ test('production environment template is complete but contains no usable secrets
   assert.match(environment, /^PILOT_HOST=0\.0\.0\.0$/m);
   assert.match(environment, /^PILOT_PORT=3000$/m);
   assert.match(environment, /^WECHAT_LOGIN_ENABLED=false$/m);
+  assert.match(environment, /^WAF_TRUSTED_PROXY_CIDRS=$/m);
   assert.doesNotMatch(environment, /BEGIN (?:RSA )?PRIVATE KEY|AKIA[0-9A-Z]{16}|postgresql:\/\/[^:\s]+:[^@\s]+@/);
 });
 
 test('CI validates the deployment image without publishing it', async () => {
   const workflow = await source('.github/workflows/production-image.yml');
   assert.match(workflow, /pnpm test:deploy/);
+  assert.match(workflow, /WAF_TRUSTED_PROXY_CIDRS:\s*192\.0\.2\.0\/24/);
   assert.match(workflow, /docker compose[\s\S]*config --quiet/);
-  assert.match(workflow, /caddy validate/);
+  assert.match(workflow, /--env WAF_TRUSTED_PROXY_CIDRS[\s\S]*caddy validate/);
   assert.match(workflow, /docker build --tag nanjing-petcare:ci \./);
   assert.doesNotMatch(workflow, /docker push|push:\s*true|kubectl|ssh-action/);
 });
@@ -136,6 +148,12 @@ test('production operations state the non-negotiable web boundary and operator c
   assert.match(runbook, /两个独立.*受控.*环境/);
   assert.match(runbook, /不得.*启动.*生产.*app caddy/);
   assert.match(runbook, /验证.*429.*之后.*PILOT_SHARED_INGRESS_RATE_LIMITING=enabled[\s\S]*第 4 节/);
+  assert.match(runbook, /WAF_TRUSTED_PROXY_CIDRS/);
+  assert.match(runbook, /实际.*WAF.*(?:IP|CIDR)|WAF.*实际.*(?:IP|CIDR)/);
+  assert.match(runbook, /client_ip_headers|X-Forwarded-For/);
+  assert.match(runbook, /request\.ip/);
+  assert.match(runbook, /防火墙[\s\S]*(?:仅允许|只允许)[\s\S]*WAF/);
+  assert.match(runbook, /禁止填写 `private_ranges`、`0\.0\.0\.0\/0`、`::\/0`/);
   assert.doesNotMatch(runbook, /本地角色直接入口/);
   assert.doesNotMatch(quickstart, /邀请码登录|邀请管理/);
   assert.match(readme, /未公开展示手机号、微信二维码、邀请码或邀请入口/);

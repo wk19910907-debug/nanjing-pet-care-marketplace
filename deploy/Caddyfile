@@ -1,3 +1,11 @@
+{
+	servers {
+		trusted_proxies static {$WAF_TRUSTED_PROXY_CIDRS}
+		trusted_proxies_strict
+		client_ip_headers X-Forwarded-For
+	}
+}
+
 {$SITE_DOMAIN} {
 	encode zstd gzip
 
@@ -9,5 +17,9 @@
 		Permissions-Policy "camera=(), microphone=(), geolocation=()"
 	}
 
-	reverse_proxy app:3000
+	reverse_proxy app:3000 {
+		# Caddy derives this value only from an explicitly trusted WAF peer.
+		# Replace the upstream chain so Fastify only needs to trust Caddy itself.
+		header_up X-Forwarded-For {client_ip}
+	}
 }

@@ -6,8 +6,8 @@
 
 准备以下由你本人控制的资源：
 
-- 一台安装 Docker Engine 与 Compose plugin 的 Linux 主机，公网防火墙只放行 TCP 80/443 和 UDP 443；SSH 仅允许你的管理来源。
-- 一个域名。把站点子域的 DNS A/AAAA 记录指向主机；80/443 必须可从公网访问，Caddy 才能自动申请和续期 TLS 证书。
+- 一台安装 Docker Engine 与 Compose plugin 的 Linux 主机；生产 Origin 的 TCP 80/443 和 UDP 443 防火墙仅允许实际 WAF 出口 IP/CIDR（证书验证流量也必须经 WAF），SSH 仅允许你的管理来源。不得让客户端绕过 WAF 直接访问 Origin。
+- 一个域名。把公开 DNS 指向 WAF，并让 WAF 代理至该主机；WAF 的 80/443 必须可从公网访问，Caddy 的证书验证请求也必须能经这条受控链到达 Origin。
 - 独立 PostgreSQL 数据库和最小权限账号。生产连接使用服务商要求的 TLS 参数，例如 `sslmode=require`，启用每日备份和时间点恢复。
 - 私有 S3兼容桶。凭据只允许该桶所需的读写/HEAD，并允许应用执行桶级 `HeadBucket` 就绪检查；CORS 只允许生产网站源、`Content-Type` 与 `x-amz-checksum-sha256`，不得公开桶。
 
@@ -37,6 +37,7 @@ chmod 600 deploy/.env.production
 编辑这个未跟踪文件：
 
 - `SITE_DOMAIN` 是不带协议的域名；`PILOT_PUBLIC_ORIGIN` 必须是对应的完整 `https://` 源。
+- `WAF_TRUSTED_PROXY_CIDRS` 必须填写 WAF 服务商当前公布并由你核验的实际出口 IP/CIDR，多个值用空格分隔。禁止填写 `private_ranges`、`0.0.0.0/0`、`::/0` 或来源不明的网段；留空时 Compose 拒绝启动 Caddy。
 - `APP_VERSION` 写本次已验证的 Git commit，便于镜像回滚。
 - 填入 PostgreSQL、两份 Base64 密钥和 S3配置。
 - `FIELD_ENCRYPTION_KEY_V1` 只用于首次部署；轮换时使用 `FIELD_ENCRYPTION_KEYRING` 和 `FIELD_ENCRYPTION_ACTIVE_VERSION`，保留旧版本直到重加密与恢复演练完成。
@@ -70,6 +71,8 @@ if ([string]::IsNullOrWhiteSpace($SITE_DOMAIN)) { throw 'SITE_DOMAIN is required
 
 Caddy 在这里仅负责 TLS 和反向代理，**不提供跨实例共享限流状态**。先在托管 WAF 或 Redis 计数器网关配置跨实例规则，覆盖 `POST /api/v1/public/owner-sessions`、`POST /api/v1/public/owner-recovery-sessions` 与 `POST /api/v1/staff/sessions`，按真实客户端 IP 聚合。规则必须先绑定到一个单独可达的预生产 Origin/健康检查端点及其独立配置，或只向验证人员开放的暂时隔离的非公网 Origin；绝不复用生产数据库、桶或 `deploy/.env.production`。
 
+WAF 必须删除客户端自带的转发头，再以追加模式写入其实际观察到的客户端地址，生成规范的 `X-Forwarded-For`。Caddy 的 `client_ip_headers X-Forwarded-For` 只接受来自 `WAF_TRUSTED_PROXY_CIDRS` 的链，并使用从右向左的严格解析；随后把已解析的 `{client_ip}` 作为单值 `X-Forwarded-For` 传给应用。Fastify 仍只信任固定 Caddy 地址 `PILOT_TRUST_PROXY=172.30.0.2`，因此其 `request.ip` 是客户端地址，而不是 WAF 地址，也不会接受直连客户端伪造的转发头。
+
 从全新受控终端按此顺序操作：先让 WAF/Redis 规则在预生产 Origin 生效；确认该 Origin 的 `/health/ready` 可达；再由**两个独立的受控环境**（不同出口或工作节点）各自运行下列无效登录探针。不要使用真实账号、密码或生产 Origin。两边的请求总量必须合并计数，阈值后返回 `429`；只记录状态码计数和网关策略版本，不保存请求体。
 
 ```sh
@@ -85,6 +88,8 @@ seq 1 12 | xargs -P 6 -I{} curl --silent --output /dev/null --write-out '%{http_
 ```
 
 在两个独立环境验证得到聚合的 `429` 之后，才在生产的 `deploy/.env.production` 填写 `PILOT_SHARED_INGRESS_RATE_LIMITING=enabled`，重新运行 `docker compose --env-file deploy/.env.production -f deploy/compose.production.yml config --quiet`，然后进入第 4 节。验证前不得启动生产 `app caddy`，也不得让未受保护的生产 Origin 对公网可达；生产配置继续以缺少该声明时失败的方式关闭。
+
+同一预生产环境重启应用、清空本次专用测试账号的进程内失败计数后，再验证客户端 IP 传递：客户端 A 连续发送 5 次无效登录应均返回 `401`；客户端 B 随后发送 1 次仍应返回 `401`；客户端 A 第 6 次才由应用返回 `429`。若客户端 B 的首次请求已是 `429`，说明 Fastify 的 `request.ip` 仍聚合成 WAF 地址，禁止上线。不得从公网手工添加 `X-Forwarded-For` 来代替两个真实出口；该头必须由 WAF 生成，并在 WAF 侧确认客户端自带值已被删除。
 
 ## 4. 首次部署
 

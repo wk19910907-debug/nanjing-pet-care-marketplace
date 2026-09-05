@@ -637,11 +637,13 @@ describe('pilot authentication routes', () => {
     await app.close();
   });
 
-  it('partitions failed-login budgets by client behind an explicitly trusted proxy', async () => {
-    const { app } = createPilotTestApp('development', ['127.0.0.1/32']);
+  it('partitions failed-login budgets by the client IP sanitized by the trusted Caddy peer', async () => {
+    const caddyAddress = '172.30.0.2';
+    const { app } = createPilotTestApp('development', [`${caddyAddress}/32`]);
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const response = await app.inject({
         method: 'POST', url: '/api/v1/pilot/sessions',
+        remoteAddress: caddyAddress,
         headers: { 'x-forwarded-for': '203.0.113.10' },
         payload: { inviteCode: 'invalid-invite' },
       });
@@ -650,6 +652,7 @@ describe('pilot authentication routes', () => {
 
     const otherClient = await app.inject({
       method: 'POST', url: '/api/v1/pilot/sessions',
+      remoteAddress: caddyAddress,
       headers: { 'x-forwarded-for': '203.0.113.11' },
       payload: { inviteCode: 'invalid-invite' },
     });
@@ -657,6 +660,7 @@ describe('pilot authentication routes', () => {
 
     const limitedClient = await app.inject({
       method: 'POST', url: '/api/v1/pilot/sessions',
+      remoteAddress: caddyAddress,
       headers: { 'x-forwarded-for': '203.0.113.10' },
       payload: { inviteCode: 'invalid-invite' },
     });
