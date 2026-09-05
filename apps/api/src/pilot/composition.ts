@@ -19,6 +19,7 @@ import { WechatLoginGateway } from '../auth/wechat-login-gateway.js';
 import { QuoteService } from '../catalog/quote-service.js';
 import { PrismaOperationsCatalogRepository } from '../catalog/operations-catalog-repository.js';
 import { OperationsCatalogService } from '../catalog/operations-catalog-service.js';
+import { OrderConversationService } from '../conversations/order-conversation-service.js';
 import type { AppConfig } from '../config.js';
 import { createDb } from '../db.js';
 import { DispatchService, type DispatchAlertSink } from '../dispatch/dispatch-service.js';
@@ -207,6 +208,10 @@ export async function createPilotApplication(
       settlements,
       refunds,
       disputes,
+      conversations: {
+        auth: onboardedAuth,
+        conversations: new OrderConversationService(prisma, fieldCrypto, audit),
+      },
       pilot: { config, sessions, publicOwnerAccess, staffCredentials, ...(wechatGateway ? {
         wechatLogin: { login: async (code: string) => sessions.createWechatSession(await wechatGateway.exchange(code)) },
       } : {}) },

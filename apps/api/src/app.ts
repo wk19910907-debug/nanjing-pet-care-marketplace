@@ -21,6 +21,10 @@ import {
   registerOperationsCatalogRoutes,
   type OperationsCatalogRoutesDependencies,
 } from './catalog/routes.js';
+import {
+  registerOrderConversationRoutes,
+  type OrderConversationRoutesDependencies,
+} from './conversations/routes.js';
 
 const SAFE_PILOT_FRAMEWORK_ERRORS: ReadonlyMap<string, number> = new Map([
   ['FST_ERR_CTP_INVALID_JSON_BODY', 400],
@@ -34,6 +38,7 @@ type AppDependencies = PetRoutesDependencies
   & Partial<Omit<FulfillmentRoutesDependencies, 'auth'>>
   & Partial<Omit<DisputeRoutesDependencies, 'auth'>>
   & {
+    conversations?: OrderConversationRoutesDependencies;
     pilot?: PilotAuthRoutesDependencies & Partial<ProductionAccessRoutesDependencies>;
     pilotBusiness?: Omit<PilotRoutesDependencies, 'sessions'> & Partial<Pick<PilotRoutesDependencies, 'sessions'>>;
     operationsCatalog?: OperationsCatalogRoutesDependencies;
@@ -46,7 +51,7 @@ type AppOptions = {
 };
 
 export function createApp(dependencies: AppDependencies, options: AppOptions = {}) {
-  if ((dependencies.pilotBusiness || dependencies.operationsCatalog) && !dependencies.pilot) {
+  if ((dependencies.pilotBusiness || dependencies.operationsCatalog || dependencies.conversations) && !dependencies.pilot) {
     throw new Error('PILOT_SECURITY_CONFIGURATION_REQUIRED');
   }
   const trustedProxies = dependencies.pilot?.config.pilot?.trustedProxies;
@@ -177,6 +182,9 @@ export function createApp(dependencies: AppDependencies, options: AppOptions = {
     void app.register(registerPilotAuthRoutes, dependencies.pilot);
     if (dependencies.pilot.publicOwnerAccess && dependencies.pilot.staffCredentials) {
       void app.register(registerProductionAccessRoutes, dependencies.pilot as ProductionAccessRoutesDependencies);
+    }
+    if (dependencies.conversations) {
+      void app.register(registerOrderConversationRoutes, dependencies.conversations);
     }
   }
   if (dependencies.pilotBusiness) {
