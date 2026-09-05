@@ -1,5 +1,7 @@
+import { Agent, request as httpRequest, type ClientRequest, type IncomingMessage, type RequestOptions } from 'node:http';
 import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
+import { GuestOwnerLimiter } from '../src/auth/guest-owner-limiter.js';
 
 const origin = 'https://pilot.example.com';
 const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1_000);
@@ -8,7 +10,15 @@ const owner = { userId: '11111111-1111-4111-8111-111111111111', role: 'OWNER' as
 const admin = { userId: '22222222-2222-4222-8222-222222222222', role: 'ADMIN' as const,
   displayName: '管理员', expiresAt, mustChangePassword: false, staffPasswordChangedAt: new Date() };
 
-function appWithProductionAccess() {
+type OwnerSessionResult = {
+  created: boolean;
+  session?: { token: string; expiresAt: Date };
+  expiresAt: Date;
+};
+
+function appWithProductionAccess(options: {
+  ensureOwnerSession?: (authorization: string | undefined, signal?: AbortSignal) => Promise<OwnerSessionResult>;
+} = {}) {
   let passwordChanged = false;
   const sessions = {
     authenticate: async (authorization: string | undefined) => {
@@ -28,7 +38,7 @@ function appWithProductionAccess() {
       },
       sessions,
       publicOwnerAccess: {
-        ensureOwnerSession: async () => ({ created: true, session: { token: 'owner-token', expiresAt }, expiresAt }),
+        ensureOwnerSession: options.ensureOwnerSession ?? (async () => ({ created: true, session: { token: 'owner-token', expiresAt }, expiresAt })),
         issueRecovery: async () => ({ token: 'recovery-token', recoveryPath: '/#/orders/access/recovery-token' }),
         rotateRecovery: async () => ({ token: 'rotated-token', recoveryPath: '/#/orders/access/rotated-token' }),
         recover: async (token: string) => {
@@ -53,6 +63,51 @@ function appWithProductionAccess() {
     },
   } as never);
   return app;
+}
+
+type RawResponse = { statusCode: number; body: string; socket: IncomingMessage['socket'] };
+
+function sendOwnerSessionRequest(port: number, agent?: Agent): { request: ClientRequest; done: Promise<RawResponse> } {
+  const options: RequestOptions = {
+    host: '127.0.0.1', port, method: 'POST', path: '/api/v1/public/owner-sessions',
+    headers: { origin, 'content-type': 'application/json', 'content-length': 2 },
+  };
+  if (agent) options.agent = agent;
+
+  let request!: ClientRequest;
+  const done = new Promise<RawResponse>((resolve, reject) => {
+    request = httpRequest(options, (response) => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk: string) => { body += chunk; });
+      response.once('error', reject);
+      response.once('end', () => resolve({ statusCode: response.statusCode ?? 0, body, socket: response.socket }));
+    });
+    request.once('error', reject);
+    request.end('{}');
+  });
+  return { request, done };
+}
+
+async function bounded<T>(promise: Promise<T>, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`timed out waiting for ${label}`)), 2_000);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function listeningPort(app: ReturnType<typeof createApp>): Promise<number> {
+  await app.listen({ host: '127.0.0.1', port: 0 });
+  const address = app.server.address();
+  if (!address || typeof address === 'string') throw new Error('expected an ephemeral TCP listener');
+  return address.port;
 }
 
 describe('production access routes', () => {
@@ -117,6 +172,121 @@ describe('production access routes', () => {
       expect(staffLimited.json()).toEqual({ code: 'RATE_LIMITED' });
       expect(staffLimited.headers['retry-after']).toMatch(/^\d+$/);
     } finally { await app.close(); }
+  });
+
+  it('does not start guest creation when a complete-body client disconnects during a delayed preHandler', async () => {
+    const limiter = new GuestOwnerLimiter();
+    let ensureInvocations = 0;
+    let operationCalls = 0;
+    const app = appWithProductionAccess({
+      ensureOwnerSession: async (_authorization, signal) => {
+        ensureInvocations += 1;
+        return limiter.run(async () => {
+          operationCalls += 1;
+          return { created: true, session: { token: 'owner-token', expiresAt }, expiresAt };
+        }, signal);
+      },
+    });
+    let releasePreHandler!: () => void;
+    const preHandlerGate = new Promise<void>((resolve) => { releasePreHandler = resolve; });
+    let preHandlerStarted!: () => void;
+    const preHandlerSeen = new Promise<void>((resolve) => { preHandlerStarted = resolve; });
+    let requestAborted!: () => void;
+    const requestAbortSeen = new Promise<void>((resolve) => { requestAborted = resolve; });
+    app.addHook('preHandler', async (request) => {
+      if (request.url.split('?', 1)[0] !== '/api/v1/public/owner-sessions') return;
+      preHandlerStarted();
+      const observeAbort = () => {
+        if (request.raw.aborted || request.raw.destroyed || request.raw.socket?.destroyed) requestAborted();
+        else setImmediate(observeAbort);
+      };
+      if (request.raw.aborted || request.raw.destroyed || request.raw.socket?.destroyed) observeAbort();
+      else {
+        request.raw.once('aborted', observeAbort);
+        request.raw.socket?.once('close', observeAbort);
+      }
+      await preHandlerGate;
+    });
+
+    try {
+      const port = await listeningPort(app);
+      const client = sendOwnerSessionRequest(port);
+      await bounded(preHandlerSeen, 'preHandler');
+      client.request.destroy();
+      await bounded(requestAbortSeen, 'server-side request abort');
+      releasePreHandler();
+      await bounded(client.done.catch(() => undefined), 'destroyed client cleanup');
+      expect(ensureInvocations).toBe(1);
+      expect(operationCalls).toBe(0);
+    } finally {
+      releasePreHandler();
+      await app.close();
+    }
+  });
+
+  it('cancels a queued guest creation after a complete-body client disconnects', async () => {
+    const limiter = new GuestOwnerLimiter({ maximumConcurrent: 1, maximumQueued: 1 });
+    let ensureCalls = 0;
+    let operationCalls = 0;
+    let firstStarted!: () => void;
+    const firstOperationStarted = new Promise<void>((resolve) => { firstStarted = resolve; });
+    let releaseFirst!: () => void;
+    const firstOperationGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    let secondEntered!: () => void;
+    const secondEnsureEntered = new Promise<void>((resolve) => { secondEntered = resolve; });
+    const app = appWithProductionAccess({
+      ensureOwnerSession: async (_authorization, signal) => {
+        ensureCalls += 1;
+        if (ensureCalls === 2) secondEntered();
+        return limiter.run(async () => {
+          operationCalls += 1;
+          if (operationCalls === 1) firstStarted();
+          if (operationCalls === 1) await firstOperationGate;
+          return { created: true, session: { token: `owner-token-${operationCalls}`, expiresAt }, expiresAt };
+        }, signal);
+      },
+    });
+
+    try {
+      const port = await listeningPort(app);
+      const first = sendOwnerSessionRequest(port);
+      await bounded(firstOperationStarted, 'first guest operation');
+      const second = sendOwnerSessionRequest(port);
+      await bounded(secondEnsureEntered, 'second guest waiter');
+      second.request.destroy();
+      await bounded(second.done.catch(() => undefined), 'queued client cleanup');
+      releaseFirst();
+      const firstResponse = await bounded(first.done, 'first response');
+      expect(firstResponse.statusCode).toBe(201);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(operationCalls).toBe(1);
+    } finally {
+      releaseFirst();
+      await app.close();
+    }
+  });
+
+  it('keeps request-abort state isolated across sequential keep-alive responses', async () => {
+    let operationCalls = 0;
+    const app = appWithProductionAccess({
+      ensureOwnerSession: async () => {
+        operationCalls += 1;
+        return { created: true, session: { token: `owner-token-${operationCalls}`, expiresAt }, expiresAt };
+      },
+    });
+    const agent = new Agent({ keepAlive: true, maxSockets: 1 });
+    try {
+      const port = await listeningPort(app);
+      const first = await bounded(sendOwnerSessionRequest(port, agent).done, 'first keep-alive response');
+      const second = await bounded(sendOwnerSessionRequest(port, agent).done, 'second keep-alive response');
+      expect(first.statusCode).toBe(201);
+      expect(second.statusCode).toBe(201);
+      expect(second.socket).toBe(first.socket);
+      expect(operationCalls).toBe(2);
+    } finally {
+      agent.destroy();
+      await app.close();
+    }
   });
 
   it('exposes recovery, staff and administrator contracts without session tokens', async () => {
