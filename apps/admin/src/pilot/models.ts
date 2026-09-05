@@ -13,6 +13,7 @@ export type PilotSession = {
   role: PilotRole;
   displayName: string | null;
   expiresAt: string;
+  mustChangePassword: boolean;
 };
 
 export type PilotSessionCreated = {

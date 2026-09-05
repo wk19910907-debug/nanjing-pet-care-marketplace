@@ -9,7 +9,7 @@ import { PilotApp } from './PilotApp.js';
 
 const adminSession = {
   userId: 'admin-1', role: 'ADMIN' as const, displayName: '试点运营',
-  expiresAt: '2026-09-03T10:00:00.000Z',
+  expiresAt: '2026-09-03T10:00:00.000Z', mustChangePassword: false,
 };
 const publicCatalog = {
   services: {

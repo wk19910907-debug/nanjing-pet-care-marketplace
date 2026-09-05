@@ -128,8 +128,9 @@ describe('pilot API transport', () => {
     ['RECOVERY_ALREADY_ISSUED', 409, undefined],
     ['RECOVERY_NOT_ISSUED', 409, undefined],
     ['STAFF_LOGIN_INVALID', 401, undefined],
-    ['STAFF_LOGIN_BUSY', 503, 9],
+    ['STAFF_LOGIN_BUSY', 429, 9],
     ['RATE_LIMITED', 429, 17],
+    ['GUEST_CREATION_RATE_LIMITED', 429, 60],
   ])('keeps safe production-access error state %s and Retry-After', async (code, status, retryAfter) => {
     const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ code }), {
       status, headers: retryAfter === undefined ? {} : { 'Retry-After': String(retryAfter) },
@@ -172,6 +173,43 @@ describe('pilot API transport', () => {
 
     expect(fetcher.mock.calls[1]![1]).toMatchObject({ body: JSON.stringify({ body: '请放心' }) });
     expect(fetcher.mock.calls[2]![1]).toMatchObject({ body: JSON.stringify({ username: 'provider.one', displayName: '服务员', temporaryPassword: 'a'.repeat(12) }) });
+  });
+
+  it('keeps staff password-change state on reload while defaulting legacy sessions to false', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({
+        userId: '11111111-1111-4111-8111-111111111111', role: 'PROVIDER', displayName: '服务员',
+        expiresAt: '2026-09-03T10:00:00.000Z', mustChangePassword: true,
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        userId: '22222222-2222-4222-8222-222222222222', role: 'OWNER', displayName: null,
+        expiresAt: '2026-09-03T10:00:00.000Z',
+      }));
+    const api = createPilotApi(fetcher);
+    await expect(api.getSession()).resolves.toMatchObject({ mustChangePassword: true });
+    await expect(api.getSession()).resolves.toMatchObject({ mustChangePassword: false });
+  });
+
+  it('rejects a non-boolean session password-change state', async () => {
+    const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      userId: '11111111-1111-4111-8111-111111111111', role: 'PROVIDER', displayName: '服务员',
+      expiresAt: '2026-09-03T10:00:00.000Z', mustChangePassword: 'true',
+    })));
+    await expect(api.getSession()).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+  });
+
+  it.each([
+    [500, true],
+    [501, false],
+  ])('parses %s astral-code-point message bodies according to the server limit', async (count, shouldResolve) => {
+    const orderId = '11111111-1111-4111-8111-111111111111';
+    const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      id: '22222222-2222-4222-8222-222222222222', orderId, authorRole: 'OWNER',
+      body: '😀'.repeat(count), createdAt: '2026-09-03T10:00:00.000Z',
+    }, 201)));
+    const result = api.sendOrderMessage(orderId, 'ok');
+    if (shouldResolve) await expect(result).resolves.toMatchObject({ body: '😀'.repeat(count) });
+    else await expect(result).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
   });
 
   it('sends a fresh 8-100 character idempotency key with every write', async () => {

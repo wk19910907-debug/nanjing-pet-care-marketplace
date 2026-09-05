@@ -67,6 +67,7 @@ const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   RECOVERY_NOT_ISSUED: '尚未签发恢复凭据',
   STAFF_LOGIN_INVALID: '用户名或密码不正确',
   STAFF_LOGIN_BUSY: '登录服务繁忙，请稍后重试',
+  GUEST_CREATION_RATE_LIMITED: '访客创建过于频繁，请稍后再试',
   MANUAL_FEE_CONFLICT: '费用状态已变化，请刷新后重试',
   DISPATCH_NOT_ALLOWED: '当前订单不能启动派单，请刷新后重试',
   DISPATCH_CONFLICT: '邀请状态已变化，请刷新后重试',
@@ -323,11 +324,14 @@ function parseSession(value: unknown): PilotSession {
   const record = asRecord(value);
   rejectCredentialFields(record);
   const displayName = record.displayName;
+  const mustChangePassword = record.mustChangePassword;
+  if (mustChangePassword !== undefined && typeof mustChangePassword !== 'boolean') invalidResponse();
   return {
     userId: asString(record, 'userId', 128),
     role: asRole(record),
     displayName: displayName === null ? null : asDisplayName(displayName),
     expiresAt: asDate(record, 'expiresAt'),
+    mustChangePassword: mustChangePassword ?? false,
   };
 }
 
@@ -756,8 +760,8 @@ function parseMessage(value: unknown, expectedOrderId?: string): OrderMessage {
   if (!hasExactKeys(record, ['id', 'orderId', 'authorRole', 'body', 'createdAt'])) invalidResponse();
   const orderId = asUuid(record.orderId);
   if (expectedOrderId !== undefined && orderId !== expectedOrderId) invalidResponse();
-  const body = asString(record, 'body', 500);
-  if (body !== body.trim() || [...body].length > 500) invalidResponse();
+  const body = record.body;
+  if (typeof body !== 'string' || body !== body.trim() || [...body].length < 1 || [...body].length > 500) invalidResponse();
   return {
     id: asUuid(record.id), orderId, authorRole: asEnum(record, 'authorRole', ['OWNER', 'ADMIN'] as const),
     body, createdAt: asDate(record, 'createdAt'),
