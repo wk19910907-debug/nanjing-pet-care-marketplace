@@ -59,7 +59,7 @@ describe('production readiness', () => {
 
   it('does not require WeChat secrets for pilot production and exposes no pilot secrets', () => {
     const config = loadConfig(pilotProductionEnvironment);
-    const response = readinessSnapshot(config, { database: true, objectStorage: true });
+    const response = readinessSnapshot(config, { database: true, objectStorage: true, adminCredential: true });
     expect(response).toEqual({
       ready: true, database: true, objectStorage: true, encryption: true,
       paymentProvider: 'manual', objectStorageProvider: 's3', notificationProvider: 'disabled',
