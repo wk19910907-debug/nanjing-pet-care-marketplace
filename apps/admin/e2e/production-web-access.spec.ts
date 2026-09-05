@@ -116,7 +116,8 @@ test('production web closes the guest, recovery, staff and order loop against Po
     await ownerPage.setViewportSize({ width: 1280, height: 800 });
     await expect(ownerPage.getByRole('button', { name: '立即预约' })).toBeVisible({ timeout: 5_000 });
     await ownerPage.getByRole('button', { name: '立即预约' }).click();
-    await expect(ownerPage.getByRole('heading', { name: '保存你的恢复凭据' })).toBeVisible();
+    await expect(ownerPage.getByRole('heading', { name: '服务与时间' })).toBeVisible();
+    await expect(ownerPage.getByRole('heading', { name: '保存你的恢复凭据' })).toHaveCount(0);
     const initialSession = await api(ownerPage, '/api/v1/pilot/session');
     expect(initialSession.status).toBe(200);
     const initialUserId = (initialSession.body as { userId?: unknown }).userId;
@@ -130,8 +131,10 @@ test('production web closes the guest, recovery, staff and order loop against Po
     const repeatedSession = await api(ownerPage, '/api/v1/pilot/session');
     expect(repeatedSession.status).toBe(200);
     expect((repeatedSession.body as { userId?: unknown }).userId).toBe(initialUserId);
-    const duplicateCredential = await api(ownerPage, '/api/v1/public/owner-recovery-credentials', { method: 'POST', body: {} });
-    expect(duplicateCredential).toEqual({ status: 409, body: { code: 'RECOVERY_ALREADY_ISSUED' } });
+
+    const start = new Date(Date.now() + 25 * 60_000);
+    const catOrderId = await submitBooking(ownerPage, 'CAT_FEEDING', start, true);
+    await expect(ownerPage.getByRole('heading', { name: '保存你的恢复凭据' })).toBeVisible();
 
     const downloadPromise = ownerPage.waitForEvent('download');
     await ownerPage.getByRole('button', { name: '下载文本文件' }).click();
@@ -155,8 +158,8 @@ test('production web closes the guest, recovery, staff and order loop against Po
     }, { origin: baseUrl!, recoveryPath: initialRecoveryPath })).toBe(true);
     await ownerPage.getByRole('button', { name: '我已保存', exact: true }).click();
     await expect(ownerPage.locator('body')).not.toContainText(initialRecoveryToken);
-    const start = new Date(Date.now() + 25 * 60_000);
-    const catOrderId = await submitBooking(ownerPage, 'CAT_FEEDING', start, true);
+    const duplicateCredential = await api(ownerPage, '/api/v1/public/owner-recovery-credentials', { method: 'POST', body: {} });
+    expect(duplicateCredential).toEqual({ status: 409, body: { code: 'RECOVERY_ALREADY_ISSUED' } });
     const dogOrderId = await submitBooking(ownerPage, 'DOG_WALKING', new Date(start.getTime() + 90 * 60_000));
     const recoveredRequests: string[] = [];
     const recoveredConsole: string[] = [];
@@ -213,7 +216,7 @@ test('production web closes the guest, recovery, staff and order loop against Po
     await recoveredPage.getByRole('button', { name: `订单沟通 ${catOrderId}` }).click(); await recoveredPage.getByLabel('订单沟通内容').fill('请在到达前留言。'); await recoveredPage.getByRole('button', { name: '发送消息' }).click();
     await adminPage.getByRole('button', { name: '刷新运营数据' }).click(); await adminPage.getByRole('button', { name: `订单沟通 ${catOrderId}` }).click(); await expect(adminPage.getByText('请在到达前留言。')).toBeVisible();
     await adminPage.getByLabel('订单沟通内容').fill('已收到，会提前联系。'); await adminPage.getByRole('button', { name: '发送消息' }).click(); await recoveredPage.getByRole('button', { name: '刷新沟通记录' }).click(); await expect(recoveredPage.getByText('已收到，会提前联系。')).toBeVisible();
-    await attackerPage.setViewportSize({ width: 1280, height: 800 }); await attackerPage.goto(baseUrl!); await attackerPage.getByRole('button', { name: '立即预约' }).click(); await attackerPage.getByRole('button', { name: '我已保存', exact: true }).click();
+    await attackerPage.setViewportSize({ width: 1280, height: 800 }); await attackerPage.goto(baseUrl!); await attackerPage.getByRole('button', { name: '立即预约' }).click();
     expect((await attackerContext.request.get(`${baseUrl}/api/v1/pilot/orders/${catOrderId}/messages`)).status()).toBe(403);
     await adminPage.getByRole('button', { name: `核对订单 ${catOrderId} 费用` }).click(); await adminPage.getByRole('button', { name: '确认记录费用已线下核对' }).click();
     await expect.poll(async () => (await api(adminPage, '/api/v1/pilot/orders')).body as Array<{ id: string; status: string }>).toContainEqual(expect.objectContaining({ id: catOrderId, status: 'PENDING_DISPATCH' }));

@@ -26,6 +26,7 @@ type OwnerPilotWorkspaceProps = {
   onStartBookingConsumed?(): void;
   onRecovery?(): void;
   recoveryPending?: boolean;
+  onFirstOrderCreated?(): void;
 };
 
 type OrderAttempt = { input: CreateOwnerOrder; key: string };
@@ -102,7 +103,7 @@ function OrderTimeline({ order }: { order: OwnerOrder }) {
   </ol>;
 }
 
-export function OwnerPilotWorkspace({ api, displayName = '宠主', onError, startBooking = false, onStartBookingConsumed, onRecovery, recoveryPending = false }: OwnerPilotWorkspaceProps) {
+export function OwnerPilotWorkspace({ api, displayName = '宠主', onError, startBooking = false, onStartBookingConsumed, onRecovery, recoveryPending = false, onFirstOrderCreated }: OwnerPilotWorkspaceProps) {
   const [pets, setPets] = useState<OwnerPet[]>([]);
   const [addresses, setAddresses] = useState<OwnerAddress[]>([]);
   const [orders, setOrders] = useState<OwnerOrder[]>([]);
@@ -303,6 +304,7 @@ export function OwnerPilotWorkspace({ api, displayName = '宠主', onError, star
     submitLock.current = true;
     setSubmitting(true);
     setError('');
+    const isFirstOrder = orders.length === 0;
     try {
       await api.createOrder(attempt.input, attempt.key);
       if (
@@ -321,6 +323,7 @@ export function OwnerPilotWorkspace({ api, displayName = '宠主', onError, star
       if (!isCurrent(generation)) return;
       setBookingOpen(false);
       setBookingDraft(createBookingDraft());
+      if (isFirstOrder) onFirstOrderCreated?.();
     } catch (caught) {
       if (quoteGeneration === quoteVersion.current && orderAttemptRef.current === attempt) {
         reportError(caught, generation);

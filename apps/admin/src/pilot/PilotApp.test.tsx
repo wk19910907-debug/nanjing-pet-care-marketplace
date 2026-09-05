@@ -5,7 +5,7 @@ import { userEvent } from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PilotApi } from './api.js';
 import { createPilotApi, PilotApiError } from './api.js';
-import { PilotApp } from './PilotApp.js';
+import { deliverRecoveryIfCurrent, FirstOrderRecoveryDelivery, PilotApp } from './PilotApp.js';
 
 const adminSession = {
   userId: 'admin-1', role: 'ADMIN' as const, displayName: '试点运营',
@@ -115,6 +115,45 @@ describe('PilotApp', () => {
     expect(api.ensureOwnerSession).toHaveBeenCalledOnce();
     await act(async () => sessionRequest.resolve({ expiresAt: adminSession.expiresAt }));
     expect(await screen.findByRole('heading', { name: '服务与时间' })).toBeTruthy();
+    expect(api.issueRecoveryCredential).not.toHaveBeenCalled();
+  });
+
+  it('repairs a lost first-credential response through an explicit safe rotation', async () => {
+    const delivered = vi.fn();
+    const issueRecoveryCredential = vi.fn()
+      .mockRejectedValueOnce(new PilotApiError(503, 'SERVICE_UNAVAILABLE'))
+      .mockRejectedValueOnce(new PilotApiError(409, 'RECOVERY_ALREADY_ISSUED'));
+    const rotateRecoveryCredential = vi.fn().mockResolvedValue({
+      token: 'n'.repeat(43), recoveryPath: '/#/orders/access/' + 'n'.repeat(43),
+    });
+    const user = userEvent.setup();
+    render(<FirstOrderRecoveryDelivery
+      api={fakeApi({ issueRecoveryCredential, rotateRecoveryCredential })}
+      onDelivered={delivered}
+    />);
+
+    expect(await screen.findByRole('heading', { name: '恢复凭据尚未交付' })).toBeTruthy();
+    expect(screen.getByText(/订单已经提交成功/)).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '重试获取恢复凭据' }));
+
+    expect(await screen.findByRole('heading', { name: '需要安全轮换恢复凭据' })).toBeTruthy();
+    expect(screen.getByText(/原凭据可能已经签发/)).toBeTruthy();
+    expect(rotateRecoveryCredential).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: '安全轮换并显示新凭据' }));
+
+    await waitFor(() => expect(delivered).toHaveBeenCalledWith({
+      token: 'n'.repeat(43), recoveryPath: '/#/orders/access/' + 'n'.repeat(43),
+    }));
+    expect(issueRecoveryCredential).toHaveBeenCalledTimes(2);
+    expect(rotateRecoveryCredential).toHaveBeenCalledOnce();
+  });
+
+  it('does not deliver a late recovery secret into a different owner session', () => {
+    const delivered = vi.fn();
+    deliverRecoveryIfCurrent('owner-1', 'owner-2', {
+      token: 'l'.repeat(43), recoveryPath: '/#/orders/access/' + 'l'.repeat(43),
+    }, delivered);
+    expect(delivered).not.toHaveBeenCalled();
   });
 
   it('keeps nickname onboarding after direct entry', async () => {

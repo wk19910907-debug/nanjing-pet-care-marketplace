@@ -29,6 +29,7 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
   const logoutRequestVersion = useRef(0);
   const sessionVersion = useRef(0);
   const [recoveryCredential, setRecoveryCredential] = useState<OwnerRecoveryCredential | null>(null);
+  const [firstOrderRecoveryDelivery, setFirstOrderRecoveryDelivery] = useState<string | null>(null);
   const [accessMode, setAccessMode] = useState<'NONE' | 'STAFF' | 'RECOVERY'>('NONE');
   const [accessError, setAccessError] = useState('');
   const [startBooking, setStartBooking] = useState(false);
@@ -48,6 +49,7 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
       recoveryFocusTimer.current = undefined;
     }
     setRecoveryCredential(null);
+    setFirstOrderRecoveryDelivery(null);
     setStartBooking(false);
     setRecoveryRotating(recoveryRotationLock.current !== null);
   }, []);
@@ -176,12 +178,6 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
     setStartBooking(true);
     try {
       await api.ensureOwnerSession();
-      try {
-        const credential = await api.issueRecoveryCredential();
-        setRecoveryCredential(credential);
-      } catch (caught) {
-        if (!(caught instanceof PilotApiError && caught.code === 'RECOVERY_ALREADY_ISSUED')) throw caught;
-      }
       await loadSession();
     } catch (caught) {
       setAccessError(pilotErrorMessage(caught));
@@ -270,6 +266,19 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
 
   if (session.mustChangePassword) return <StaffPasswordPanel api={api} onChanged={loadSession} onLogout={logout}/>;
 
+  if (firstOrderRecoveryDelivery) return <FirstOrderRecoveryDelivery
+    api={api}
+    onDelivered={(credential) => {
+      deliverRecoveryIfCurrent(
+        firstOrderRecoveryDelivery,
+        sessionUserId.current,
+        credential,
+        setRecoveryCredential,
+      );
+      setFirstOrderRecoveryDelivery(null);
+    }}
+  />;
+
   if (recoveryCredential) return <main className="pilot-state-page"><RecoveryCredentialCard
     credential={recoveryCredential} onClose={closeRecoveryCredential}
   /></main>;
@@ -304,12 +313,91 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
         key={session.userId} api={api} displayName={session.displayName} onError={handleProtectedError}
         startBooking={startBooking} onStartBookingConsumed={() => setStartBooking(false)}
         onRecovery={() => void issueReplacementRecovery()} recoveryPending={recoveryRotating}
+        onFirstOrderCreated={() => setFirstOrderRecoveryDelivery(session.userId)}
       />}
       {session.role === 'PROVIDER' && <ProviderPilotWorkspace
         key={session.userId} api={api} displayName={session.displayName} onError={handleProtectedError}
       />}
     </main>
   </div>;
+}
+
+type FirstOrderRecoveryDeliveryProps = {
+  api: Pick<PilotApi, 'issueRecoveryCredential' | 'rotateRecoveryCredential'>;
+  onDelivered(credential: OwnerRecoveryCredential): void;
+};
+
+export function deliverRecoveryIfCurrent(
+  expectedUserId: string,
+  currentUserId: string | null,
+  credential: OwnerRecoveryCredential,
+  deliver: (credential: OwnerRecoveryCredential) => void,
+): void {
+  if (expectedUserId === currentUserId) deliver(credential);
+}
+
+export function FirstOrderRecoveryDelivery({ api, onDelivered }: FirstOrderRecoveryDeliveryProps) {
+  const [stage, setStage] = useState<'ISSUING' | 'RETRY_ISSUE' | 'ROTATE_REQUIRED'>('ISSUING');
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState('');
+  const initialRequest = useRef(false);
+
+  const issue = useCallback(async () => {
+    setPending(true);
+    setError('');
+    try {
+      onDelivered(await api.issueRecoveryCredential());
+    } catch (caught) {
+      if (caught instanceof PilotApiError && caught.code === 'RECOVERY_ALREADY_ISSUED') {
+        setStage('ROTATE_REQUIRED');
+      } else {
+        setStage('RETRY_ISSUE');
+        setError('未能确认恢复凭据是否已经签发，请重试确认。');
+      }
+    } finally {
+      setPending(false);
+    }
+  }, [api, onDelivered]);
+
+  useEffect(() => {
+    if (initialRequest.current) return;
+    initialRequest.current = true;
+    void issue();
+  }, [issue]);
+
+  const rotate = async () => {
+    setPending(true);
+    setError('');
+    try {
+      onDelivered(await api.rotateRecoveryCredential());
+    } catch {
+      setError('安全轮换暂时失败。订单仍然有效，请保持本页面打开并重试。');
+    } finally {
+      setPending(false);
+    }
+  };
+
+  if (stage === 'ISSUING') return <main className="pilot-state-page" aria-live="polite">
+    <section className="pilot-state-card" role="status"><h1>订单已提交</h1><p>正在生成只显示一次的恢复凭据…</p></section>
+  </main>;
+
+  if (stage === 'ROTATE_REQUIRED') return <main className="pilot-state-page">
+    <section className="pilot-state-card" role="dialog" aria-modal="true" aria-labelledby="recovery-rotation-title">
+      <h1 id="recovery-rotation-title">需要安全轮换恢复凭据</h1>
+      <p>订单已经提交成功。原凭据可能已经签发，但浏览器没有收到原文；安全轮换会立即停用该凭据并显示一份新的凭据。</p>
+      {error && <p className="pilot-error" role="alert">{error}</p>}
+      <button type="button" disabled={pending} onClick={() => void rotate()}>{pending ? '正在安全轮换…' : '安全轮换并显示新凭据'}</button>
+    </section>
+  </main>;
+
+  return <main className="pilot-state-page">
+    <section className="pilot-state-card" role="dialog" aria-modal="true" aria-labelledby="recovery-retry-title">
+      <h1 id="recovery-retry-title">恢复凭据尚未交付</h1>
+      <p>订单已经提交成功，但恢复凭据的交付状态暂时无法确认。请保持本页面打开。</p>
+      {error && <p className="pilot-error" role="alert">{error}</p>}
+      <button type="button" disabled={pending} onClick={() => void issue()}>{pending ? '正在重试…' : '重试获取恢复凭据'}</button>
+    </section>
+  </main>;
 }
 
 function RecoverySessionPanel({ error, onRecover }: { error: string; onRecover(token: string): Promise<void> }) {

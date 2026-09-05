@@ -251,6 +251,45 @@ describe('OwnerPilotWorkspace', () => {
     await waitFor(() => expect(api.listOrders).toHaveBeenCalledTimes(2));
   });
 
+  it('requests recovery delivery only after the first order succeeds', async () => {
+    const onFirstOrderCreated = vi.fn().mockResolvedValue(undefined);
+    const listOrders = vi.fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([pendingOrder]);
+    const api = fakeApi({ listOrders });
+    const user = userEvent.setup();
+    render(<OwnerPilotWorkspace
+      displayName="建邺宠主"
+      api={api}
+      onError={() => 'error'}
+      onFirstOrderCreated={onFirstOrderCreated}
+    />);
+
+    await reachQuote(user);
+    expect(onFirstOrderCreated).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: '确认提交订单' }));
+
+    await waitFor(() => expect(onFirstOrderCreated).toHaveBeenCalledOnce());
+    expect(api.createOrder).toHaveBeenCalledOnce();
+  });
+
+  it('does not request another recovery credential for later orders', async () => {
+    const onFirstOrderCreated = vi.fn().mockResolvedValue(undefined);
+    const api = fakeApi({ listOrders: vi.fn().mockResolvedValue([pendingOrder]) });
+    const user = userEvent.setup();
+    render(<OwnerPilotWorkspace
+      displayName="建邺宠主"
+      api={api}
+      onError={() => 'error'}
+      onFirstOrderCreated={onFirstOrderCreated}
+    />);
+
+    await reachQuote(user);
+    await user.click(screen.getByRole('button', { name: '确认提交订单' }));
+    await waitFor(() => expect(api.listOrders).toHaveBeenCalledTimes(2));
+    expect(onFirstOrderCreated).not.toHaveBeenCalled();
+  });
+
   it('opens a single authorized order conversation only after its explicit control is selected', async () => {
     const api = fakeApi({ listOrderMessages: vi.fn().mockResolvedValue({ items: [], nextCursor: undefined }) });
     const user = userEvent.setup();
