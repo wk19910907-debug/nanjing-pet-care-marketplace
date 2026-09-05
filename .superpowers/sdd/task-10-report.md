@@ -22,3 +22,9 @@
 
 - Reproduced the first CTA failure with bounded browser diagnostics. The navigation was `200`, the real session endpoint was expected `401 UNAUTHENTICATED`, and the built pilot landing rendered without page errors. At the configured 390px mobile viewport, the CSS hides the header CTA: its HTML text was present but it was absent from Playwright's visible role tree; the visible mobile alternatives were the service-specific booking controls.
 - The acceptance now sets the owner/attacker viewport to desktop before asserting the required visible `立即预约` path, while all remaining contexts retain the configured mobile viewport. Clipboard extraction was replaced by an authenticated, browser-origin recovery-rotation response after exercising copy/download, avoiding an unbounded browser clipboard read.
+
+## Final live acceptance
+
+- Root-agent debugging aligned stale test selectors and flow assumptions with the shipped UI: the credential acknowledgement is `我已保存`, the initial booking is already open after credential acknowledgement, later bookings use the service-specific action, existing addresses are selected on the second booking, staff form labels use exact matching, conversation updates are explicitly refreshed, and dispatch/provider refreshes wait for their real HTTP responses.
+- The Playwright live config now bounds individual actions to 10 seconds and navigation to 15 seconds, so selector drift fails promptly instead of consuming the five-minute scenario timeout.
+- Node `v22.22.2`: `pnpm test:e2e:live` passed the complete production web scenario (`1 passed`, 15.3 seconds) against a fresh disposable PostgreSQL 16 database and real Chrome. The run restarted the Fastify process, verified persisted completion state, then removed the API process, database container, and temporary browser artifacts.
