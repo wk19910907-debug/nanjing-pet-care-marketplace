@@ -16,6 +16,12 @@ describe('FieldCrypto', () => {
     );
   });
 
+  it('requires canonical Base64 and a positive legacy key version', () => {
+    const valid = Buffer.alloc(32, 7).toString('base64');
+    expect(() => FieldCrypto.fromBase64(`${valid}\n`, 1)).toThrow('32 bytes');
+    expect(() => FieldCrypto.fromBase64(valid, 0)).toThrow('key version');
+  });
+
   it('uses authenticated associated data and decrypts prior key versions from a keyring', () => {
     const v1 = Buffer.alloc(32, 8).toString('base64');
     const v2 = Buffer.alloc(32, 9).toString('base64');

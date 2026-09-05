@@ -130,7 +130,7 @@ describe('OrderConversationService', () => {
     const audit = await prisma.auditEvent.findFirstOrThrow({ where: { entityId: sent.id, action: 'ORDER_MESSAGE_SENT' } });
     const serialized = JSON.stringify({ stored, audit });
 
-    expect(stored).toMatchObject({ orderId: order.id, authorUserId: owner.id, authorRole: 'OWNER', encryptionKeyVersion: 1 });
+    expect(stored).toMatchObject({ orderId: order.id, authorUserId: owner.id, authorRole: 'OWNER', encryptionKeyVersion: 1, encryptionContextVersion: 1 });
     expect(Buffer.from(stored.bodyCiphertext).toString('utf8')).not.toContain(body);
     expect(stored.bodyNonce).toHaveLength(12);
     expect(stored.bodyAuthTag).toHaveLength(16);
@@ -153,7 +153,7 @@ describe('OrderConversationService', () => {
         bodyCiphertext: Uint8Array.from(encrypted.ciphertext),
         bodyNonce: Uint8Array.from(encrypted.nonce),
         bodyAuthTag: Uint8Array.from(encrypted.authTag),
-        encryptionKeyVersion: encrypted.keyVersion, createdAt: sharedTime,
+        encryptionKeyVersion: encrypted.keyVersion, encryptionContextVersion: 1, createdAt: sharedTime,
       };
     }) });
 
@@ -206,6 +206,34 @@ describe('OrderConversationService', () => {
     await expect(service.list(actor(owner.id, 'OWNER'), firstOrder.id)).rejects.toThrow('MESSAGE_DECRYPTION_FAILED');
     await prisma.orderMessage.update({ where: { id: first.id }, data: { encryptionKeyVersion: 99, authorRole: 'OWNER' } });
     await expect(service.list(actor(owner.id, 'OWNER'), firstOrder.id)).rejects.toThrow('MESSAGE_DECRYPTION_FAILED');
+  });
+
+  it('reads explicitly marked legacy no-AAD rows without weakening AAD-bound messages', async () => {
+    const owner = await createUser('OWNER');
+    const order = await createOrder(owner.id);
+    const service = new OrderConversationService(prisma, crypto, new PrismaAuditRepository(prisma));
+    const id = randomUUID();
+    const encrypted = crypto.encrypt('pre-hardening legacy message');
+    await prisma.orderMessage.create({ data: {
+      id, orderId: order.id, authorUserId: owner.id, authorRole: 'OWNER',
+      bodyCiphertext: Uint8Array.from(encrypted.ciphertext), bodyNonce: Uint8Array.from(encrypted.nonce),
+      bodyAuthTag: Uint8Array.from(encrypted.authTag),
+      encryptionKeyVersion: encrypted.keyVersion, encryptionContextVersion: null,
+    } });
+
+    expect(await service.list(actor(owner.id, 'OWNER'), order.id)).toEqual({
+      items: [expect.objectContaining({ id, body: 'pre-hardening legacy message' })],
+    });
+    const current = await service.send(actor(owner.id, 'OWNER'), order.id, 'bound current message');
+    const currentRow = await prisma.orderMessage.findUniqueOrThrow({ where: { id: current.id } });
+    await prisma.orderMessage.update({ where: { id: current.id }, data: {
+      bodyCiphertext: Uint8Array.from(encrypted.ciphertext), bodyNonce: Uint8Array.from(encrypted.nonce),
+      bodyAuthTag: Uint8Array.from(encrypted.authTag),
+    } });
+    await expect(service.list(actor(owner.id, 'OWNER'), order.id)).rejects.toThrow('MESSAGE_DECRYPTION_FAILED');
+    await prisma.orderMessage.update({ where: { id: current.id }, data: {
+      bodyCiphertext: currentRow.bodyCiphertext, bodyNonce: currentRow.bodyNonce, bodyAuthTag: currentRow.bodyAuthTag,
+    } });
   });
 
   it('reads v1 messages after switching the active key to v2 and rejects unknown row versions', async () => {

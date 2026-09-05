@@ -7,6 +7,10 @@ const productionWebAccessMigrationUrl = new URL(
   '../../../prisma/migrations/202609020001_production_web_access/migration.sql',
   import.meta.url,
 );
+const orderMessageEncryptionContextMigrationUrl = new URL(
+  '../../../prisma/migrations/202609050001_order_message_encryption_context/migration.sql',
+  import.meta.url,
+);
 const schemaUrl = new URL('../../../prisma/schema.prisma', import.meta.url);
 
 describe('initial database migration', () => {
@@ -36,6 +40,17 @@ describe('initial database migration', () => {
     expect(sql).toContain('"encryptionKeyVersion" INTEGER NOT NULL');
     expect(sql).toContain('CREATE OR REPLACE FUNCTION prevent_audit_mutation()');
     expect(sql).toContain('BEFORE UPDATE OR DELETE ON "AuditEvent"');
+  });
+});
+
+describe('order message encryption context migration', () => {
+  it('marks new AAD-bound messages while retaining an explicit legacy no-AAD representation', async () => {
+    const schema = await readFile(fileURLToPath(schemaUrl), 'utf8');
+    const sql = await readFile(fileURLToPath(orderMessageEncryptionContextMigrationUrl), 'utf8');
+
+    expect(schema).toContain('encryptionContextVersion Int?');
+    expect(sql).toContain('ADD COLUMN "encryptionContextVersion" INTEGER');
+    expect(sql).toContain('"encryptionContextVersion" IS NULL OR "encryptionContextVersion" = 1');
   });
 });
 

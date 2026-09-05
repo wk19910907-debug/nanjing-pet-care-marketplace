@@ -16,6 +16,12 @@ export class FieldCrypto {
   ) {}
 
   public static fromBase64(value: string, keyVersion: number): FieldCrypto {
+    if (!Number.isSafeInteger(keyVersion) || keyVersion < 1 || keyVersion > 2_147_483_647) {
+      throw new Error('field encryption key version must be a positive integer');
+    }
+    if (!isCanonicalBase64(value)) {
+      throw new Error('field encryption key must decode to exactly 32 bytes');
+    }
     const key = Buffer.from(value, 'base64');
     if (key.length !== 32) {
       throw new Error('field encryption key must decode to exactly 32 bytes');

@@ -173,10 +173,11 @@ export type AppConfig = {
 
 export function loadConfig(environment: Record<string, string | undefined>): AppConfig {
   const parsed = EnvironmentSchema.parse(environment);
+  const legacyFieldEncryptionKey = parseLegacyFieldEncryptionKey(parsed.FIELD_ENCRYPTION_KEY_V1);
   const fieldEncryptionKeyring = parseFieldEncryptionKeyring(
     parsed.FIELD_ENCRYPTION_KEYRING,
     parsed.FIELD_ENCRYPTION_ACTIVE_VERSION,
-    parsed.FIELD_ENCRYPTION_KEY_V1,
+    legacyFieldEncryptionKey,
   );
   const pilot = parsed.PILOT_MODE === 'enabled' ? {
     enabled: true as const,
@@ -195,8 +196,8 @@ export function loadConfig(environment: Record<string, string | undefined>): App
   const base: AppConfig = {
     nodeEnv: parsed.NODE_ENV,
     databaseUrl: parsed.DATABASE_URL,
-    ...(parsed.FIELD_ENCRYPTION_KEY_V1
-      ? { fieldEncryptionKey: parsed.FIELD_ENCRYPTION_KEY_V1 }
+    ...(legacyFieldEncryptionKey
+      ? { fieldEncryptionKey: legacyFieldEncryptionKey }
       : {}),
     ...(fieldEncryptionKeyring ? { fieldEncryptionKeyring } : {}),
     ...(pilot ? { pilot } : {}),
@@ -207,7 +208,7 @@ export function loadConfig(environment: Record<string, string | undefined>): App
   if (parsed.NODE_ENV !== 'production') return base;
 
   const productionBase = {
-    ...(parsed.FIELD_ENCRYPTION_KEY_V1 ? { fieldEncryptionKey: parsed.FIELD_ENCRYPTION_KEY_V1 } : {}),
+    ...(legacyFieldEncryptionKey ? { fieldEncryptionKey: legacyFieldEncryptionKey } : {}),
     ...(fieldEncryptionKeyring ? { fieldEncryptionKeyring } : {}),
     objectStorage: {
       endpoint: parsed.S3_ENDPOINT!, bucket: parsed.S3_BUCKET!, accessKeyId: parsed.S3_ACCESS_KEY_ID!,
@@ -226,6 +227,12 @@ export function loadConfig(environment: Record<string, string | undefined>): App
     },
     wechatNotifications: { appId: parsed.WECHAT_APP_ID!, appSecret: parsed.WECHAT_APP_SECRET! },
   }};
+}
+
+function parseLegacyFieldEncryptionKey(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  if (!isCanonicalFieldKey(value)) throw new Error('FIELD_ENCRYPTION_KEY_V1_INVALID');
+  return value;
 }
 
 function parseFieldEncryptionKeyring(

@@ -124,6 +124,16 @@ describe('loadConfig', () => {
     }
   });
 
+  it('requires legacy FIELD_ENCRYPTION_KEY_V1 to be exact canonical Base64 for 32 bytes', () => {
+    const valid = Buffer.alloc(32, 17).toString('base64');
+    const base = { DATABASE_URL: 'postgresql://petcare:petcare@localhost:54329/petcare' };
+    expect(loadConfig({ ...base, FIELD_ENCRYPTION_KEY_V1: valid }).fieldEncryptionKey).toBe(valid);
+    for (const invalid of [`${valid}\n`, `${valid}A`, Buffer.alloc(31, 17).toString('base64')]) {
+      expect(() => loadConfig({ ...base, FIELD_ENCRYPTION_KEY_V1: invalid }))
+        .toThrow('FIELD_ENCRYPTION_KEY_V1');
+    }
+  });
+
   it('accepts a keyring without legacy v1 configuration in production pilot mode', () => {
     const v1 = Buffer.alloc(32, 14).toString('base64');
     const v2 = Buffer.alloc(32, 15).toString('base64');

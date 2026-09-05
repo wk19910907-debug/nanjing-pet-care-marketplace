@@ -107,6 +107,31 @@ describe('order conversation routes', () => {
     } finally { await app.close(); }
   });
 
+  it('uses the database canonical order ID for uppercase UUID routes and message AAD', async () => {
+    const data = await fixture();
+    const crypto = FieldCrypto.fromBase64(Buffer.alloc(32, 32).toString('base64'), 1);
+    const conversations = new OrderConversationService(prisma, crypto, new PrismaAuditRepository(prisma));
+    const app = createApp({
+      auth: new HeaderAuth(), pets: {} as never, addresses: {} as never, pilot,
+      conversations: { auth: new HeaderAuth(), conversations },
+    });
+    try {
+      const headers = { authorization: `Bearer ${data.owner.id}:OWNER` };
+      const created = await app.inject({
+        method: 'POST', url: `/api/v1/pilot/orders/${data.order.id.toUpperCase()}/messages`, headers,
+        payload: { body: 'uppercase route ID' },
+      });
+      const listed = await app.inject({
+        method: 'GET', url: `/api/v1/pilot/orders/${data.order.id}/messages`, headers,
+      });
+
+      expect(created.statusCode).toBe(201);
+      expect(created.json()).toEqual(expect.objectContaining({ orderId: data.order.id, body: 'uppercase route ID' }));
+      expect(listed.statusCode).toBe(200);
+      expect(listed.json()).toEqual({ items: [created.json()] });
+    } finally { await app.close(); }
+  });
+
   it('returns safe 401, 403, 400, and 404 responses without leaking encrypted or plaintext messages', async () => {
     const data = await fixture();
     const crypto = FieldCrypto.fromBase64(Buffer.alloc(32, 31).toString('base64'), 1);

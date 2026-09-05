@@ -38,11 +38,11 @@ export class OrderConversationService {
     orderId: string,
     cursor?: string,
   ): Promise<{ items: OrderMessageDto[]; nextCursor?: string }> {
-    await this.authorize(actor, orderId);
+    const order = await this.authorize(actor, orderId);
     const after = cursor === undefined ? undefined : decodeCursor(cursor);
     const messages = await this.prisma.orderMessage.findMany({
       where: {
-        orderId,
+        orderId: order.id,
         ...(after ? {
           OR: [
             { createdAt: { gt: after.createdAt } },
@@ -54,7 +54,7 @@ export class OrderConversationService {
       take: PAGE_SIZE + 1,
       select: {
         id: true, orderId: true, authorRole: true, bodyCiphertext: true, bodyNonce: true,
-        bodyAuthTag: true, encryptionKeyVersion: true, createdAt: true,
+        bodyAuthTag: true, encryptionKeyVersion: true, encryptionContextVersion: true, createdAt: true,
       },
     });
     const hasNextPage = messages.length > PAGE_SIZE;
@@ -68,7 +68,7 @@ export class OrderConversationService {
   }
 
   public async send(actor: ActorContext, orderId: string, body: string): Promise<OrderMessageDto> {
-    await this.authorize(actor, orderId);
+    const order = await this.authorize(actor, orderId);
     if (actor.role !== 'OWNER' && actor.role !== 'ADMIN') throw new Error('FORBIDDEN');
     const normalizedBody = body.trim();
     if (!normalizedBody || [...normalizedBody].length > MAX_BODY_CHARACTERS) {
@@ -76,18 +76,19 @@ export class OrderConversationService {
     }
     const id = randomUUID();
     const encrypted = this.fieldCrypto.encrypt(normalizedBody, {
-      associatedData: orderMessageAssociatedData(orderId, id, actor.role),
+      associatedData: orderMessageAssociatedData(order.id, id, actor.role),
     });
     const message = await this.prisma.$transaction(async (transaction) => {
       const created = await transaction.orderMessage.create({ data: {
         id,
-        orderId,
+        orderId: order.id,
         authorUserId: actor.userId,
         authorRole: actor.role,
         bodyCiphertext: new Uint8Array(encrypted.ciphertext),
         bodyNonce: new Uint8Array(encrypted.nonce),
         bodyAuthTag: new Uint8Array(encrypted.authTag),
         encryptionKeyVersion: encrypted.keyVersion,
+        encryptionContextVersion: 1,
       } });
       await this.audit.append({
         actorId: actor.userId,
@@ -95,20 +96,20 @@ export class OrderConversationService {
         action: 'ORDER_MESSAGE_SENT',
         entityType: 'OrderMessage',
         entityId: created.id,
-        metadata: { orderId, messageId: created.id, bodyLength: [...normalizedBody].length },
+        metadata: { orderId: order.id, messageId: created.id, bodyLength: [...normalizedBody].length },
       }, transaction);
       return created;
     });
     return this.toDto(message);
   }
 
-  private async authorize(actor: ActorContext, orderId: string): Promise<void> {
+  private async authorize(actor: ActorContext, orderId: string): Promise<{ id: string }> {
     const order = await this.prisma.order.findUnique({
-      where: { id: orderId }, select: { ownerId: true },
+      where: { id: orderId }, select: { id: true, ownerId: true },
     });
     if (!order) throw new Error('ORDER_NOT_FOUND');
-    if (actor.role === 'ADMIN') return;
-    if (actor.role === 'OWNER' && actor.userId === order.ownerId) return;
+    if (actor.role === 'ADMIN') return { id: order.id };
+    if (actor.role === 'OWNER' && actor.userId === order.ownerId) return { id: order.id };
     throw new Error('FORBIDDEN');
   }
 
@@ -120,12 +121,19 @@ export class OrderConversationService {
     bodyNonce: Uint8Array<ArrayBufferLike>;
     bodyAuthTag: Uint8Array<ArrayBufferLike>;
     encryptionKeyVersion: number;
+    encryptionContextVersion: number | null;
     createdAt: Date;
   }): OrderMessageDto {
     if (message.authorRole !== 'OWNER' && message.authorRole !== 'ADMIN') {
       throw new Error('MESSAGE_DECRYPTION_FAILED');
     }
     try {
+      if (message.encryptionContextVersion !== null && message.encryptionContextVersion !== 1) {
+        throw new Error('unsupported message encryption context');
+      }
+      const options = message.encryptionContextVersion === null ? undefined : {
+        associatedData: orderMessageAssociatedData(message.orderId, message.id, message.authorRole),
+      };
       return {
         id: message.id,
         orderId: message.orderId,
@@ -135,7 +143,7 @@ export class OrderConversationService {
           nonce: Buffer.from(message.bodyNonce),
           authTag: Buffer.from(message.bodyAuthTag),
           keyVersion: message.encryptionKeyVersion,
-        }, { associatedData: orderMessageAssociatedData(message.orderId, message.id, message.authorRole) }),
+        }, options),
         createdAt: message.createdAt.toISOString(),
       };
     } catch {

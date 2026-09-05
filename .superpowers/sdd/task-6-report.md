@@ -66,3 +66,25 @@ git diff --check
 ```
 
 Results: 41 focused tests plus the real-auth production-composition test passed; typecheck, lint, and whitespace checks passed. The disposable PostgreSQL 16 container is stopped after commit.
+
+## Second review follow-up
+
+- `OrderConversationService.authorize` now returns the canonical persisted order UUID. Both database access and AES-GCM AAD use that canonical ID, so a valid uppercase route UUID creates a message that the normal lowercase route can decrypt and list.
+- Added nullable `OrderMessage.encryptionContextVersion` through `202609050001_order_message_encryption_context`. `NULL` is the sole explicit representation of pre-hardening no-AAD records; all new writes persist `1` and require message AAD. There is no authentication-failure fallback to legacy decryption. The database constraint accepts only `NULL` or `1`.
+- Added a real no-AAD V1 test tuple that remains readable only when the marker is `NULL`; swapping it into an AAD-marked row fails closed. Existing cross-row/order/role/key-version swap tests remain in place.
+- Legacy `FIELD_ENCRYPTION_KEY_V1` now uses the same exact canonical Base64 32-byte validator as the keyring, and `FieldCrypto.fromBase64` rejects non-positive versions.
+
+Verification under Node `v22.22.2` using a disposable PostgreSQL 16 database on loopback (fresh `prisma migrate deploy` is executed by each conversation test suite):
+
+```powershell
+pnpm vitest run apps/api/tests/order-conversation-service.test.ts apps/api/tests/order-conversation-routes.test.ts
+pnpm vitest run apps/api/tests/field-crypto.test.ts apps/api/tests/config.test.ts apps/api/tests/schema.test.ts
+pnpm vitest run apps/api/tests/pilot-composition.test.ts -t "blocks must-change ADMIN sessions"
+pnpm --filter @pet/api typecheck
+pnpm --filter @pet/api lint
+pnpm exec prisma validate
+pnpm exec prisma migrate deploy --schema prisma/schema.prisma
+git diff --check
+```
+
+Results: 13 conversation PostgreSQL integration tests, 35 crypto/config/schema tests, and the real production-composition must-change ADMIN test passed; API typecheck, lint, Prisma validation, and diff check passed. An explicit clean PostgreSQL 16 `migrate deploy` applied all nine migrations including `202609050001_order_message_encryption_context`, then its verification database was dropped. Test databases are also dropped by suite cleanup.

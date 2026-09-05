@@ -294,6 +294,7 @@ model OrderMessage {
   bodyNonce            Bytes
   bodyAuthTag          Bytes
   encryptionKeyVersion Int
+  encryptionContextVersion Int?
   createdAt            DateTime  @default(now()) @db.Timestamptz(3)
   order                Order     @relation(fields: [orderId], references: [id], onDelete: Restrict)
   author               User      @relation("OrderMessageAuthor", fields: [authorUserId], references: [id], onDelete: Restrict)
