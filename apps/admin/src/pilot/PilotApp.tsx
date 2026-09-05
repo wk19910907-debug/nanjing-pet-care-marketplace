@@ -25,11 +25,15 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
   const bootstrapped = useRef(false);
   const catalogBootstrapped = useRef(false);
   const ownerRequestInFlight = useRef(false);
+  const logoutRequestInFlight = useRef(false);
+  const logoutRequestVersion = useRef(0);
+  const sessionVersion = useRef(0);
   const [recoveryCredential, setRecoveryCredential] = useState<OwnerRecoveryCredential | null>(null);
   const [accessMode, setAccessMode] = useState<'NONE' | 'STAFF' | 'RECOVERY'>('NONE');
   const [accessError, setAccessError] = useState('');
   const [startBooking, setStartBooking] = useState(false);
   const [ownerPending, setOwnerPending] = useState(false);
+  const [logoutPending, setLogoutPending] = useState(false);
   const sessionUserId = useRef<string | null>(null);
   const recoveryRotationLock = useRef<number | null>(null);
   const recoveryRotationRequest = useRef(0);
@@ -49,16 +53,19 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
   }, []);
 
   const invalidateSession = useCallback(() => {
+    sessionVersion.current++;
     sessionUserId.current = null;
     clearSessionBoundUi();
     setSession(null);
   }, [clearSessionBoundUi]);
 
   const loadSession = useCallback(async () => {
+    const requestVersion = ++sessionVersion.current;
     setSession(undefined);
     setFailure('');
     try {
       const current = await api.getSession();
+      if (requestVersion !== sessionVersion.current) return;
       const expiresAt = Date.parse(current.expiresAt);
       if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
         invalidateSession();
@@ -68,6 +75,7 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
       sessionUserId.current = current.userId;
       setSession(current);
     } catch (caught) {
+      if (requestVersion !== sessionVersion.current) return;
       if (caught instanceof PilotApiError && caught.status === 401) {
         invalidateSession();
         return;
@@ -138,21 +146,30 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
   }, [invalidateSession]);
 
   const logout = async () => {
+    if (logoutRequestInFlight.current) return;
+    const requestVersion = ++logoutRequestVersion.current;
+    logoutRequestInFlight.current = true;
+    setLogoutPending(true);
     setFailure('');
     invalidateSession();
     try {
       await api.deleteSession();
-    } catch (caught) {
-      if (!(caught instanceof PilotApiError && caught.status === 401)) {
-        setFailure(pilotErrorMessage(caught));
-        return;
+    } catch {
+      // Reconcile the cookie state below even if the network response was lost.
+    }
+    try {
+      if (requestVersion !== logoutRequestVersion.current) return;
+      await loadSession();
+    } finally {
+      if (requestVersion === logoutRequestVersion.current) {
+        logoutRequestInFlight.current = false;
+        setLogoutPending(false);
       }
     }
-    await loadSession();
   };
 
   const startOwnerSession = async () => {
-    if (ownerRequestInFlight.current) return;
+    if (logoutRequestInFlight.current || ownerRequestInFlight.current) return;
     ownerRequestInFlight.current = true;
     setOwnerPending(true);
     setAccessError('');
@@ -172,6 +189,7 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
   };
 
   const recover = async (token: string) => {
+    if (logoutRequestInFlight.current) return;
     invalidateSession();
     setAccessError('');
     try { await api.recoverOwnerSession(token); setAccessMode('NONE'); await loadSession(); }
@@ -179,7 +197,7 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
   };
 
   const issueReplacementRecovery = async () => {
-    if (recoveryRotationLock.current !== null) return;
+    if (logoutRequestInFlight.current || recoveryRotationLock.current !== null) return;
     const requestId = ++recoveryRotationRequest.current;
     recoveryRotationLock.current = requestId;
     const displayVersion = ++recoveryRotationDisplayVersion.current;
@@ -206,6 +224,13 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
       if (target?.isConnected) target.focus();
     }, 0);
   };
+
+  if (logoutPending) return <main className="pilot-state-page" aria-live="polite">
+    <section className="pilot-state-card" role="status">
+      <h1>正在安全退出</h1>
+      <p>正在清除本次登录状态，请稍候。</p>
+    </section>
+  </main>;
 
   if (failure) return <main className="pilot-state-page">
     <section className="pilot-state-card" role="alert">

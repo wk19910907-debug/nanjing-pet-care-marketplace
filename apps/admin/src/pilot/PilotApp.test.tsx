@@ -57,8 +57,9 @@ function fakeApi(overrides: Partial<PilotApi> = {}): PilotApi {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise; });
-  return { promise, resolve };
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => { resolve = resolvePromise; reject = rejectPromise; });
+  return { promise, resolve, reject };
 }
 
 describe('PilotApp', () => {
@@ -319,6 +320,43 @@ describe('PilotApp', () => {
 
     await waitFor(() => expect(api.deleteSession).toHaveBeenCalledOnce());
     expect(await screen.findByRole('button', { name: '员工登录' })).toBeTruthy();
+  });
+
+  it('holds the public entry behind an accessible logout progress view until DELETE settles', async () => {
+    const deletion = deferred<void>();
+    const getSession = vi.fn().mockResolvedValueOnce(adminSession).mockRejectedValueOnce(new PilotApiError(401, 'UNAUTHENTICATED'));
+    const api = fakeApi({ getSession, deleteSession: vi.fn().mockImplementation(() => deletion.promise) });
+    render(<PilotApp api={api}/>);
+
+    const logoutButton = await screen.findByRole('button', { name: '退出登录' });
+    act(() => { fireEvent.click(logoutButton); fireEvent.click(logoutButton); });
+    expect(api.deleteSession).toHaveBeenCalledOnce();
+    expect(screen.getByRole('status').textContent).toContain('正在安全退出');
+    expect(screen.queryByRole('button', { name: '立即预约' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '恢复订单' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '员工登录' })).toBeNull();
+    fireEvent.click(document.body);
+    expect(api.ensureOwnerSession).not.toHaveBeenCalled();
+    expect(api.createStaffSession).not.toHaveBeenCalled();
+    expect(api.recoverOwnerSession).not.toHaveBeenCalled();
+
+    await act(async () => deletion.resolve());
+    expect(await screen.findByRole('button', { name: '员工登录' })).toBeTruthy();
+    expect(getSession).toHaveBeenCalledTimes(2);
+  });
+
+  it('reconciles a rejected logout before exposing any next session state', async () => {
+    const deletion = deferred<void>();
+    const getSession = vi.fn().mockResolvedValueOnce(adminSession).mockResolvedValueOnce(adminSession);
+    const api = fakeApi({ getSession, deleteSession: vi.fn().mockImplementation(() => deletion.promise) });
+    render(<PilotApp api={api}/>);
+
+    fireEvent.click(await screen.findByRole('button', { name: '退出登录' }));
+    expect(screen.getByRole('status')).toBeTruthy();
+    await act(async () => deletion.reject(new Error('network failed')));
+    expect(await screen.findByRole('heading', { name: '平台工作区' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '员工登录' })).toBeNull();
+    expect(getSession).toHaveBeenCalledTimes(2);
   });
 
   it('shows fixed Chinese copy for unexpected client errors', async () => {
