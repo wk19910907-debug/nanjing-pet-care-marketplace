@@ -323,8 +323,8 @@ describe('production access routes', () => {
       expect(reset).toMatchObject({ statusCode: 204 });
       expect(created).toMatchObject({ statusCode: 201 });
       expect(disabled).toMatchObject({ statusCode: 200 });
-      expect(invalidRecovery).toMatchObject({ statusCode: 401, json: expect.any(Function) });
-      expect(invalidRecovery.json()).toEqual({ code: 'RECOVERY_INVALID' });
+      expect(invalidRecovery).toMatchObject({ statusCode: 403, json: expect.any(Function) });
+      expect(invalidRecovery.json()).toEqual({ code: 'FORBIDDEN' });
       expect(busyLogin.json()).toEqual({ code: 'STAFF_LOGIN_BUSY' });
       expect(busyLogin.statusCode).toBe(429);
       expect(oversized.statusCode).toBe(413);

@@ -7,7 +7,10 @@ export function readinessSnapshot(
 ) {
   const production = config.production;
   const encryptionConfigured = Boolean(
-    config.fieldEncryptionKey ?? production?.fieldEncryptionKey,
+    config.fieldEncryptionKey
+      ?? production?.fieldEncryptionKey
+      ?? config.fieldEncryptionKeyring
+      ?? production?.fieldEncryptionKeyring,
   );
   if (config.pilot) return {
     ready: probes.database && probes.objectStorage && encryptionConfigured

@@ -82,6 +82,19 @@ describe('production readiness', () => {
     expect(response).toMatchObject({ ready: false, database: true, objectStorage: false });
   });
 
+  it('accepts a validated keyring-only pilot encryption configuration', () => {
+    const keyringOnly = {
+      ...pilotProductionEnvironment,
+      FIELD_ENCRYPTION_KEY_V1: undefined,
+      FIELD_ENCRYPTION_KEYRING: JSON.stringify([{ version: 7, key: Buffer.alloc(32, 7).toString('base64') }]),
+      FIELD_ENCRYPTION_ACTIVE_VERSION: '7',
+    };
+    const response = readinessSnapshot(loadConfig(keyringOnly), {
+      database: true, objectStorage: true, adminCredential: true,
+    });
+    expect(response).toMatchObject({ ready: true, encryption: true });
+  });
+
   it('requires an active administrator credential before a pilot production instance is ready', () => {
     const config = loadConfig(pilotProductionEnvironment);
     expect(readinessSnapshot(config, { database: true, objectStorage: true, adminCredential: false }))

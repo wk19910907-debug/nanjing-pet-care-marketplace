@@ -40,7 +40,7 @@ chmod 600 deploy/.env.production
 - `APP_VERSION` 写本次已验证的 Git commit，便于镜像回滚。
 - 填入 PostgreSQL、两份 Base64 密钥和 S3配置。
 - `FIELD_ENCRYPTION_KEY_V1` 只用于首次部署；轮换时使用 `FIELD_ENCRYPTION_KEYRING` 和 `FIELD_ENCRYPTION_ACTIVE_VERSION`，保留旧版本直到重加密与恢复演练完成。
-- `PILOT_SHARED_INGRESS_RATE_LIMITING=enabled` 声明入口 WAF/反向代理已配置跨实例限流；应用内登录限流只是一台实例的内存边界。
+- `PILOT_SHARED_INGRESS_RATE_LIMITING` 初始保持空白。应用内登录限流只是一台实例的内存边界；仅在下面的共享入口限流策略已实际部署并验证后，才填写 `PILOT_SHARED_INGRESS_RATE_LIMITING=enabled`。
 - `PILOT_TRUST_PROXY=172.30.0.2` 与 Compose 中固定的 Caddy 内网地址对应，不要改成任意公网网段。
 - 后端容器没有宿主机端口，但其 Docker 网络必须保留出站能力，才能连接外部 PostgreSQL 和 S3；不要把 `backend` 改成 `internal: true`。
 - `WECHAT_LOGIN_ENABLED=false` 保持关闭，直到真实 AppID/AppSecret、合法域名和真机验收完成。
@@ -53,15 +53,41 @@ docker compose --env-file deploy/.env.production -f deploy/compose.production.ym
 
 ## 4. 首次部署
 
-部署前确认数据库已经备份。生产迁移使用 Prisma `migrate deploy`，不会执行 `migrate dev` 或自动重置数据库。启动命令会先迁移，失败时应用不会启动。首次启动前，必须在受控 TTY 中交互执行 `pnpm staff:create-admin -- --username <管理员用户名>`；临时密码不得放入环境变量、命令行、文件、日志或截图，且必须在管理员第一次网页登录时改掉。没有管理员账户时不得把 `/health/ready` 视为可对外接单。
+部署前确认数据库已经备份，并先启动或确认第 1 节中的独立 PostgreSQL 服务可连接；本 Compose 文件故意不包含数据库容器。生产迁移使用 Prisma `migrate deploy`，不会执行 `migrate dev` 或自动重置数据库。以下每条命令都使用 Compose 的受保护环境文件，因此不会出现宿主机缺少 `DATABASE_URL`、迁移表或密钥的情况。
+
+在受控终端按顺序执行。`staff:create-admin` 必须保留 `-it`，让临时密码只经 TTY 输入；不得放入环境变量、命令行、文件、日志或截图，且管理员第一次网页登录时必须改掉：
 
 ```sh
-docker compose --env-file deploy/.env.production -f deploy/compose.production.yml up -d --build
+# Build the exact API image after the external PostgreSQL service is reachable.
+docker compose --env-file deploy/.env.production -f deploy/compose.production.yml build app
+
+# One-shot migration uses the application image and the same Compose environment.
+docker compose --env-file deploy/.env.production -f deploy/compose.production.yml run --rm --no-deps --entrypoint pnpm app exec prisma migrate deploy --schema prisma/schema.prisma
+
+# Create the only initial ADMIN interactively after tables exist; this command never starts a server.
+docker compose --env-file deploy/.env.production -f deploy/compose.production.yml run --rm --no-deps -it --entrypoint pnpm app --filter @pet/api staff:create-admin -- --username <管理员用户名>
+
+# Start the API and TLS proxy only after migration and bootstrap succeed.
+docker compose --env-file deploy/.env.production -f deploy/compose.production.yml up -d app caddy
 docker compose --env-file deploy/.env.production -f deploy/compose.production.yml ps
 docker compose --env-file deploy/.env.production -f deploy/compose.production.yml logs --tail=100 app caddy
+curl --fail --show-error --silent https://${SITE_DOMAIN}/health/ready
 ```
 
-验证 `https://你的域名/health/ready` 返回200且 `ready/database/objectStorage/encryption` 均为true。确认浏览器证书有效、Cookie 为 `Secure`、HTTP 自动跳转 HTTPS，并且站点和 `/api` 保持同一 `https://` Origin。日志不得出现数据库 URL、S3凭据、会话或用户地址。
+正常 `app` 启动仍会在入口脚本中执行幂等的 `migrate deploy`；上面的单次迁移只是让首次管理员创建发生在 API 就绪检查之前。验证 `/health/ready` 返回200且 `ready/database/objectStorage/encryption` 均为true。确认浏览器证书有效、Cookie 为 `Secure`、HTTP 自动跳转 HTTPS，并且站点和 `/api` 保持同一 `https://` Origin。日志不得出现数据库 URL、S3凭据、会话或用户地址。
+
+### 共享入口限流验收
+
+Caddy 在这里仅负责 TLS 和反向代理，**不提供跨实例共享限流状态**。在多副本部署前，必须在托管 WAF 或支持 Redis 计数器的网关配置跨实例策略，至少覆盖 `POST /api/v1/public/owner-sessions`、`POST /api/v1/public/owner-recovery-sessions` 与 `POST /api/v1/staff/sessions`，并按真实客户端 IP 聚合。
+
+从两个不同出口/节点同时运行下列无效登录探针（不要使用真实账号或密码），确认总量跨两个 API 副本合并，并在策略阈值后得到 `429`；保存状态码计数和策略版本，不保存请求体。验证通过后才填写 `PILOT_SHARED_INGRESS_RATE_LIMITING=enabled`，再重启 `app`：
+
+```sh
+seq 1 12 | xargs -P 6 -I{} curl --silent --output /dev/null --write-out '%{http_code}\n' \
+  --request POST "https://${SITE_DOMAIN}/api/v1/staff/sessions" \
+  --header 'Content-Type: application/json' \
+  --data '{"username":"rate-limit-check","password":"not-a-real-password"}'
+```
 
 参考：[Docker Compose健康检查与启动顺序](https://docs.docker.com/compose/how-tos/startup-order/)、[Prisma生产迁移](https://docs.prisma.io/docs/cli/migrate/deploy)、[Caddy自动HTTPS](https://caddyserver.com/docs/automatic-https)。
 

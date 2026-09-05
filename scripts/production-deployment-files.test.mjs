@@ -101,7 +101,11 @@ test('runbook covers prerequisites, secure deployment, recovery and acceptance',
     'DNS', 'PostgreSQL', 'S3', 'TLS', 'migrate deploy', '/health/ready',
     '备份', '恢复演练', '回滚', '测试账号', '人工收款', 'ICP备案',
   ]) assert.ok(runbook.includes(topic), `runbook missing topic: ${topic}`);
-  assert.match(runbook, /docker compose[\s\S]*up -d --build/);
+  assert.match(runbook, /docker compose[\s\S]*--env-file deploy\/.env\.production[\s\S]*run --rm --no-deps --entrypoint pnpm app exec prisma migrate deploy --schema prisma\/schema\.prisma/);
+  assert.match(runbook, /docker compose[\s\S]*--env-file deploy\/.env\.production[\s\S]*run --rm --no-deps -it --entrypoint pnpm app --filter @pet\/api staff:create-admin -- --username <管理员用户名>/);
+  assert.match(runbook, /docker compose[\s\S]*up -d app caddy/);
+  assert.match(runbook, /curl --fail[\s\S]*https:\/\/\$\{SITE_DOMAIN\}\/health\/ready/);
+  assert.doesNotMatch(runbook, /^pnpm staff:create-admin/m);
   assert.match(runbook, /docker compose[\s\S]*logs/);
   assert.match(runbook, /不得把密钥、密码.*提交到 Git/);
 });
@@ -115,10 +119,15 @@ test('production operations state the non-negotiable web boundary and operator c
     'staff:create-admin', 'migrate deploy', '/health/ready', 'Secure', '同一 `https://` Origin',
     '私有 S3', 'FIELD_ENCRYPTION_KEYRING', 'PILOT_AUTH_PEPPER', 'PILOT_SHARED_INGRESS_RATE_LIMITING', '备份',
   ]) assert.ok(runbook.includes(topic) || quickstart.includes(topic) || environment.includes(topic), `missing ${topic}`);
-  assert.match(environment, /^PILOT_SHARED_INGRESS_RATE_LIMITING=enabled$/m);
+  assert.match(environment, /^PILOT_SHARED_INGRESS_RATE_LIMITING=$/m);
   assert.match(environment, /^FIELD_ENCRYPTION_KEYRING=$/m);
   assert.match(environment, /^FIELD_ENCRYPTION_ACTIVE_VERSION=$/m);
   assert.match(runbook, /GitHub Pages.*绝不能作为真实订单/);
+  assert.match(runbook, /Caddy.*不提供跨实例共享限流状态/);
+  assert.match(runbook, /Redis/);
+  assert.match(runbook, /429/);
+  assert.match(runbook, /curl/);
+  assert.match(runbook, /验证通过后才填写.*PILOT_SHARED_INGRESS_RATE_LIMITING=enabled/);
   assert.doesNotMatch(runbook, /本地角色直接入口/);
   assert.doesNotMatch(quickstart, /邀请码登录|邀请管理/);
   assert.match(readme, /未公开展示手机号、微信二维码、邀请码或邀请入口/);

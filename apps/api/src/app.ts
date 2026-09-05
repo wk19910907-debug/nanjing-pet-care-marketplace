@@ -69,7 +69,10 @@ export function createApp(dependencies: AppDependencies, options: AppOptions = {
     if (error instanceof Error && error.message === 'UNAUTHENTICATED') {
       return reply.code(401).send({ code: 'UNAUTHENTICATED' });
     }
-    if (error instanceof Error && ['RECOVERY_INVALID', 'STAFF_LOGIN_INVALID'].includes(error.message)) {
+    if (error instanceof Error && error.message === 'RECOVERY_INVALID') {
+      return reply.code(403).send({ code: 'FORBIDDEN' });
+    }
+    if (error instanceof Error && error.message === 'STAFF_LOGIN_INVALID') {
       return reply.code(401).send({ code: error.message });
     }
     if (error instanceof Error && error.message === 'RECOVERY_ALREADY_ISSUED') {

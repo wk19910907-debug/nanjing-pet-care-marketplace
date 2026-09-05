@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { expect, test, type Page } from '@playwright/test';
 
 const baseUrl = process.env.PILOT_ACCEPTANCE_BASE_URL;
@@ -63,24 +64,81 @@ test('production web closes the guest, recovery, staff and order loop against Po
   try {
     const pages = await Promise.all(contexts.map((context) => context.newPage()));
     const [ownerPage, recoveredPage, adminPage, providerPage, attackerPage] = pages as [Page, Page, Page, Page, Page];
-    await ownerContext.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: baseUrl! });
+    await ownerPage.addInitScript(() => {
+      const target = window as Window & { __pilotRecoveryClipboard?: string | null };
+      target.__pilotRecoveryClipboard = null;
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: (value: string) => {
+          target.__pilotRecoveryClipboard = value;
+          return Promise.resolve();
+        } },
+      });
+    });
     await ownerPage.setViewportSize({ width: 1280, height: 800 });
     await ownerPage.goto(baseUrl!);
     await expect(ownerPage.getByRole('button', { name: '立即预约' })).toBeVisible({ timeout: 5_000 });
     await ownerPage.getByRole('button', { name: '立即预约' }).click();
     await expect(ownerPage.getByRole('heading', { name: '保存你的恢复凭据' })).toBeVisible();
+    const initialSession = await api(ownerPage, '/api/v1/pilot/session');
+    expect(initialSession.status).toBe(200);
+    const initialUserId = (initialSession.body as { userId?: unknown }).userId;
+    expect(typeof initialUserId).toBe('string');
+
+    const repeatedGuestSessions = await Promise.all([
+      api(ownerPage, '/api/v1/public/owner-sessions', { method: 'POST', body: {} }),
+      api(ownerPage, '/api/v1/public/owner-sessions', { method: 'POST', body: {} }),
+    ]);
+    expect(repeatedGuestSessions.map((response) => response.status)).toEqual([200, 200]);
+    const repeatedSession = await api(ownerPage, '/api/v1/pilot/session');
+    expect(repeatedSession.status).toBe(200);
+    expect((repeatedSession.body as { userId?: unknown }).userId).toBe(initialUserId);
+    const duplicateCredential = await api(ownerPage, '/api/v1/public/owner-recovery-credentials', { method: 'POST', body: {} });
+    expect(duplicateCredential).toEqual({ status: 409, body: { code: 'RECOVERY_ALREADY_ISSUED' } });
+
+    const downloadPromise = ownerPage.waitForEvent('download');
     await ownerPage.getByRole('button', { name: '下载文本文件' }).click();
+    const initialDownload = await downloadPromise;
+    const initialDownloadPath = await initialDownload.path();
+    expect(Boolean(initialDownloadPath)).toBe(true);
+    const downloadedCredential = await readFile(initialDownloadPath!, 'utf8');
+    const initialTokenMatch = /#\/orders\/access\/([A-Za-z0-9_-]{43})/.exec(downloadedCredential);
+    expect(Boolean(initialTokenMatch)).toBe(true);
+    if (!initialTokenMatch) throw new Error('Downloaded recovery credential did not contain an access path.');
+    const initialRecoveryPath = `/#/orders/access/${initialTokenMatch[1]}`;
+    expect(downloadedCredential.includes(`${baseUrl}${initialRecoveryPath}`)).toBe(true);
+    expect([...downloadedCredential.matchAll(/#\/orders\/access\/[A-Za-z0-9_-]{43}/g)]).toHaveLength(1);
+    expect(downloadedCredential).not.toMatch(/PILOT_AUTH_PEPPER|FIELD_ENCRYPTION|DATABASE_URL|postgresql:\/\//i);
     await ownerPage.getByRole('button', { name: '复制恢复链接' }).click();
-    const rotatedRecovery = await api(ownerPage, '/api/v1/public/owner-recovery-credentials/rotate', { method: 'POST' });
-    expect(rotatedRecovery.status).toBe(200);
-    const recoveryToken = (rotatedRecovery.body as { token?: unknown }).token;
-    expect(typeof recoveryToken).toBe('string');
+    expect(await ownerPage.evaluate(({ origin, recoveryPath }) => {
+      const copied = (window as Window & { __pilotRecoveryClipboard?: string | null }).__pilotRecoveryClipboard;
+      return copied === `${origin}${recoveryPath}`;
+    }, { origin: baseUrl!, recoveryPath: initialRecoveryPath })).toBe(true);
     await ownerPage.getByRole('button', { name: '我已保存', exact: true }).click();
     const start = new Date(Date.now() + 25 * 60_000);
     const catOrderId = await submitBooking(ownerPage, 'CAT_FEEDING', start, true);
     const dogOrderId = await submitBooking(ownerPage, 'DOG_WALKING', new Date(start.getTime() + 90 * 60_000));
-    await recoveredPage.goto(`${baseUrl}/#/orders/access/${recoveryToken}`);
+    await recoveredPage.goto(`${baseUrl}${initialRecoveryPath}`);
     await expect(recoveredPage.getByRole('heading', { name: '我的订单' })).toBeVisible(); await expect(recoveredPage.getByText(catOrderId)).toBeVisible();
+    const recoveredInitialSession = await api(recoveredPage, '/api/v1/pilot/session');
+    expect(recoveredInitialSession.status).toBe(200);
+    expect((recoveredInitialSession.body as { userId?: unknown }).userId).toBe(initialUserId);
+
+    const rotatedRecovery = await api(ownerPage, '/api/v1/public/owner-recovery-credentials/rotate', { method: 'POST', body: {} });
+    expect(rotatedRecovery.status).toBe(200);
+    const rotatedToken = (rotatedRecovery.body as { token?: unknown }).token;
+    expect(typeof rotatedToken).toBe('string');
+    if (typeof rotatedToken !== 'string') throw new Error('Rotated recovery credential was missing.');
+    const oldCredentialAttempt = await api(recoveredPage, '/api/v1/public/owner-recovery-sessions', {
+      method: 'POST', body: { token: initialTokenMatch[1] },
+    });
+    expect(oldCredentialAttempt).toEqual({ status: 403, body: { code: 'FORBIDDEN' } });
+    const rotatedContext = await browser.newContext();
+    contexts.push(rotatedContext);
+    const rotatedPage = await rotatedContext.newPage();
+    await rotatedPage.goto(`${baseUrl}/#/orders/access/${rotatedToken}`);
+    await expect(rotatedPage.getByRole('heading', { name: '我的订单' })).toBeVisible();
+    await expect(rotatedPage.getByText(catOrderId)).toBeVisible();
     const credentials = await (await fetch(credentialsUrl!)).json() as { adminUsername: string; adminTemporaryPassword: string };
     await staffLogin(adminPage, credentials.adminUsername, credentials.adminTemporaryPassword, '平台工作区');
     await adminPage.getByLabel('员工用户名').fill('nj.provider'); await adminPage.getByLabel('员工展示名称').fill('南京小周');
