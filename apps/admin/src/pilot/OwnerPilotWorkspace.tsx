@@ -16,6 +16,7 @@ import type {
 import { BookingFlow } from './owner/BookingFlow.js';
 import { createBookingDraft, type BookingDraft } from './owner/booking.js';
 import { OwnerHome } from './owner/OwnerHome.js';
+import { OrderConversation } from './OrderConversation.js';
 
 type OwnerPilotWorkspaceProps = {
   api: PilotApi;
@@ -129,6 +130,7 @@ export function OwnerPilotWorkspace({ api, displayName = '宠主', onError, star
   const [evidenceLoaded, setEvidenceLoaded] = useState<Record<string, boolean>>({});
   const [evidenceLoading, setEvidenceLoading] = useState('');
   const [evidenceErrors, setEvidenceErrors] = useState<Record<string, string>>({});
+  const [conversationOrderId, setConversationOrderId] = useState('');
 
   useEffect(() => {
     if (startBooking && catalog) {
@@ -419,6 +421,8 @@ export function OwnerPilotWorkspace({ api, displayName = '宠主', onError, star
             </dl>
             {order.status === 'PENDING_PAYMENT' && <p className="pilot-offline-fee">本系统未处理在线支付</p>}
             <OrderTimeline order={order}/>
+            <button type="button" className="pilot-secondary pilot-order-conversation-toggle" onClick={() => setConversationOrderId((current) => current === order.id ? '' : order.id)}>{conversationOrderId === order.id ? '收起订单沟通' : `订单沟通 ${order.id}`}</button>
+            {conversationOrderId === order.id && <OrderConversation api={api} orderId={order.id} role="OWNER" onError={onError}/>}
             {order.report && <section className="pilot-owner-report">
               <h4>服务报告</h4>
               <p>{order.report.notes || '服务人员未填写补充说明。'}</p>

@@ -452,8 +452,22 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
   font-weight: 700;
 }
 
+.pilot-staff-panel { margin: 22px 0; padding: 24px; border: 1px solid #eadfd7; border-radius: 22px; background: #fffdfb; box-shadow: 0 14px 40px rgba(72, 48, 36, .07); }
+.pilot-staff-create { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; gap: 12px; align-items: end; }
+.pilot-staff-create label,.pilot-message-compose { display: grid; gap: 7px; color: #49382f; font-weight: 700; }
+.pilot-staff-list { display: grid; gap: 12px; margin-top: 16px; }
+.pilot-staff-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; padding: 16px; border: 1px solid #eadfd7; border-radius: 16px; background: #fff; }
+.pilot-staff-row strong,.pilot-staff-row span,.pilot-staff-row small { display: block; }.pilot-staff-row span { margin-top: 4px; }.pilot-staff-row small { margin-top: 7px; color: #6f625b; }
+.pilot-staff-actions,.pilot-conversation-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }.pilot-staff-actions { justify-content: end; }
+.pilot-one-time-secret { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px; border: 1px solid #edc784; border-radius: 14px; background: #fff7df; }.pilot-one-time-secret code { overflow-wrap: anywhere; font-weight: 800; }
+.pilot-order-conversation { display: grid; gap: 12px; margin-top: 14px; padding: 16px; border: 1px solid #eadfd7; border-radius: 16px; background: #fffdfa; }.pilot-conversation-heading { justify-content: space-between; }.pilot-conversation-heading h4 { margin: 0; }
+.pilot-message-list { display: grid; gap: 9px; max-height: 340px; overflow: auto; padding: 4px; border: 1px solid #f0e7df; border-radius: 12px; background: #fff; }.pilot-message { display: grid; gap: 5px; padding: 11px; border-radius: 10px; background: #f8f3ee; }.pilot-message-admin { background: #edf6ef; }.pilot-message time { color: #766861; font-size: 12px; }.pilot-message-compose textarea { min-height: 92px; resize: vertical; }.pilot-message-compose small { color: #766861; text-align: right; }
+.pilot-order-conversation-toggle { width: 100%; margin-top: 12px; }
+
 @media (max-width: 720px) {
   .pilot-settings-services {
     grid-template-columns: 1fr;
   }
+  .pilot-staff-create,.pilot-staff-row { grid-template-columns: 1fr; }
+  .pilot-staff-create > button,.pilot-staff-actions > button { width: 100%; }.pilot-staff-actions { justify-content: stretch; }
 }

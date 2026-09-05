@@ -62,6 +62,8 @@ describe('ProviderPilotWorkspace', () => {
       serviceTypes: ['CAT_FEEDING'], serviceZone: '秦淮区', latitude: 32.039,
       longitude: 118.795, radiusKm: 5, catExperienceMonths: 18, dogExperienceMonths: 0,
     });
+    expect(screen.queryByRole('heading', { name: '订单沟通' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: '服务人员账号' })).toBeNull();
   });
 
   it('fails closed when provider experience months bypass native input bounds', async () => {

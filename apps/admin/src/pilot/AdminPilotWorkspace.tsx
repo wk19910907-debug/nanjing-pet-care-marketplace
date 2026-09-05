@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createIdempotencyKey, type PilotApi } from './api.js';
 import type { AdminOrder, OrderStatus, ProviderReviewQueueItem, ReviewStatus, ServiceType } from './models.js';
 import { OperationsSettingsPanel } from './OperationsSettingsPanel.js';
+import { OrderConversation } from './OrderConversation.js';
+import { StaffAccountPanel } from './StaffAccountPanel.js';
 
 type Props = { api: PilotApi; onError(caught: unknown): string | null };
 type Confirmation =
@@ -64,6 +66,7 @@ export function AdminPilotWorkspace({ api, onError }: Props) {
   const [error, setError] = useState('');
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [pending, setPending] = useState('');
+  const [conversationOrderId, setConversationOrderId] = useState('');
   const lifecycle = useRef({ mounted: false, generation: 0, load: 0 });
   const locks = useRef(new Set<string>());
 
@@ -154,6 +157,7 @@ export function AdminPilotWorkspace({ api, onError }: Props) {
     <p className="pilot-offline-fee">本系统未处理在线支付</p>
     {error && <p className="pilot-error" role="alert">{error}</p>}
     <OperationsSettingsPanel api={api} onError={onError}/>
+    <StaffAccountPanel api={api} onError={onError}/>
     {loading ? <div className="pilot-owner-loading" aria-live="polite">正在读取运营数据…</div> : <div className="pilot-ops-grid">
       <section className="pilot-ops-section" aria-labelledby="admin-review-title">
         <h2 id="admin-review-title">服务人员审核</h2>
@@ -207,7 +211,10 @@ export function AdminPilotWorkspace({ api, onError }: Props) {
       <section className="pilot-ops-section pilot-all-orders" aria-labelledby="admin-all-orders-title">
         <h2 id="admin-all-orders-title">全部订单进度</h2>
         <p className="pilot-hint">只读时间线用于核对单笔订单状态；精确位置始终不在管理员列表中返回。</p>
-        {orders.length === 0 ? <Empty>当前没有订单。</Empty> : orders.map((order) => <OrderCard key={order.id} order={order}/>)}
+        {orders.length === 0 ? <Empty>当前没有订单。</Empty> : orders.map((order) => <OrderCard key={order.id} order={order} action={<>
+          <button type="button" className="pilot-secondary" onClick={() => setConversationOrderId((current) => current === order.id ? '' : order.id)}>{conversationOrderId === order.id ? '收起订单沟通' : `订单沟通 ${order.id}`}</button>
+          {conversationOrderId === order.id && <OrderConversation api={api} orderId={order.id} role="ADMIN" onError={onError}/>}
+        </>}/>) }
       </section>
     </div>}
   </section>;

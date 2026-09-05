@@ -250,4 +250,13 @@ describe('OwnerPilotWorkspace', () => {
     expect(api.confirmOrder).toHaveBeenCalledWith(order.id);
     await waitFor(() => expect(api.listOrders).toHaveBeenCalledTimes(2));
   });
+
+  it('opens a single authorized order conversation only after its explicit control is selected', async () => {
+    const api = fakeApi({ listOrderMessages: vi.fn().mockResolvedValue({ items: [], nextCursor: undefined }) });
+    const user = userEvent.setup();
+    render(<OwnerPilotWorkspace displayName="建邺宠主" api={api} onError={() => 'error'}/>);
+    await user.click(await screen.findByRole('button', { name: `订单沟通 ${pendingOrder.id}` }));
+    expect(await screen.findByRole('heading', { name: '订单沟通' })).toBeTruthy();
+    expect(api.listOrderMessages).toHaveBeenCalledWith(pendingOrder.id, undefined);
+  });
 });

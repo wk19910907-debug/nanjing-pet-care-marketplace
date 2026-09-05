@@ -37,6 +37,7 @@ function fakeApi(overrides: Partial<PilotApi> = {}): PilotApi {
       announcement: '',
     }),
     updateAdminCatalog: vi.fn(),
+    listStaffAccounts: vi.fn().mockResolvedValue([]),
     ...overrides,
   } as PilotApi;
 }
@@ -117,5 +118,15 @@ describe('AdminPilotWorkspace', () => {
     await user.click(screen.getByRole('button', { name: '确认记录费用已线下核对' }));
     expect(confirmManualFee).toHaveBeenCalledTimes(2);
     expect(confirmManualFee.mock.calls[1]![1]).toBe(confirmManualFee.mock.calls[0]![1]);
+  });
+
+  it('offers staff controls and one explicit order conversation at a time', async () => {
+    const api = fakeApi({ listStaffAccounts: vi.fn().mockResolvedValue([]), listOrderMessages: vi.fn().mockResolvedValue({ items: [], nextCursor: undefined }) });
+    const user = userEvent.setup();
+    render(<AdminPilotWorkspace api={api} onError={() => 'error'}/>);
+    expect(await screen.findByRole('heading', { name: '服务人员账号' })).toBeTruthy();
+    await user.click(screen.getAllByRole('button', { name: `订单沟通 ${pendingFee.id}` }).at(-1)!);
+    expect(await screen.findByRole('heading', { name: '订单沟通' })).toBeTruthy();
+    expect(api.listOrderMessages).toHaveBeenCalledWith(pendingFee.id, undefined);
   });
 });
