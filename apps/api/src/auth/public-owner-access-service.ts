@@ -24,7 +24,7 @@ export type PublicOwnerAccessOptions = {
   guestLimiter?: GuestOwnerLimiter;
 };
 
-type RecoveryResult = { token: string; recoveryPath: string };
+type RecoveryResult = { userId: string; token: string; recoveryPath: string };
 
 function isTransactionRetry(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError
@@ -174,7 +174,7 @@ export class PublicOwnerAccessService {
       if (rotated.count !== 1) throw new Error('RECOVERY_NOT_ISSUED');
       await this.appendRecoveryAudit(tx, user.id, credential.id, 'OWNER_RECOVERY_ROTATED');
     });
-    return { token, recoveryPath: `/#/orders/access/${token}` };
+    return { userId: actor.userId, token, recoveryPath: `/#/orders/access/${token}` };
   }
 
   private async appendRecoveryAudit(

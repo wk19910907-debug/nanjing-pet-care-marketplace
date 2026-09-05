@@ -119,13 +119,14 @@ describe('PublicOwnerAccessService', () => {
       access.issueRecovery(owner),
       access.issueRecovery(owner),
     ]);
-    const successful = issued.filter((item): item is PromiseFulfilledResult<{ token: string; recoveryPath: string }> => item.status === 'fulfilled');
+    const successful = issued.filter((item): item is PromiseFulfilledResult<{ userId: string; token: string; recoveryPath: string }> => item.status === 'fulfilled');
     const failed = issued.filter((item): item is PromiseRejectedResult => item.status === 'rejected');
     expect(successful).toHaveLength(1);
     expect(failed).toHaveLength(1);
     expect(failed[0]!.reason).toMatchObject({ message: 'RECOVERY_ALREADY_ISSUED' });
     const first = successful[0]!.value;
     expect(first).toMatchObject({
+      userId: owner.userId,
       token: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
       recoveryPath: expect.stringMatching(/^\/#\/orders\/access\/[A-Za-z0-9_-]{43}$/),
     });
@@ -133,6 +134,7 @@ describe('PublicOwnerAccessService', () => {
     expect(await prisma.ownerRecoveryCredential.count({ where: { userId: owner.userId } })).toBe(1);
 
     const rotated = await access.rotateRecovery(owner);
+    expect(rotated.userId).toBe(owner.userId);
     expect(rotated.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(rotated.token).not.toBe(first.token);
     const credential = await prisma.ownerRecoveryCredential.findUniqueOrThrow({ where: { userId: owner.userId } });

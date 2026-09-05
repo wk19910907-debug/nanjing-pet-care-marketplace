@@ -22,6 +22,7 @@ export type PilotSessionCreated = {
 
 /** A recovery secret is returned only by the issue/rotate calls; callers must not persist it. */
 export type OwnerRecoveryCredential = {
+  userId: string;
   token: string;
   recoveryPath: string;
 };

@@ -713,13 +713,14 @@ function parseOrderCreated(value: unknown): OwnerOrderCreated {
 
 function parseOwnerRecoveryCredential(value: unknown): OwnerRecoveryCredential {
   const record = asRecord(value);
-  if (!hasExactKeys(record, ['token', 'recoveryPath'])) invalidResponse();
+  if (!hasExactKeys(record, ['userId', 'token', 'recoveryPath'])) invalidResponse();
+  const userId = asUuid(record.userId);
   const token = asString(record, 'token', 43);
   const recoveryPath = asString(record, 'recoveryPath', 128);
   if (!RECOVERY_TOKEN_PATTERN.test(token) || recoveryPath !== `/#/orders/access/${token}` || recoveryPath.includes('?')) {
     invalidResponse();
   }
-  return { token, recoveryPath };
+  return { userId, token, recoveryPath };
 }
 
 function parseStaffSessionCreated(value: unknown): StaffSessionCreated {

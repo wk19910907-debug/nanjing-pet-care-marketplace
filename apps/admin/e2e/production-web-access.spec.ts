@@ -186,6 +186,7 @@ test('production web closes the guest, recovery, staff and order loop against Po
 
     const rotatedRecovery = await api(ownerPage, '/api/v1/public/owner-recovery-credentials/rotate', { method: 'POST', body: {} });
     expect(rotatedRecovery.status).toBe(200);
+    expect((rotatedRecovery.body as { userId?: unknown }).userId).toBe(initialUserId);
     const rotatedToken = (rotatedRecovery.body as { token?: unknown }).token;
     expect(typeof rotatedToken).toBe('string');
     if (typeof rotatedToken !== 'string') throw new Error('Rotated recovery credential was missing.');
@@ -216,7 +217,7 @@ test('production web closes the guest, recovery, staff and order loop against Po
     await recoveredPage.getByRole('button', { name: `订单沟通 ${catOrderId}` }).click(); await recoveredPage.getByLabel('订单沟通内容').fill('请在到达前留言。'); await recoveredPage.getByRole('button', { name: '发送消息' }).click();
     await adminPage.getByRole('button', { name: '刷新运营数据' }).click(); await adminPage.getByRole('button', { name: `订单沟通 ${catOrderId}` }).click(); await expect(adminPage.getByText('请在到达前留言。')).toBeVisible();
     await adminPage.getByLabel('订单沟通内容').fill('已收到，会提前联系。'); await adminPage.getByRole('button', { name: '发送消息' }).click(); await recoveredPage.getByRole('button', { name: '刷新沟通记录' }).click(); await expect(recoveredPage.getByText('已收到，会提前联系。')).toBeVisible();
-    await attackerPage.setViewportSize({ width: 1280, height: 800 }); await attackerPage.goto(baseUrl!); await attackerPage.getByRole('button', { name: '立即预约' }).click();
+    await attackerPage.setViewportSize({ width: 1280, height: 800 }); await attackerPage.goto(baseUrl!); await attackerPage.getByRole('button', { name: '立即预约' }).click(); await expect(attackerPage.getByRole('heading', { name: '服务与时间' })).toBeVisible();
     expect((await attackerContext.request.get(`${baseUrl}/api/v1/pilot/orders/${catOrderId}/messages`)).status()).toBe(403);
     await adminPage.getByRole('button', { name: `核对订单 ${catOrderId} 费用` }).click(); await adminPage.getByRole('button', { name: '确认记录费用已线下核对' }).click();
     await expect.poll(async () => (await api(adminPage, '/api/v1/pilot/orders')).body as Array<{ id: string; status: string }>).toContainEqual(expect.objectContaining({ id: catOrderId, status: 'PENDING_DISPATCH' }));

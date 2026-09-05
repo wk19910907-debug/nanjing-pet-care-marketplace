@@ -194,6 +194,8 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
 
   const issueReplacementRecovery = async () => {
     if (logoutRequestInFlight.current || recoveryRotationLock.current !== null) return;
+    const expectedOwnerUserId = sessionUserId.current;
+    if (expectedOwnerUserId === null) return;
     const requestId = ++recoveryRotationRequest.current;
     recoveryRotationLock.current = requestId;
     const displayVersion = ++recoveryRotationDisplayVersion.current;
@@ -201,6 +203,10 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
     try {
       const credential = await api.rotateRecoveryCredential();
       if (displayVersion !== recoveryRotationDisplayVersion.current) return;
+      if (credential.userId !== expectedOwnerUserId) {
+        invalidateSession();
+        return;
+      }
       setRecoveryCredential(credential);
     } catch (caught) {
       if (displayVersion === recoveryRotationDisplayVersion.current) setFailure(pilotErrorMessage(caught));
@@ -268,14 +274,10 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
 
   if (firstOrderRecoveryDelivery) return <FirstOrderRecoveryDelivery
     api={api}
+    expectedOwnerUserId={firstOrderRecoveryDelivery}
     onDelivered={(credential) => {
-      deliverRecoveryIfCurrent(
-        firstOrderRecoveryDelivery,
-        sessionUserId.current,
-        credential,
-        setRecoveryCredential,
-      );
       setFirstOrderRecoveryDelivery(null);
+      setRecoveryCredential(credential);
     }}
   />;
 
@@ -324,20 +326,12 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
 
 type FirstOrderRecoveryDeliveryProps = {
   api: Pick<PilotApi, 'issueRecoveryCredential' | 'rotateRecoveryCredential'>;
+  expectedOwnerUserId: string;
   onDelivered(credential: OwnerRecoveryCredential): void;
 };
 
-export function deliverRecoveryIfCurrent(
-  expectedUserId: string,
-  currentUserId: string | null,
-  credential: OwnerRecoveryCredential,
-  deliver: (credential: OwnerRecoveryCredential) => void,
-): void {
-  if (expectedUserId === currentUserId) deliver(credential);
-}
-
-export function FirstOrderRecoveryDelivery({ api, onDelivered }: FirstOrderRecoveryDeliveryProps) {
-  const [stage, setStage] = useState<'ISSUING' | 'RETRY_ISSUE' | 'ROTATE_REQUIRED'>('ISSUING');
+export function FirstOrderRecoveryDelivery({ api, expectedOwnerUserId, onDelivered }: FirstOrderRecoveryDeliveryProps) {
+  const [stage, setStage] = useState<'ISSUING' | 'RETRY_ISSUE' | 'ROTATE_REQUIRED' | 'SESSION_CHANGED'>('ISSUING');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const initialRequest = useRef(false);
@@ -346,7 +340,12 @@ export function FirstOrderRecoveryDelivery({ api, onDelivered }: FirstOrderRecov
     setPending(true);
     setError('');
     try {
-      onDelivered(await api.issueRecoveryCredential());
+      const credential = await api.issueRecoveryCredential();
+      if (credential.userId !== expectedOwnerUserId) {
+        setStage('SESSION_CHANGED');
+        return;
+      }
+      onDelivered(credential);
     } catch (caught) {
       if (caught instanceof PilotApiError && caught.code === 'RECOVERY_ALREADY_ISSUED') {
         setStage('ROTATE_REQUIRED');
@@ -357,7 +356,7 @@ export function FirstOrderRecoveryDelivery({ api, onDelivered }: FirstOrderRecov
     } finally {
       setPending(false);
     }
-  }, [api, onDelivered]);
+  }, [api, expectedOwnerUserId, onDelivered]);
 
   useEffect(() => {
     if (initialRequest.current) return;
@@ -369,7 +368,12 @@ export function FirstOrderRecoveryDelivery({ api, onDelivered }: FirstOrderRecov
     setPending(true);
     setError('');
     try {
-      onDelivered(await api.rotateRecoveryCredential());
+      const credential = await api.rotateRecoveryCredential();
+      if (credential.userId !== expectedOwnerUserId) {
+        setStage('SESSION_CHANGED');
+        return;
+      }
+      onDelivered(credential);
     } catch {
       setError('安全轮换暂时失败。订单仍然有效，请保持本页面打开并重试。');
     } finally {
@@ -379,6 +383,13 @@ export function FirstOrderRecoveryDelivery({ api, onDelivered }: FirstOrderRecov
 
   if (stage === 'ISSUING') return <main className="pilot-state-page" aria-live="polite">
     <section className="pilot-state-card" role="status"><h1>订单已提交</h1><p>正在生成只显示一次的恢复凭据…</p></section>
+  </main>;
+
+  if (stage === 'SESSION_CHANGED') return <main className="pilot-state-page">
+    <section className="pilot-state-card" role="alert">
+      <h1>账户状态已变化</h1>
+      <p>其他页面切换了当前宠主账户。为保护恢复凭据，本页面不会显示这次响应，请刷新后再操作。</p>
+    </section>
   </main>;
 
   if (stage === 'ROTATE_REQUIRED') return <main className="pilot-state-page">

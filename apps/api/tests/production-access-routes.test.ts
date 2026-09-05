@@ -39,8 +39,8 @@ function appWithProductionAccess(options: {
       sessions,
       publicOwnerAccess: {
         ensureOwnerSession: options.ensureOwnerSession ?? (async () => ({ created: true, session: { token: 'owner-token', expiresAt }, expiresAt })),
-        issueRecovery: async () => ({ token: 'recovery-token', recoveryPath: '/#/orders/access/recovery-token' }),
-        rotateRecovery: async () => ({ token: 'rotated-token', recoveryPath: '/#/orders/access/rotated-token' }),
+        issueRecovery: async (actor: typeof owner) => ({ userId: actor.userId, token: 'recovery-token', recoveryPath: '/#/orders/access/recovery-token' }),
+        rotateRecovery: async (actor: typeof owner) => ({ userId: actor.userId, token: 'rotated-token', recoveryPath: '/#/orders/access/rotated-token' }),
         recover: async (token: string) => {
           if (token === 'invalid') throw new Error('RECOVERY_INVALID');
           return { token: 'recovered-token', expiresAt };
@@ -313,7 +313,9 @@ describe('production access routes', () => {
       const oversized = await app.inject({ method: 'POST', url: '/api/v1/staff/sessions', headers: { origin }, payload: { username: 'admin.user', password: 'a'.repeat(2_100) } });
 
       expect(issued).toMatchObject({ statusCode: 201 });
+      expect(issued.json()).toMatchObject({ userId: owner.userId, token: 'recovery-token' });
       expect(rotated).toMatchObject({ statusCode: 200 });
+      expect(rotated.json()).toMatchObject({ userId: owner.userId, token: 'rotated-token' });
       expect(recovered).toMatchObject({ statusCode: 201 });
       expect(login).toMatchObject({ statusCode: 201 });
       expect(login.json()).toMatchObject({ mustChangePassword: true });

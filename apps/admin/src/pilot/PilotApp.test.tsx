@@ -5,7 +5,7 @@ import { userEvent } from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PilotApi } from './api.js';
 import { createPilotApi, PilotApiError } from './api.js';
-import { deliverRecoveryIfCurrent, FirstOrderRecoveryDelivery, PilotApp } from './PilotApp.js';
+import { FirstOrderRecoveryDelivery, PilotApp } from './PilotApp.js';
 
 const adminSession = {
   userId: 'admin-1', role: 'ADMIN' as const, displayName: '试点运营',
@@ -124,11 +124,12 @@ describe('PilotApp', () => {
       .mockRejectedValueOnce(new PilotApiError(503, 'SERVICE_UNAVAILABLE'))
       .mockRejectedValueOnce(new PilotApiError(409, 'RECOVERY_ALREADY_ISSUED'));
     const rotateRecoveryCredential = vi.fn().mockResolvedValue({
-      token: 'n'.repeat(43), recoveryPath: '/#/orders/access/' + 'n'.repeat(43),
+      userId: 'owner-1', token: 'n'.repeat(43), recoveryPath: '/#/orders/access/' + 'n'.repeat(43),
     });
     const user = userEvent.setup();
     render(<FirstOrderRecoveryDelivery
       api={fakeApi({ issueRecoveryCredential, rotateRecoveryCredential })}
+      expectedOwnerUserId="owner-1"
       onDelivered={delivered}
     />);
 
@@ -142,18 +143,26 @@ describe('PilotApp', () => {
     await user.click(screen.getByRole('button', { name: '安全轮换并显示新凭据' }));
 
     await waitFor(() => expect(delivered).toHaveBeenCalledWith({
-      token: 'n'.repeat(43), recoveryPath: '/#/orders/access/' + 'n'.repeat(43),
+      userId: 'owner-1', token: 'n'.repeat(43), recoveryPath: '/#/orders/access/' + 'n'.repeat(43),
     }));
     expect(issueRecoveryCredential).toHaveBeenCalledTimes(2);
     expect(rotateRecoveryCredential).toHaveBeenCalledOnce();
   });
 
-  it('does not deliver a late recovery secret into a different owner session', () => {
+  it('does not expose a first-order credential authenticated for another cookie owner', async () => {
+    const foreignToken = 'f'.repeat(43);
     const delivered = vi.fn();
-    deliverRecoveryIfCurrent('owner-1', 'owner-2', {
-      token: 'l'.repeat(43), recoveryPath: '/#/orders/access/' + 'l'.repeat(43),
-    }, delivered);
+    render(<FirstOrderRecoveryDelivery
+      api={fakeApi({ issueRecoveryCredential: vi.fn().mockResolvedValue({
+        userId: 'owner-2', token: foreignToken, recoveryPath: '/#/orders/access/' + foreignToken,
+      }) })}
+      expectedOwnerUserId="owner-1"
+      onDelivered={delivered}
+    />);
+
+    expect(await screen.findByRole('heading', { name: '账户状态已变化' })).toBeTruthy();
     expect(delivered).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain(foreignToken);
   });
 
   it('keeps nickname onboarding after direct entry', async () => {
@@ -215,7 +224,7 @@ describe('PilotApp', () => {
 
   it('single-flights recovery rotation, shows the newest credential, and restores focus after closing it', async () => {
     const owner = { ...adminSession, userId: 'owner-1', role: 'OWNER' as const, displayName: '秦淮宠主' };
-    const rotation = deferred<{ token: string; recoveryPath: string }>();
+    const rotation = deferred<Awaited<ReturnType<PilotApi['rotateRecoveryCredential']>>>();
     const api = fakeApi({
       getSession: vi.fn().mockResolvedValue(owner),
       rotateRecoveryCredential: vi.fn().mockImplementation(() => rotation.promise),
@@ -226,16 +235,33 @@ describe('PilotApp', () => {
     await user.click(trigger); await user.click(trigger);
     expect(api.rotateRecoveryCredential).toHaveBeenCalledOnce();
     expect((screen.getByRole('button', { name: '正在生成…' }) as HTMLButtonElement).disabled).toBe(true);
-    await act(async () => rotation.resolve({ token: 'z'.repeat(43), recoveryPath: '/#/orders/access/' + 'z'.repeat(43) }));
+    await act(async () => rotation.resolve({ userId: 'owner-1', token: 'z'.repeat(43), recoveryPath: '/#/orders/access/' + 'z'.repeat(43) }));
     expect(await screen.findByRole('dialog', { name: '保存你的恢复凭据' })).toBeTruthy();
     expect(document.activeElement).toBe(screen.getByRole('button', { name: '复制恢复链接' }));
     await user.click(screen.getByRole('button', { name: '我已保存' }));
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: '生成新的恢复凭据' })));
   });
 
+  it('does not expose a manual rotation credential issued for a cookie owner from another tab', async () => {
+    const owner = { ...adminSession, userId: 'owner-1', role: 'OWNER' as const, displayName: '秦淮宠主' };
+    const foreignToken = 'b'.repeat(43);
+    const api = fakeApi({
+      getSession: vi.fn().mockResolvedValue(owner),
+      rotateRecoveryCredential: vi.fn().mockResolvedValue({
+        userId: 'owner-2', token: foreignToken, recoveryPath: '/#/orders/access/' + foreignToken,
+      }),
+    });
+    render(<PilotApp api={api}/>);
+
+    await userEvent.click(await screen.findByRole('button', { name: '生成新的恢复凭据' }));
+    await waitFor(() => expect(api.rotateRecoveryCredential).toHaveBeenCalledOnce());
+    expect(screen.queryByRole('dialog', { name: '保存你的恢复凭据' })).toBeNull();
+    expect(document.body.textContent).not.toContain(foreignToken);
+  });
+
   it('ignores a late recovery rotation response after the owner session has changed', async () => {
     const owner = { ...adminSession, userId: 'owner-1', role: 'OWNER' as const, displayName: '秦淮宠主' };
-    const rotation = deferred<{ token: string; recoveryPath: string }>();
+    const rotation = deferred<Awaited<ReturnType<PilotApi['rotateRecoveryCredential']>>>();
     const getSession = vi.fn().mockResolvedValueOnce(owner).mockRejectedValueOnce(new PilotApiError(401, 'UNAUTHENTICATED'));
     const api = fakeApi({ getSession, rotateRecoveryCredential: vi.fn().mockImplementation(() => rotation.promise) });
     const user = userEvent.setup();
@@ -243,14 +269,14 @@ describe('PilotApp', () => {
     await user.click(await screen.findByRole('button', { name: '生成新的恢复凭据' }));
     await user.click(screen.getByRole('button', { name: '退出登录' }));
     expect(await screen.findByRole('button', { name: '员工登录' })).toBeTruthy();
-    await act(async () => rotation.resolve({ token: 'late'.padEnd(43, 'x'), recoveryPath: '/#/orders/access/' + 'late'.padEnd(43, 'x') }));
+    await act(async () => rotation.resolve({ userId: 'owner-1', token: 'late'.padEnd(43, 'x'), recoveryPath: '/#/orders/access/' + 'late'.padEnd(43, 'x') }));
     expect(screen.queryByRole('dialog', { name: '保存你的恢复凭据' })).toBeNull();
   });
 
   it('serializes rotation across logout and same-owner recovery, then shows only the final server rotation', async () => {
     const owner = { ...adminSession, userId: 'owner-1', role: 'OWNER' as const, displayName: '秦淮宠主' };
-    const first = deferred<{ token: string; recoveryPath: string }>();
-    const second = deferred<{ token: string; recoveryPath: string }>();
+    const first = deferred<Awaited<ReturnType<PilotApi['rotateRecoveryCredential']>>>();
+    const second = deferred<Awaited<ReturnType<PilotApi['rotateRecoveryCredential']>>>();
     const getSession = vi.fn().mockResolvedValueOnce(owner).mockRejectedValueOnce(new PilotApiError(401, 'UNAUTHENTICATED')).mockResolvedValueOnce(owner);
     const rotateRecoveryCredential = vi.fn().mockImplementationOnce(() => first.promise).mockImplementationOnce(() => second.promise);
     const api = fakeApi({ getSession, rotateRecoveryCredential, recoverOwnerSession: vi.fn().mockResolvedValue({ expiresAt: adminSession.expiresAt }) });
@@ -265,10 +291,10 @@ describe('PilotApp', () => {
     expect((blocked as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(blocked);
     expect(rotateRecoveryCredential).toHaveBeenCalledOnce();
-    await act(async () => first.resolve({ token: 'old'.padEnd(43, 'x'), recoveryPath: '/#/orders/access/' + 'old'.padEnd(43, 'x') }));
+    await act(async () => first.resolve({ userId: 'owner-1', token: 'old'.padEnd(43, 'x'), recoveryPath: '/#/orders/access/' + 'old'.padEnd(43, 'x') }));
     expect(screen.queryByRole('dialog', { name: '保存你的恢复凭据' })).toBeNull();
     await user.click(await screen.findByRole('button', { name: '生成新的恢复凭据' }));
-    await act(async () => second.resolve({ token: 'new'.padEnd(43, 'y'), recoveryPath: '/#/orders/access/' + 'new'.padEnd(43, 'y') }));
+    await act(async () => second.resolve({ userId: 'owner-1', token: 'new'.padEnd(43, 'y'), recoveryPath: '/#/orders/access/' + 'new'.padEnd(43, 'y') }));
     expect(await screen.findByRole('dialog', { name: '保存你的恢复凭据' })).toBeTruthy();
     expect(rotateRecoveryCredential).toHaveBeenCalledTimes(2);
   });
@@ -276,20 +302,20 @@ describe('PilotApp', () => {
   it('clears a pending recovery credential on session expiry before its request resolves', async () => {
     vi.useFakeTimers(); vi.setSystemTime(new Date('2026-08-01T00:00:00.000Z'));
     const owner = { ...adminSession, userId: 'owner-1', role: 'OWNER' as const, displayName: '秦淮宠主', expiresAt: '2026-08-01T00:00:01.000Z' };
-    const rotation = deferred<{ token: string; recoveryPath: string }>();
+    const rotation = deferred<Awaited<ReturnType<PilotApi['rotateRecoveryCredential']>>>();
     const api = fakeApi({ getSession: vi.fn().mockResolvedValue(owner), rotateRecoveryCredential: vi.fn().mockImplementation(() => rotation.promise) });
     render(<PilotApp api={api}/>);
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     fireEvent.click(screen.getByRole('button', { name: '生成新的恢复凭据' }));
     act(() => vi.advanceTimersByTime(1_000));
     expect(screen.getByRole('button', { name: '员工登录' })).toBeTruthy();
-    await act(async () => rotation.resolve({ token: 'expired'.padEnd(43, 'x'), recoveryPath: '/#/orders/access/' + 'expired'.padEnd(43, 'x') }));
+    await act(async () => rotation.resolve({ userId: 'owner-1', token: 'expired'.padEnd(43, 'x'), recoveryPath: '/#/orders/access/' + 'expired'.padEnd(43, 'x') }));
     expect(screen.queryByRole('dialog', { name: '保存你的恢复凭据' })).toBeNull();
   });
 
   it('clears a pending recovery credential after a protected-request 401', async () => {
     const owner = { ...adminSession, userId: 'owner-1', role: 'OWNER' as const, displayName: '秦淮宠主' };
-    const rotation = deferred<{ token: string; recoveryPath: string }>();
+    const rotation = deferred<Awaited<ReturnType<PilotApi['rotateRecoveryCredential']>>>();
     const api = fakeApi({
       getSession: vi.fn().mockResolvedValueOnce(owner).mockResolvedValueOnce(owner),
       rotateRecoveryCredential: vi.fn().mockImplementation(() => rotation.promise),
@@ -301,7 +327,7 @@ describe('PilotApp', () => {
     await user.click(await screen.findByRole('button', { name: '生成新的恢复凭据' }));
     await user.click(screen.getByRole('button', { name: '刷新' }));
     expect(await screen.findByRole('button', { name: '员工登录' })).toBeTruthy();
-    await act(async () => rotation.resolve({ token: 'forbidden'.padEnd(43, 'x'), recoveryPath: '/#/orders/access/' + 'forbidden'.padEnd(43, 'x') }));
+    await act(async () => rotation.resolve({ userId: 'owner-1', token: 'forbidden'.padEnd(43, 'x'), recoveryPath: '/#/orders/access/' + 'forbidden'.padEnd(43, 'x') }));
     expect(screen.queryByRole('dialog', { name: '保存你的恢复凭据' })).toBeNull();
     await user.click(screen.getByRole('button', { name: '恢复订单' }));
     await user.type(screen.getByLabelText('恢复凭据'), 'r'.repeat(43));

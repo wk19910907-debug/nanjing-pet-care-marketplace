@@ -13,7 +13,7 @@ describe('RecoveryCredentialCard', () => {
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: copy } });
     const onClose = vi.fn();
     render(<RecoveryCredentialCard
-      credential={{ token: 'A'.repeat(43), recoveryPath: '/#/orders/access/' + 'A'.repeat(43) }}
+      credential={{ userId: '11111111-1111-4111-8111-111111111111', token: 'A'.repeat(43), recoveryPath: '/#/orders/access/' + 'A'.repeat(43) }}
       onClose={onClose}
     />);
 
