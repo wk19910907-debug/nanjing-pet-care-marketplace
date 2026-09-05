@@ -51,6 +51,15 @@ textarea { min-height: 86px; resize: vertical; }.demo-shell { min-height: 100vh;
 .shell { min-height: 100vh; display: grid; grid-template-columns: 260px 1fr; }.shell aside { padding: 28px; background: #173f33; color: white; }.shell aside h1 { margin-bottom: 4px; }.shell nav { display: grid; gap: 8px; }.shell nav button { text-align: left; background: transparent; color: white; }.shell main { padding: 40px; max-width: 1100px; }.shell .card { background: white; padding: 22px; border-radius: 16px; margin: 14px 0; }
 .pilot-auth-page,.pilot-state-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: linear-gradient(145deg,#173f33 0 34%,#f6f2e8 34% 100%); }
 .pilot-auth-card,.pilot-state-card { width: min(100%,520px); padding: clamp(24px,6vw,42px); border-radius: 24px; background: #fff; box-shadow: 0 24px 70px #102e2530; }
+.pilot-state-page .access-card { width: min(100%,440px); padding: clamp(24px,5vw,34px); border: 1px solid #dfe7df; border-radius: 20px; color: #173b31; background: #fff; box-shadow: 0 24px 70px #102e2530; }
+.pilot-state-page .access-card h1 { margin: 8px 0 10px; font-size: 28px; line-height: 1.25; }
+.pilot-state-page .access-card > p { color: #60736b; line-height: 1.65; }
+.pilot-state-page .access-card form { display: grid; gap: 14px; }.pilot-state-page .access-card label { display: grid; gap: 5px; font-weight: 800; }
+.pilot-state-page .access-kicker { margin: 0; color: #28634f; font-size: 12px; font-weight: 900; letter-spacing: .12em; }
+.pilot-state-page .recovery-masked { display: block; margin: 14px 0; padding: 13px; overflow: hidden; border: 1px dashed #cbd7cf; border-radius: 10px; color: #173b31; background: #f4f7f3; font-family: ui-monospace, monospace; text-overflow: ellipsis; }
+.pilot-state-page .access-warning { padding: 12px; border-left: 3px solid #a26a3d; border-radius: 4px; color: #63472f; background: #fff8e5; }
+.pilot-state-page .access-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }.pilot-state-page .access-actions button { min-height: 48px; }
+.pilot-state-page .access-primary { color: #fff; background: #28634f; }.pilot-state-page .access-confirm { width: 100%; min-height: 48px; margin-top: 14px; border: 1px solid #cbd7cf; color: #173b31; background: #fff; }
 .pilot-auth-card h1,.pilot-state-card h1,.pilot-panel h1,.pilot-panel h2 { margin: 6px 0 12px; line-height: 1.2; }
 .pilot-kicker { margin: 0; color: #a76a10; font-size: 12px; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; }
 .pilot-lead { margin: 0 0 24px; color: #60736b; line-height: 1.65; }
@@ -63,6 +72,8 @@ textarea { min-height: 86px; resize: vertical; }.demo-shell { min-height: 100vh;
 .pilot-hint { margin: 0; color: #60736b; font-size: 13px; line-height: 1.5; }
 .pilot-secondary { margin-top: 12px; border: 1px solid #cbd7cf; background: #fff; }
 .pilot-shell { min-height: 100vh; background: #f6f2e8; overflow-x: hidden; }
+.pilot-shell .owner-recovery { margin: 24px 0; padding: 18px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border: 1px solid #e1e8e2; border-radius: 16px; background: #f8faf7; }
+.pilot-shell .owner-recovery p { margin: 5px 0 0; color: #60736b; font-size: 13px; }
 .pilot-header { min-height: 76px; padding: 12px max(24px,calc((100vw - 1040px)/2)); display: flex; align-items: center; justify-content: space-between; gap: 18px; background: #173f33; color: #fff; }
 .pilot-header strong,.pilot-header span { display: block; }.pilot-header span { margin-top: 3px; color: #d6e4dc; font-size: 13px; }
 .pilot-session-summary { display: flex; align-items: center; gap: 12px; text-align: right; }.pilot-session-summary span { overflow-wrap: anywhere; }
