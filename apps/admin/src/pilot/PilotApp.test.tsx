@@ -9,7 +9,7 @@ import { PilotApp } from './PilotApp.js';
 
 const adminSession = {
   userId: 'admin-1', role: 'ADMIN' as const, displayName: '试点运营',
-  expiresAt: '2026-09-03T10:00:00.000Z', mustChangePassword: false,
+  expiresAt: '2027-09-03T10:00:00.000Z', mustChangePassword: false,
 };
 const publicCatalog = {
   services: {
@@ -26,7 +26,7 @@ function fakeApi(overrides: Partial<PilotApi> = {}): PilotApi {
     createSession: vi.fn().mockResolvedValue({ expiresAt: adminSession.expiresAt }),
     createLocalSession: vi.fn().mockResolvedValue({ expiresAt: adminSession.expiresAt }),
     ensureOwnerSession: vi.fn().mockResolvedValue({ expiresAt: adminSession.expiresAt }),
-    issueRecoveryCredential: vi.fn(), rotateRecoveryCredential: vi.fn(), recoverOwnerSession: vi.fn(),
+    issueRecoveryCredential: vi.fn().mockRejectedValue(new PilotApiError(409, 'RECOVERY_ALREADY_ISSUED')), rotateRecoveryCredential: vi.fn(), recoverOwnerSession: vi.fn(),
     createStaffSession: vi.fn(), changeStaffPassword: vi.fn(),
     listStaffAccounts: vi.fn().mockResolvedValue([]), createStaffAccount: vi.fn(),
     updateStaffAccount: vi.fn(), resetStaffPassword: vi.fn(),
@@ -67,35 +67,19 @@ describe('PilotApp', () => {
     vi.useRealTimers();
   });
 
-  it('renders exactly the three direct role-entry actions without invitation or contact fields', async () => {
+  it('renders one guest owner entry and keeps staff access out of the booking journey', async () => {
     const api = fakeApi({
       getSession: vi.fn().mockRejectedValue(new PilotApiError(401, 'UNAUTHENTICATED')),
     });
     render(<PilotApp api={api}/>);
 
-    expect(await screen.findByRole('button', { name: '以宠主身份进入' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '以服务人员身份进入' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '以平台管理员身份进入' })).toBeTruthy();
-    expect(screen.getByText('当前版本仅记录线下费用，不收集联系方式')).toBeTruthy();
+    expect(await screen.findByRole('button', { name: '立即预约' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '员工登录' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: '熟悉的家，安心的照护' })).toBeTruthy();
-    expect(within(screen.getByRole('group', { name: '身份入口' })).getAllByRole('button').map((button) => button.textContent)).toEqual([
-      '以宠主身份进入', '以服务人员身份进入', '以平台管理员身份进入',
-    ]);
     expect(screen.queryByLabelText('邀请码')).toBeNull();
-    expect(screen.queryByText('邀请码管理')).toBeNull();
-    expect(document.body.textContent).not.toMatch(/邀请码|注册|找回密码|手机号|微信号|邮箱|支付/);
-  });
-
-  it('groups the direct role-entry actions under a clear accessible label', async () => {
-    const api = fakeApi({
-      getSession: vi.fn().mockRejectedValue(new PilotApiError(401, 'UNAUTHENTICATED')),
-    });
-    render(<PilotApp api={api}/>);
-
-    const group = await screen.findByRole('group', { name: '身份入口' });
-    expect(within(group).getAllByRole('button').map((button) => button.textContent)).toEqual([
-      '以宠主身份进入', '以服务人员身份进入', '以平台管理员身份进入',
-    ]);
+    expect(screen.queryByText('以服务人员身份进入')).toBeNull();
+    expect(screen.queryByText('以平台管理员身份进入')).toBeNull();
+    expect(document.body.textContent).not.toMatch(/邀请码|手机号|微信号|邮箱/);
   });
 
   it('recovers the public service catalog after a transient first-load failure', async () => {
@@ -115,50 +99,21 @@ describe('PilotApp', () => {
     expect(getCatalog).toHaveBeenCalledTimes(2);
   });
 
-  it.each([
-    ['以宠主身份进入', 'OWNER', '今天需要照顾谁？'],
-    ['以服务人员身份进入', 'PROVIDER', '服务人员工作区'],
-    ['以平台管理员身份进入', 'ADMIN', '平台工作区'],
-  ] as const)('maps %s to %s and opens %s', async (action, role, workspace) => {
-    const sessions = {
-      OWNER: { ...adminSession, userId: 'owner-1', role: 'OWNER' as const, displayName: '秦淮宠主' },
-      PROVIDER: { ...adminSession, userId: 'provider-1', role: 'PROVIDER' as const, displayName: '秦淮小周' },
-      ADMIN: adminSession,
-    };
+  it('creates one guest owner session under repeated booking clicks then opens the booking flow', async () => {
+    const owner = { ...adminSession, userId: 'owner-1', role: 'OWNER' as const, displayName: '秦淮宠主' };
     const getSession = vi.fn()
       .mockRejectedValueOnce(new PilotApiError(401, 'UNAUTHENTICATED'))
-      .mockResolvedValue(sessions[role]);
-    const api = fakeApi({ getSession });
-    const user = userEvent.setup();
+      .mockResolvedValue(owner);
+    const sessionRequest = deferred<{ expiresAt: string }>();
+    const api = fakeApi({ getSession, ensureOwnerSession: vi.fn().mockImplementation(() => sessionRequest.promise), issueRecoveryCredential: vi.fn().mockRejectedValue(new PilotApiError(409, 'RECOVERY_ALREADY_ISSUED')) });
     render(<PilotApp api={api}/>);
-
-    await user.click(await screen.findByRole('button', { name: action }));
-    expect(api.createLocalSession).toHaveBeenCalledWith(role);
-    await screen.findByRole('heading', { name: workspace });
-  });
-
-  it('disables every entry action and makes one local-session call under repeated clicks', async () => {
-    const localSession = deferred<{ expiresAt: string }>();
-    const api = fakeApi({
-      getSession: vi.fn().mockRejectedValue(new PilotApiError(401, 'UNAUTHENTICATED')),
-      createLocalSession: vi.fn().mockImplementation(() => localSession.promise),
-    });
-    render(<PilotApp api={api}/>);
-    const owner = await screen.findByRole('button', { name: '以宠主身份进入' });
-    const provider = screen.getByRole('button', { name: '以服务人员身份进入' });
-    const admin = screen.getByRole('button', { name: '以平台管理员身份进入' });
-
+    await screen.findAllByRole('button', { name: '立即预约' });
     act(() => {
-      fireEvent.click(owner);
-      fireEvent.click(owner);
+      for (const button of screen.getAllByRole('button', { name: '立即预约' })) fireEvent.click(button);
     });
-
-    expect(api.createLocalSession).toHaveBeenCalledOnce();
-    expect(api.createLocalSession).toHaveBeenCalledWith('OWNER');
-    expect((owner as HTMLButtonElement).disabled).toBe(true);
-    expect((provider as HTMLButtonElement).disabled).toBe(true);
-    expect((admin as HTMLButtonElement).disabled).toBe(true);
-    await act(async () => localSession.resolve({ expiresAt: adminSession.expiresAt }));
+    expect(api.ensureOwnerSession).toHaveBeenCalledOnce();
+    await act(async () => sessionRequest.resolve({ expiresAt: adminSession.expiresAt }));
+    expect(await screen.findByRole('heading', { name: '服务与时间' })).toBeTruthy();
   });
 
   it('keeps nickname onboarding after direct entry', async () => {
@@ -178,8 +133,8 @@ describe('PilotApp', () => {
     const user = userEvent.setup();
     render(<PilotApp api={api}/>);
 
-    await user.click(await screen.findByRole('button', { name: '以宠主身份进入' }));
-    expect(api.createLocalSession).toHaveBeenCalledWith('OWNER');
+    await user.click((await screen.findAllByRole('button', { name: '立即预约' }))[0]!);
+    expect(api.ensureOwnerSession).toHaveBeenCalledOnce();
     expect(await screen.findByRole('heading', { name: '设置展示昵称' })).toBeTruthy();
     expect(screen.getByText('昵称不是实名，也不用于登录或线下身份核验。')).toBeTruthy();
     await user.type(screen.getByLabelText('展示昵称'), '秦淮宠主');
@@ -192,7 +147,7 @@ describe('PilotApp', () => {
     const api = fakeApi({
       getSession: vi.fn().mockResolvedValue({
         userId: 'provider-1', role: 'PROVIDER', displayName: '秦淮小周',
-        expiresAt: '2026-09-03T10:00:00.000Z',
+        expiresAt: '2027-09-03T10:00:00.000Z',
       }),
     });
     render(<PilotApp api={api}/>);
@@ -200,6 +155,36 @@ describe('PilotApp', () => {
     expect(await screen.findByRole('heading', { name: '服务人员工作区' })).toBeTruthy();
     expect(screen.getByText('当前身份：秦淮小周')).toBeTruthy();
     expect(screen.queryByText('接单与履约功能将在下一阶段接入共享试运营数据。')).toBeNull();
+  });
+
+  it('clears a recovery fragment before restoring the cookie session', async () => {
+    const token = 'r'.repeat(43);
+    window.history.replaceState(null, '', `/#/orders/access/${token}`);
+    const replace = vi.spyOn(window.history, 'replaceState');
+    const api = fakeApi({
+      recoverOwnerSession: vi.fn().mockImplementation(async () => {
+        expect(window.location.hash).toBe('');
+      }),
+      getSession: vi.fn().mockResolvedValue({ ...adminSession, userId: 'owner-1', role: 'OWNER' as const, displayName: '秦淮宠主' }),
+    });
+    render(<PilotApp api={api}/>);
+    expect(await screen.findByRole('heading', { name: '今天需要照顾谁？' })).toBeTruthy();
+    expect(replace).toHaveBeenCalledWith(null, '', '/');
+    expect(api.recoverOwnerSession).toHaveBeenCalledWith(token);
+  });
+
+  it('shows password change before every staff workspace and survives reload from the session DTO', async () => {
+    const changing = { ...adminSession, role: 'PROVIDER' as const, userId: 'provider-1', displayName: '秦淮小周', mustChangePassword: true };
+    const getSession = vi.fn().mockResolvedValueOnce(changing).mockResolvedValueOnce({ ...changing, mustChangePassword: false });
+    const api = fakeApi({ getSession, changeStaffPassword: vi.fn().mockResolvedValue({ expiresAt: adminSession.expiresAt, mustChangePassword: false }) });
+    const user = userEvent.setup();
+    render(<PilotApp api={api}/>);
+    expect(await screen.findByRole('heading', { name: '请先修改临时密码' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: '服务人员工作区' })).toBeNull();
+    await user.type(screen.getByLabelText('新密码'), 'Changed-password-2026');
+    await user.type(screen.getByLabelText('确认新密码'), 'Changed-password-2026');
+    await user.click(screen.getByRole('button', { name: '保存新密码' }));
+    expect(await screen.findByRole('heading', { name: '服务人员工作区' })).toBeTruthy();
   });
 
   it('fails closed on 503, retries, and logs out the current cookie session', async () => {
@@ -216,7 +201,7 @@ describe('PilotApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '退出登录' }));
 
     await waitFor(() => expect(api.deleteSession).toHaveBeenCalledOnce());
-    expect(await screen.findByRole('button', { name: '以宠主身份进入' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: '员工登录' })).toBeTruthy();
   });
 
   it('shows fixed Chinese copy for unexpected client errors', async () => {
@@ -239,7 +224,7 @@ describe('PilotApp', () => {
     });
     render(<PilotApp api={api}/>);
 
-    expect(await screen.findByRole('button', { name: '以宠主身份进入' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: '员工登录' })).toBeTruthy();
     expect(screen.queryByText('邀请码管理')).toBeNull();
     expect(api.listInvites).not.toHaveBeenCalled();
   });
@@ -250,7 +235,7 @@ describe('PilotApp', () => {
     });
     render(<PilotApp api={api}/>);
 
-    expect(await screen.findByRole('button', { name: '以宠主身份进入' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: '员工登录' })).toBeTruthy();
     expect(api.listAdminOrders).toHaveBeenCalledOnce();
     expect(screen.queryByRole('heading', { name: '平台工作区' })).toBeNull();
   });
@@ -281,7 +266,7 @@ describe('PilotApp', () => {
     act(() => { vi.advanceTimersByTime(2_147_483_647); });
     expect(screen.getByRole('heading', { name: '平台工作区' })).toBeTruthy();
     act(() => { vi.advanceTimersByTime(30 * 24 * 60 * 60 * 1_000 - 2_147_483_647); });
-    expect(screen.getByRole('button', { name: '以宠主身份进入' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '员工登录' })).toBeTruthy();
   });
 
   it('renders the admin workspace without invitation management in the formal service shell', async () => {

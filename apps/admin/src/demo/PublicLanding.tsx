@@ -15,6 +15,7 @@ type PublicLandingProps = {
   children: ReactNode;
   onStartOrder: () => void;
   onQuoteStartOrder: (selection?: PublicQuoteSelection) => void;
+  bookingPending?: boolean;
   onViewOrders?: () => void;
   onReloadCatalog?: () => void;
   quoteSelection: PublicQuoteSelection;
@@ -84,6 +85,7 @@ export function PublicLanding({
   onViewOrders,
   onReloadCatalog,
   onQuoteStartOrder,
+  bookingPending = false,
   quoteSelection,
   onQuoteChange,
 }: PublicLandingProps) {
@@ -119,7 +121,7 @@ export function PublicLanding({
         <a href="#process">服务流程</a>
         <a href="#safeguards">安心保障</a>
         <button className="header-orders" type="button" onClick={viewOrders}>我的订单</button>
-        <button className="header-booking" type="button" disabled={!bookingAvailable} onClick={onStartOrder}>立即预约</button>
+        <button className="header-booking" type="button" disabled={!bookingAvailable || bookingPending} onClick={onStartOrder}>{bookingPending ? '正在开启…' : '立即预约'}</button>
       </div>
     </nav>
 
@@ -129,8 +131,8 @@ export function PublicLanding({
           <span className="store-kicker">PREMIUM PET CARE · NANJING</span>
           <h1>熟悉的家，安心的照护</h1>
           <p>南京上门喂猫与遛狗服务。提交需求后，由平台匹配经过资料审核的服务人员。</p>
-          <button className="store-primary" disabled={!bookingAvailable} onClick={onStartOrder}>
-            探索上门服务 <CommerceIcon name="arrow"/>
+          <button className="store-primary" disabled={!bookingAvailable || bookingPending} onClick={onStartOrder}>
+            {bookingPending ? '正在开启…' : '探索上门服务'} <CommerceIcon name="arrow"/>
           </button>
           <ul className="store-trust"><li>身份资料审核</li><li>平台统一匹配</li><li>服务过程留痕</li></ul>
         </div>
@@ -143,10 +145,10 @@ export function PublicLanding({
       {catalog?.announcement && <p className="public-announcement" role="status">{catalog.announcement}</p>}
 
       <nav className="store-quick-categories" aria-label="服务快捷入口">
-        <button type="button" disabled={!catalog?.services.CAT_FEEDING.enabled} aria-label="快捷预约上门喂猫" onClick={() => startService('CAT_FEEDING')}>
+        <button type="button" disabled={!catalog?.services.CAT_FEEDING.enabled || bookingPending} aria-label="快捷预约上门喂猫" onClick={() => startService('CAT_FEEDING')}>
           <span><CommerceIcon name="cat"/></span><strong>上门喂猫</strong><small>日常照护</small>
         </button>
-        <button type="button" disabled={!catalog?.services.DOG_WALKING.enabled} aria-label="快捷预约上门遛狗" onClick={() => startService('DOG_WALKING')}>
+        <button type="button" disabled={!catalog?.services.DOG_WALKING.enabled || bookingPending} aria-label="快捷预约上门遛狗" onClick={() => startService('DOG_WALKING')}>
           <span><CommerceIcon name="dog"/></span><strong>上门遛狗</strong><small>自在散步</small>
         </button>
         <a href="#safeguards"><span><CommerceIcon name="verified"/></span><strong>安心保障</strong><small>过程留痕</small></a>
@@ -170,7 +172,7 @@ export function PublicLanding({
               <div className="store-product-title"><h3>{service.title}</h3><strong>{startingPrice(catalog!.services[service.type].basePriceFen)}</strong></div>
               <p>{service.copy}</p>
               <ul>{service.details.map((detail) => <li key={detail}>{detail}</li>)}</ul>
-              <button type="button" onClick={() => startService(service.type)}>
+              <button type="button" disabled={bookingPending} onClick={() => startService(service.type)}>
                 预约{service.title} <CommerceIcon name="arrow"/>
               </button>
             </div>
@@ -210,7 +212,7 @@ export function PublicLanding({
 
     <nav className="customer-quick-nav" aria-label="快捷导航">
       <a href="#top">首页</a>
-      <button type="button" disabled={!bookingAvailable} onClick={onStartOrder}>预约服务</button>
+      <button type="button" disabled={!bookingAvailable || bookingPending} onClick={onStartOrder}>{bookingPending ? '正在开启…' : '预约服务'}</button>
       <button type="button" onClick={viewOrders}>我的订单</button>
     </nav>
   </div>;

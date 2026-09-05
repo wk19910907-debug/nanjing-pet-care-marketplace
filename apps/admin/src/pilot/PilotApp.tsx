@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { type PilotApi, PilotApiError, pilotApi, pilotErrorMessage } from './api.js';
-import { LoginPanel } from './LoginPanel.js';
-import type { PilotSession } from './models.js';
+import type { OwnerRecoveryCredential, PilotSession } from './models.js';
 import { OwnerPilotWorkspace } from './OwnerPilotWorkspace.js';
 import { ProfilePanel } from './ProfilePanel.js';
 import { AdminPilotWorkspace } from './AdminPilotWorkspace.js';
@@ -9,6 +8,9 @@ import { ProviderPilotWorkspace } from './ProviderPilotWorkspace.js';
 import { PublicLanding } from '../demo/PublicLanding.js';
 import type { PublicQuoteSelection } from '../demo/publicQuote.js';
 import type { PublicOperationsCatalog } from './models.js';
+import { RecoveryCredentialCard } from './RecoveryCredentialCard.js';
+import { StaffLoginPanel } from './StaffLoginPanel.js';
+import { StaffPasswordPanel } from './StaffPasswordPanel.js';
 
 type PilotAppProps = { api?: PilotApi };
 
@@ -22,6 +24,12 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
   const [quoteSelection, setQuoteSelection] = useState<PublicQuoteSelection>({ serviceType: 'CAT_FEEDING', district: '建邺区' });
   const bootstrapped = useRef(false);
   const catalogBootstrapped = useRef(false);
+  const ownerRequestInFlight = useRef(false);
+  const [recoveryCredential, setRecoveryCredential] = useState<OwnerRecoveryCredential | null>(null);
+  const [accessMode, setAccessMode] = useState<'NONE' | 'STAFF' | 'RECOVERY'>('NONE');
+  const [accessError, setAccessError] = useState('');
+  const [startBooking, setStartBooking] = useState(false);
+  const [ownerPending, setOwnerPending] = useState(false);
 
   const loadSession = useCallback(async () => {
     setSession(undefined);
@@ -52,8 +60,21 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
   useEffect(() => {
     if (bootstrapped.current) return;
     bootstrapped.current = true;
-    void loadSession();
-  }, [loadSession]);
+    const match = /^#\/orders\/access\/([A-Za-z0-9_-]{43})$/.exec(window.location.hash);
+    if (!match) { void loadSession(); return; }
+    const token = match[1]!;
+    history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    void (async () => {
+      try {
+        await api.recoverOwnerSession(token);
+        await loadSession();
+      } catch (caught) {
+        setAccessMode('RECOVERY');
+        setAccessError(pilotErrorMessage(caught));
+        setSession(null);
+      }
+    })();
+  }, [api, loadSession]);
 
   useEffect(() => {
     if (catalogBootstrapped.current) return;
@@ -100,6 +121,37 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
     await loadSession();
   };
 
+  const startOwnerSession = async () => {
+    if (ownerRequestInFlight.current) return;
+    ownerRequestInFlight.current = true;
+    setOwnerPending(true);
+    setAccessError('');
+    setStartBooking(true);
+    try {
+      await api.ensureOwnerSession();
+      try {
+        const credential = await api.issueRecoveryCredential();
+        setRecoveryCredential(credential);
+      } catch (caught) {
+        if (!(caught instanceof PilotApiError && caught.code === 'RECOVERY_ALREADY_ISSUED')) throw caught;
+      }
+      await loadSession();
+    } catch (caught) {
+      setAccessError(pilotErrorMessage(caught));
+    } finally { ownerRequestInFlight.current = false; setOwnerPending(false); }
+  };
+
+  const recover = async (token: string) => {
+    setAccessError('');
+    try { await api.recoverOwnerSession(token); setAccessMode('NONE'); await loadSession(); }
+    catch (caught) { setAccessError(pilotErrorMessage(caught)); }
+  };
+
+  const issueReplacementRecovery = async () => {
+    try { setRecoveryCredential(await api.rotateRecoveryCredential()); }
+    catch (caught) { setFailure(pilotErrorMessage(caught)); }
+  };
+
   if (failure) return <main className="pilot-state-page">
     <section className="pilot-state-card" role="alert">
       <h1>暂时无法连接服务</h1>
@@ -113,20 +165,32 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
   </main>;
 
   if (session === null) {
-    const showLogin = () => window.requestAnimationFrame(() => {
-      document.getElementById('pilot-login')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
     return <PublicLanding
       catalog={publicCatalog}
-      onStartOrder={showLogin}
-      onQuoteStartOrder={showLogin}
+      onStartOrder={() => void startOwnerSession()}
+      onQuoteStartOrder={() => void startOwnerSession()}
+      bookingPending={ownerPending}
       {...(catalogFailed ? { onReloadCatalog: () => void loadCatalog() } : {})}
       quoteSelection={quoteSelection}
       onQuoteChange={setQuoteSelection}
     >
-      <div id="pilot-login"><LoginPanel api={api} onAuthenticated={loadSession}/></div>
+      <section id="pilot-access" className="public-access-zone" aria-label="订单与员工入口">
+        <div><p className="access-kicker">已有订单</p><h2>恢复订单访问</h2><p>在新设备上，可粘贴已保存的恢复凭据。</p>
+          <button type="button" className="access-text-button" onClick={() => { setAccessMode('RECOVERY'); setAccessError(''); }}>恢复订单</button>
+        </div>
+        <div className="public-staff-entry"><button type="button" className="access-text-button" onClick={() => { setAccessMode('STAFF'); setAccessError(''); }}>员工登录</button></div>
+        {accessMode === 'STAFF' && <StaffLoginPanel api={api} onAuthenticated={loadSession}/>}
+        {accessMode === 'RECOVERY' && <RecoverySessionPanel error={accessError} onRecover={recover}/>}
+        {accessError && accessMode === 'NONE' && <p className="pilot-error" role="alert">{accessError}</p>}
+      </section>
     </PublicLanding>;
   }
+
+  if (session.mustChangePassword) return <StaffPasswordPanel api={api} onChanged={loadSession} onLogout={logout}/>;
+
+  if (recoveryCredential) return <main className="pilot-state-page"><RecoveryCredentialCard
+    credential={recoveryCredential} onClose={() => setRecoveryCredential(null)}
+  /></main>;
 
   if (session.displayName === null) {
     return <ProfilePanel
@@ -156,10 +220,28 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
       </div>}
       {session.role === 'OWNER' && <OwnerPilotWorkspace
         key={session.userId} api={api} displayName={session.displayName} onError={handleProtectedError}
+        startBooking={startBooking} onRecovery={() => void issueReplacementRecovery()}
       />}
       {session.role === 'PROVIDER' && <ProviderPilotWorkspace
         key={session.userId} api={api} displayName={session.displayName} onError={handleProtectedError}
       />}
     </main>
   </div>;
+}
+
+function RecoverySessionPanel({ error, onRecover }: { error: string; onRecover(token: string): Promise<void> }) {
+  const [token, setToken] = useState('');
+  const [pending, setPending] = useState(false);
+  return <section className="access-card recovery-login" aria-labelledby="recovery-login-title">
+    <h2 id="recovery-login-title">恢复订单</h2><p>粘贴你保存的恢复链接或恢复凭据。</p>
+    <form onSubmit={(event) => {
+      event.preventDefault(); setPending(true);
+      const fromLink = /#\/orders\/access\/([A-Za-z0-9_-]{43})$/.exec(token.trim());
+      void onRecover(fromLink?.[1] ?? token.trim()).finally(() => setPending(false));
+    }}>
+      <label>恢复凭据<input autoComplete="off" value={token} required onChange={(event) => setToken(event.target.value)}/></label>
+      {error && <p className="pilot-error" role="alert">{error}</p>}
+      <button className="access-primary" type="submit" disabled={pending}>{pending ? '正在恢复…' : '恢复我的订单'}</button>
+    </form>
+  </section>;
 }
