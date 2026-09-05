@@ -6,6 +6,13 @@ import type {
   PilotProfile,
   PilotSession,
   PilotSessionCreated,
+  OwnerRecoveryCredential,
+  StaffSessionCreated,
+  StaffAccount,
+  CreateStaffAccount,
+  UpdateStaffAccount,
+  OrderMessage,
+  OrderMessagePage,
   CreateOwnerAddress,
   CreateOwnerOrder,
   CreateOwnerPet,
@@ -50,6 +57,11 @@ const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   FORBIDDEN: '你没有权限执行此操作',
   ONBOARDING_REQUIRED: '请先设置展示昵称',
   SERVICE_UNAVAILABLE: '服务暂时不可用，请稍后重试',
+  RATE_LIMITED: '操作过于频繁，请稍后再试',
+  PASSWORD_CHANGE_REQUIRED: '请先修改临时密码',
+  STAFF_ACCOUNT_DISABLED: '该员工账号已停用',
+  USERNAME_UNAVAILABLE: '该用户名不可用',
+  ORDER_NOT_FOUND: '订单不存在或无权访问',
   MANUAL_FEE_CONFLICT: '费用状态已变化，请刷新后重试',
   DISPATCH_NOT_ALLOWED: '当前订单不能启动派单，请刷新后重试',
   DISPATCH_CONFLICT: '邀请状态已变化，请刷新后重试',
@@ -76,6 +88,7 @@ export class PilotApiError extends Error {
   public constructor(
     public readonly status: number,
     public readonly code: string,
+    public readonly retryAfterSeconds?: number,
   ) {
     super(ERROR_MESSAGES[code] ?? ERROR_MESSAGES.SERVICE_UNAVAILABLE);
   }
@@ -91,6 +104,18 @@ export interface PilotApi {
   getSession(): Promise<PilotSession>;
   createSession(inviteCode: string): Promise<PilotSessionCreated>;
   createLocalSession(role: LocalPilotRole): Promise<PilotSessionCreated>;
+  ensureOwnerSession(): Promise<PilotSessionCreated>;
+  issueRecoveryCredential(): Promise<OwnerRecoveryCredential>;
+  rotateRecoveryCredential(): Promise<OwnerRecoveryCredential>;
+  recoverOwnerSession(token: string): Promise<PilotSessionCreated>;
+  createStaffSession(username: string, password: string): Promise<StaffSessionCreated>;
+  changeStaffPassword(password: string): Promise<StaffSessionCreated>;
+  listStaffAccounts(): Promise<StaffAccount[]>;
+  createStaffAccount(input: CreateStaffAccount): Promise<StaffAccount>;
+  updateStaffAccount(userId: string, input: UpdateStaffAccount): Promise<StaffAccount>;
+  resetStaffPassword(userId: string, temporaryPassword: string): Promise<void>;
+  listOrderMessages(orderId: string, cursor?: string): Promise<OrderMessagePage>;
+  sendOrderMessage(orderId: string, body: string): Promise<OrderMessage>;
   updateProfile(displayName: string): Promise<PilotProfile>;
   deleteSession(): Promise<void>;
   createInvite(role: PilotInviteRole): Promise<PilotInviteCreated>;
@@ -145,11 +170,32 @@ const CREDENTIAL_FIELD_NAMES = new Set([
   'invitationcode',
   'invitecode',
   'rawcode',
+  'passwordhash',
+  'cookie',
+  'setcookie',
 ]);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const RECOVERY_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const ISO_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/;
 
 function invalidResponse(): never {
   throw new PilotApiError(503, 'SERVICE_UNAVAILABLE');
+}
+
+function validationError(): never { throw new PilotApiError(400, 'VALIDATION_ERROR'); }
+
+function asUuid(value: unknown): string {
+  if (typeof value !== 'string' || !UUID_PATTERN.test(value)) invalidResponse();
+  return value;
+}
+
+function assertUuid(value: string): void {
+  if (!UUID_PATTERN.test(value)) validationError();
+}
+
+function hasExactKeys(record: JsonRecord, keys: readonly string[]): boolean {
+  const actual = Object.keys(record).sort();
+  return actual.length === keys.length && actual.every((key, index) => key === [...keys].sort()[index]);
 }
 
 function parsePublicCatalog(value: unknown): PublicOperationsCatalog {
@@ -260,6 +306,8 @@ function rejectCredentialFields(record: JsonRecord, allowCode = false): void {
   const unsafe = Object.keys(record).some((key) => {
     const canonical = key.replace(/[^a-z0-9]/gi, '').toLowerCase();
     return canonical.includes('token')
+      || canonical === 'password'
+      || canonical.includes('cookie')
       || CREDENTIAL_FIELD_NAMES.has(canonical)
       || (!allowCode && canonical === 'code');
   });
@@ -654,6 +702,81 @@ function parseOrderCreated(value: unknown): OwnerOrderCreated {
   };
 }
 
+function parseOwnerRecoveryCredential(value: unknown): OwnerRecoveryCredential {
+  const record = asRecord(value);
+  if (!hasExactKeys(record, ['token', 'recoveryPath'])) invalidResponse();
+  const token = asString(record, 'token', 43);
+  const recoveryPath = asString(record, 'recoveryPath', 128);
+  if (!RECOVERY_TOKEN_PATTERN.test(token) || recoveryPath !== `/#/orders/access/${token}` || recoveryPath.includes('?')) {
+    invalidResponse();
+  }
+  return { token, recoveryPath };
+}
+
+function parseStaffSessionCreated(value: unknown): StaffSessionCreated {
+  const record = asRecord(value);
+  rejectCredentialFields(record);
+  if (!hasExactKeys(record, ['expiresAt', 'mustChangePassword']) || typeof record.mustChangePassword !== 'boolean') {
+    invalidResponse();
+  }
+  return { expiresAt: asDate(record, 'expiresAt'), mustChangePassword: record.mustChangePassword };
+}
+
+function parseStaffAccount(value: unknown): StaffAccount {
+  const record = asRecord(value);
+  rejectCredentialFields(record);
+  if (!hasExactKeys(record, ['userId', 'username', 'displayName', 'role', 'mustChangePassword', 'disabledAt', 'createdAt'])) {
+    invalidResponse();
+  }
+  const disabledAt = record.disabledAt;
+  if (disabledAt !== null && (typeof disabledAt !== 'string' || !isStrictIsoTimestamp(disabledAt))) invalidResponse();
+  if (typeof record.mustChangePassword !== 'boolean') invalidResponse();
+  const username = asString(record, 'username', 64);
+  if (!/^[a-z0-9][a-z0-9._-]{2,63}$/.test(username)) invalidResponse();
+  return {
+    userId: asUuid(record.userId), username, displayName: asDisplayName(record.displayName),
+    role: asEnum(record, 'role', ['PROVIDER'] as const), mustChangePassword: record.mustChangePassword,
+    disabledAt, createdAt: asDate(record, 'createdAt'),
+  };
+}
+
+function parseStaffAccounts(value: unknown): StaffAccount[] {
+  if (!Array.isArray(value) || value.length > 100) invalidResponse();
+  return value.map(parseStaffAccount);
+}
+
+function parseMessage(value: unknown, expectedOrderId?: string): OrderMessage {
+  const record = asRecord(value);
+  rejectCredentialFields(record);
+  if (!hasExactKeys(record, ['id', 'orderId', 'authorRole', 'body', 'createdAt'])) invalidResponse();
+  const orderId = asUuid(record.orderId);
+  if (expectedOrderId !== undefined && orderId !== expectedOrderId) invalidResponse();
+  const body = asString(record, 'body', 500);
+  if (body !== body.trim() || [...body].length > 500) invalidResponse();
+  return {
+    id: asUuid(record.id), orderId, authorRole: asEnum(record, 'authorRole', ['OWNER', 'ADMIN'] as const),
+    body, createdAt: asDate(record, 'createdAt'),
+  };
+}
+
+function parseMessagePage(value: unknown, expectedOrderId: string): OrderMessagePage {
+  const record = asRecord(value);
+  rejectCredentialFields(record);
+  const nextCursor = record.nextCursor;
+  if (!hasExactKeys(record, ['items', 'nextCursor']) && !hasExactKeys(record, ['items'])) invalidResponse();
+  if (!Array.isArray(record.items) || record.items.length > 50) invalidResponse();
+  if (nextCursor !== undefined && (typeof nextCursor !== 'string' || !/^[A-Za-z0-9_-]{1,512}$/.test(nextCursor))) invalidResponse();
+  return { items: record.items.map((item) => parseMessage(item, expectedOrderId)), ...(nextCursor === undefined ? {} : { nextCursor }) };
+}
+
+function assertPassword(value: string): void {
+  if (typeof value !== 'string' || value.length < 12 || value.length > 128) validationError();
+}
+
+function assertMessageBody(value: string): void {
+  if (typeof value !== 'string' || value !== value.trim() || value.length === 0 || [...value].length > 500) validationError();
+}
+
 export function createIdempotencyKey(): string {
   return crypto.randomUUID();
 }
@@ -674,6 +797,13 @@ async function safeErrorCode(response: Response): Promise<string> {
     // Deliberately discard untrusted response bodies.
   }
   return 'SERVICE_UNAVAILABLE';
+}
+
+function retryAfterSeconds(response: Response): number | undefined {
+  const value = response.headers.get('Retry-After');
+  if (value === null || !/^[1-9]\d{0,5}$/.test(value)) return undefined;
+  const seconds = Number(value);
+  return Number.isSafeInteger(seconds) && seconds <= 86_400 ? seconds : undefined;
 }
 
 export function createPilotApi(fetcher: Fetcher = fetch): PilotApi {
@@ -703,7 +833,7 @@ export function createPilotApi(fetcher: Fetcher = fetch): PilotApi {
     } catch {
       throw new PilotApiError(503, 'SERVICE_UNAVAILABLE');
     }
-    if (!response.ok) throw new PilotApiError(response.status, await safeErrorCode(response));
+    if (!response.ok) throw new PilotApiError(response.status, await safeErrorCode(response), retryAfterSeconds(response));
     const expected = Array.isArray(expectedStatus) ? expectedStatus : [expectedStatus];
     if (!expected.includes(response.status)) invalidResponse();
     if (response.status === 204) return undefined;
@@ -715,6 +845,71 @@ export function createPilotApi(fetcher: Fetcher = fetch): PilotApi {
   }
 
   return {
+    ensureOwnerSession: async () => parseSessionCreated(await request(
+      '/v1/public/owner-sessions', { method: 'POST', body: JSON.stringify({}) }, [200, 201],
+    )),
+    issueRecoveryCredential: async () => parseOwnerRecoveryCredential(await request(
+      '/v1/public/owner-recovery-credentials', { method: 'POST', body: JSON.stringify({}) }, 201,
+    )),
+    rotateRecoveryCredential: async () => parseOwnerRecoveryCredential(await request(
+      '/v1/public/owner-recovery-credentials/rotate', { method: 'POST', body: JSON.stringify({}) }, 200,
+    )),
+    recoverOwnerSession: async (token) => {
+      if (!RECOVERY_TOKEN_PATTERN.test(token)) validationError();
+      return parseSessionCreated(await request(
+        '/v1/public/owner-recovery-sessions', { method: 'POST', body: JSON.stringify({ token }) }, 201,
+      ));
+    },
+    createStaffSession: async (username, password) => {
+      if (typeof username !== 'string' || username.length < 1 || username.length > 256) validationError();
+      assertPassword(password);
+      return parseStaffSessionCreated(await request(
+        '/v1/staff/sessions', { method: 'POST', body: JSON.stringify({ username, password }) }, 201,
+      ));
+    },
+    changeStaffPassword: async (password) => {
+      assertPassword(password);
+      return parseStaffSessionCreated(await request(
+        '/v1/staff/password', { method: 'PATCH', body: JSON.stringify({ password }) }, 200,
+      ));
+    },
+    listStaffAccounts: async () => parseStaffAccounts(await request('/v1/admin/staff-accounts')),
+    createStaffAccount: async (input) => {
+      const record = asRecord(input);
+      if (!hasExactKeys(record, ['username', 'displayName', 'temporaryPassword'])) validationError();
+      const username = asString(record, 'username', 64);
+      if (!/^[a-z0-9][a-z0-9._-]{2,63}$/.test(username)) validationError();
+      asDisplayName(record.displayName);
+      assertPassword(asString(record, 'temporaryPassword', 128));
+      return parseStaffAccount(await request('/v1/admin/staff-accounts', { method: 'POST', body: JSON.stringify(input) }, 201));
+    },
+    updateStaffAccount: async (userId, input) => {
+      assertUuid(userId);
+      const record = asRecord(input);
+      if (!hasExactKeys(record, ['disabled']) || typeof record.disabled !== 'boolean') validationError();
+      return parseStaffAccount(await request(
+        `/v1/admin/staff-accounts/${encodeURIComponent(userId)}`,
+        { method: 'PATCH', body: JSON.stringify(input) },
+      ));
+    },
+    resetStaffPassword: async (userId, temporaryPassword) => {
+      assertUuid(userId); assertPassword(temporaryPassword);
+      await request(`/v1/admin/staff-accounts/${encodeURIComponent(userId)}/reset-password`, {
+        method: 'POST', body: JSON.stringify({ temporaryPassword }),
+      }, 204);
+    },
+    listOrderMessages: async (orderId, cursor) => {
+      assertUuid(orderId);
+      if (cursor !== undefined && (typeof cursor !== 'string' || !/^[A-Za-z0-9_-]{1,512}$/.test(cursor))) validationError();
+      const query = cursor === undefined ? '' : `?cursor=${encodeURIComponent(cursor)}`;
+      return parseMessagePage(await request(`/v1/pilot/orders/${encodeURIComponent(orderId)}/messages${query}`), orderId);
+    },
+    sendOrderMessage: async (orderId, body) => {
+      assertUuid(orderId); assertMessageBody(body);
+      return parseMessage(await request(
+        `/v1/pilot/orders/${encodeURIComponent(orderId)}/messages`, { method: 'POST', body: JSON.stringify({ body }) }, 201,
+      ), orderId);
+    },
     getCatalog: async () => parsePublicCatalog(await request('/v1/catalog')),
     getAdminCatalog: async () => parseAdminCatalog(await request('/v1/pilot/admin/catalog')),
     updateAdminCatalog: async (input) => parseAdminCatalog(await request(

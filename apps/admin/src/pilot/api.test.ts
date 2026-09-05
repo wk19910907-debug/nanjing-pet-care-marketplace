@@ -81,6 +81,48 @@ describe('pilot API transport', () => {
     expect(storage.removeItem).not.toHaveBeenCalled();
   });
 
+  it('uses cookie-only production access routes and exposes a recovery credential only from its issuing call', async () => {
+    const orderId = '11111111-1111-4111-8111-111111111111';
+    const staffId = '22222222-2222-4222-8222-222222222222';
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ expiresAt: '2026-09-03T10:00:00.000Z' }, 201))
+      .mockResolvedValueOnce(jsonResponse({ token: 'A'.repeat(43), recoveryPath: '/#/orders/access/' + 'A'.repeat(43) }, 201))
+      .mockResolvedValueOnce(jsonResponse({ expiresAt: '2026-09-03T10:00:00.000Z', mustChangePassword: true }, 201))
+      .mockResolvedValueOnce(jsonResponse([{ userId: staffId, username: 'provider.one', displayName: '服务员', role: 'PROVIDER', mustChangePassword: true, disabledAt: null, createdAt: '2026-09-01T10:00:00.000Z' }]))
+      .mockResolvedValueOnce(jsonResponse({ items: [], nextCursor: undefined }));
+    const api = createPilotApi(fetcher);
+
+    await expect(api.ensureOwnerSession()).resolves.toEqual({ expiresAt: '2026-09-03T10:00:00.000Z' });
+    await expect(api.issueRecoveryCredential()).resolves.toEqual({ token: 'A'.repeat(43), recoveryPath: '/#/orders/access/' + 'A'.repeat(43) });
+    await expect(api.recoverOwnerSession('bad token')).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    await expect(api.createStaffSession('admin.user', 'a'.repeat(12))).resolves.toEqual({ expiresAt: '2026-09-03T10:00:00.000Z', mustChangePassword: true });
+    await expect(api.listStaffAccounts()).resolves.toEqual([{ userId: staffId, username: 'provider.one', displayName: '服务员', role: 'PROVIDER', mustChangePassword: true, disabledAt: null, createdAt: '2026-09-01T10:00:00.000Z' }]);
+    await expect(api.listOrderMessages(orderId)).resolves.toEqual({ items: [], nextCursor: undefined });
+
+    expect(fetcher).toHaveBeenCalledWith('/api/v1/public/owner-sessions', expect.objectContaining({ method: 'POST', credentials: 'same-origin' }));
+    expect(fetcher).toHaveBeenCalledWith(`/api/v1/pilot/orders/${orderId}/messages`, expect.objectContaining({ credentials: 'same-origin' }));
+  });
+
+  it.each([
+    [{ tokenHash: 'secret', recoveryPath: '/#/orders/access/' + 'A'.repeat(43) }],
+    [{ token: 'A'.repeat(43), recoveryPath: '/#/orders/access/' + 'A'.repeat(43), passwordHash: 'secret' }],
+    [{ token: 'A'.repeat(43), recoveryPath: '/#/orders/access/' + 'A'.repeat(43), rawCookie: 'secret' }],
+    [{ token: 'A'.repeat(43), recoveryPath: '/#/orders/access/' + 'A'.repeat(43) + '?copied=1' }],
+    [{ token: 'A'.repeat(43), recoveryPath: 'https://attacker.example/#/orders/access/' + 'A'.repeat(43) }],
+  ])('rejects unsafe recovery credential responses', async (body) => {
+    const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(body, 201)));
+    await expect(api.issueRecoveryCredential()).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+  });
+
+  it('rejects malformed production access and conversation values before they reach the network', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    const api = createPilotApi(fetcher);
+    await expect(api.createStaffAccount({ username: 'provider.one', displayName: '服务员', temporaryPassword: 'a'.repeat(12), role: 'ADMIN' } as unknown as Parameters<typeof api.createStaffAccount>[0])).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    await expect(api.listOrderMessages('not-a-uuid')).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    await expect(api.sendOrderMessage('11111111-1111-4111-8111-111111111111', 'a'.repeat(501))).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it('sends a fresh 8-100 character idempotency key with every write', async () => {
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse({ expiresAt: '2026-09-03T10:00:00.000Z' }, 201))

@@ -25,6 +25,12 @@ function fakeApi(overrides: Partial<PilotApi> = {}): PilotApi {
     getSession: vi.fn().mockResolvedValue(adminSession),
     createSession: vi.fn().mockResolvedValue({ expiresAt: adminSession.expiresAt }),
     createLocalSession: vi.fn().mockResolvedValue({ expiresAt: adminSession.expiresAt }),
+    ensureOwnerSession: vi.fn().mockResolvedValue({ expiresAt: adminSession.expiresAt }),
+    issueRecoveryCredential: vi.fn(), rotateRecoveryCredential: vi.fn(), recoverOwnerSession: vi.fn(),
+    createStaffSession: vi.fn(), changeStaffPassword: vi.fn(),
+    listStaffAccounts: vi.fn().mockResolvedValue([]), createStaffAccount: vi.fn(),
+    updateStaffAccount: vi.fn(), resetStaffPassword: vi.fn(),
+    listOrderMessages: vi.fn(), sendOrderMessage: vi.fn(),
     updateProfile: vi.fn().mockResolvedValue({
       id: 'admin-1', role: 'ADMIN', displayName: '试点运营',
     }),

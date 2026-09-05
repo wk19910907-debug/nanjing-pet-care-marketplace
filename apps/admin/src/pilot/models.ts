@@ -19,6 +19,37 @@ export type PilotSessionCreated = {
   expiresAt: string;
 };
 
+/** A recovery secret is returned only by the issue/rotate calls; callers must not persist it. */
+export type OwnerRecoveryCredential = {
+  token: string;
+  recoveryPath: string;
+};
+
+export type StaffSessionCreated = PilotSessionCreated & { mustChangePassword: boolean };
+export type StaffAccount = {
+  userId: string;
+  username: string;
+  displayName: string;
+  role: 'PROVIDER';
+  mustChangePassword: boolean;
+  disabledAt: string | null;
+  createdAt: string;
+};
+export type CreateStaffAccount = {
+  username: string;
+  displayName: string;
+  temporaryPassword: string;
+};
+export type UpdateStaffAccount = { disabled: boolean };
+export type OrderMessage = {
+  id: string;
+  orderId: string;
+  authorRole: 'OWNER' | 'ADMIN';
+  body: string;
+  createdAt: string;
+};
+export type OrderMessagePage = { items: OrderMessage[]; nextCursor?: string };
+
 export type PilotProfile = {
   id: string;
   role: PilotRole;
