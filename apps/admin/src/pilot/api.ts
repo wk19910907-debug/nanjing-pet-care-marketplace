@@ -62,6 +62,11 @@ const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   STAFF_ACCOUNT_DISABLED: '该员工账号已停用',
   USERNAME_UNAVAILABLE: '该用户名不可用',
   ORDER_NOT_FOUND: '订单不存在或无权访问',
+  RECOVERY_INVALID: '恢复凭据无效或已失效',
+  RECOVERY_ALREADY_ISSUED: '恢复凭据已签发，请使用或轮换现有凭据',
+  RECOVERY_NOT_ISSUED: '尚未签发恢复凭据',
+  STAFF_LOGIN_INVALID: '用户名或密码不正确',
+  STAFF_LOGIN_BUSY: '登录服务繁忙，请稍后重试',
   MANUAL_FEE_CONFLICT: '费用状态已变化，请刷新后重试',
   DISPATCH_NOT_ALLOWED: '当前订单不能启动派单，请刷新后重试',
   DISPATCH_CONFLICT: '邀请状态已变化，请刷新后重试',
@@ -773,8 +778,30 @@ function assertPassword(value: string): void {
   if (typeof value !== 'string' || value.length < 12 || value.length > 128) validationError();
 }
 
-function assertMessageBody(value: string): void {
-  if (typeof value !== 'string' || value !== value.trim() || value.length === 0 || [...value].length > 500) validationError();
+function assertLoginPassword(value: string): void {
+  if (typeof value !== 'string' || value.length < 1 || value.length > 128) validationError();
+}
+
+function normalizeMessageBody(value: string): string {
+  if (typeof value !== 'string') validationError();
+  const normalized = value.trim();
+  if ([...normalized].length < 1 || [...normalized].length > 500) validationError();
+  return normalized;
+}
+
+function normalizeStaffAccountInput(input: CreateStaffAccount): CreateStaffAccount {
+  const record = asRecord(input);
+  if (!hasExactKeys(record, ['username', 'displayName', 'temporaryPassword'])) validationError();
+  const rawUsername = asString(record, 'username', 64);
+  if (!/^[\x00-\x7F]+$/.test(rawUsername)) validationError();
+  const username = rawUsername.toLowerCase();
+  if (!/^[a-z0-9][a-z0-9._-]{2,63}$/.test(username)) validationError();
+  const rawDisplayName = asString(record, 'displayName', 30);
+  const displayName = rawDisplayName.trim();
+  if (!displayName || displayName.length > 30) validationError();
+  const temporaryPassword = asString(record, 'temporaryPassword', 128);
+  assertPassword(temporaryPassword);
+  return { username, displayName, temporaryPassword };
 }
 
 export function createIdempotencyKey(): string {
@@ -862,7 +889,7 @@ export function createPilotApi(fetcher: Fetcher = fetch): PilotApi {
     },
     createStaffSession: async (username, password) => {
       if (typeof username !== 'string' || username.length < 1 || username.length > 256) validationError();
-      assertPassword(password);
+      assertLoginPassword(password);
       return parseStaffSessionCreated(await request(
         '/v1/staff/sessions', { method: 'POST', body: JSON.stringify({ username, password }) }, 201,
       ));
@@ -875,13 +902,8 @@ export function createPilotApi(fetcher: Fetcher = fetch): PilotApi {
     },
     listStaffAccounts: async () => parseStaffAccounts(await request('/v1/admin/staff-accounts')),
     createStaffAccount: async (input) => {
-      const record = asRecord(input);
-      if (!hasExactKeys(record, ['username', 'displayName', 'temporaryPassword'])) validationError();
-      const username = asString(record, 'username', 64);
-      if (!/^[a-z0-9][a-z0-9._-]{2,63}$/.test(username)) validationError();
-      asDisplayName(record.displayName);
-      assertPassword(asString(record, 'temporaryPassword', 128));
-      return parseStaffAccount(await request('/v1/admin/staff-accounts', { method: 'POST', body: JSON.stringify(input) }, 201));
+      const normalized = normalizeStaffAccountInput(input);
+      return parseStaffAccount(await request('/v1/admin/staff-accounts', { method: 'POST', body: JSON.stringify(normalized) }, 201));
     },
     updateStaffAccount: async (userId, input) => {
       assertUuid(userId);
@@ -902,13 +924,14 @@ export function createPilotApi(fetcher: Fetcher = fetch): PilotApi {
       assertUuid(orderId);
       if (cursor !== undefined && (typeof cursor !== 'string' || !/^[A-Za-z0-9_-]{1,512}$/.test(cursor))) validationError();
       const query = cursor === undefined ? '' : `?cursor=${encodeURIComponent(cursor)}`;
-      return parseMessagePage(await request(`/v1/pilot/orders/${encodeURIComponent(orderId)}/messages${query}`), orderId);
+      return parseMessagePage(await request(`/v1/pilot/orders/${encodeURIComponent(orderId)}/messages${query}`), orderId.toLowerCase());
     },
     sendOrderMessage: async (orderId, body) => {
-      assertUuid(orderId); assertMessageBody(body);
+      assertUuid(orderId);
+      const normalizedBody = normalizeMessageBody(body);
       return parseMessage(await request(
-        `/v1/pilot/orders/${encodeURIComponent(orderId)}/messages`, { method: 'POST', body: JSON.stringify({ body }) }, 201,
-      ), orderId);
+        `/v1/pilot/orders/${encodeURIComponent(orderId)}/messages`, { method: 'POST', body: JSON.stringify({ body: normalizedBody }) }, 201,
+      ), orderId.toLowerCase());
     },
     getCatalog: async () => parsePublicCatalog(await request('/v1/catalog')),
     getAdminCatalog: async () => parseAdminCatalog(await request('/v1/pilot/admin/catalog')),

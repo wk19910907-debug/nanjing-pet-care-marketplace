@@ -123,6 +123,57 @@ describe('pilot API transport', () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['RECOVERY_INVALID', 401, undefined],
+    ['RECOVERY_ALREADY_ISSUED', 409, undefined],
+    ['RECOVERY_NOT_ISSUED', 409, undefined],
+    ['STAFF_LOGIN_INVALID', 401, undefined],
+    ['STAFF_LOGIN_BUSY', 503, 9],
+    ['RATE_LIMITED', 429, 17],
+  ])('keeps safe production-access error state %s and Retry-After', async (code, status, retryAfter) => {
+    const api = createPilotApi(vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ code }), {
+      status, headers: retryAfter === undefined ? {} : { 'Retry-After': String(retryAfter) },
+    })));
+    await expect(api.ensureOwnerSession()).rejects.toMatchObject({ status, code, retryAfterSeconds: retryAfter });
+  });
+
+  it('accepts a short staff-login password but keeps password-change rules separate', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({
+      expiresAt: '2026-09-03T10:00:00.000Z', mustChangePassword: false,
+    }, 201));
+    await expect(createPilotApi(fetcher).createStaffSession('admin.user', 'short')).resolves.toMatchObject({ mustChangePassword: false });
+    expect(fetcher).toHaveBeenCalledWith('/api/v1/staff/sessions', expect.objectContaining({
+      body: JSON.stringify({ username: 'admin.user', password: 'short' }),
+    }));
+  });
+
+  it('canonicalizes production request values and accepts canonical server UUIDs for uppercase order requests', async () => {
+    const canonicalOrderId = '11111111-1111-4111-8111-111111111111';
+    const requestedOrderId = canonicalOrderId.toUpperCase();
+    const staffId = '22222222-2222-4222-8222-222222222222';
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse({ items: [{
+        id: '33333333-3333-4333-8333-333333333333', orderId: canonicalOrderId,
+        authorRole: 'OWNER', body: '已收到', createdAt: '2026-09-03T10:00:00.000Z',
+      }] }))
+      .mockResolvedValueOnce(jsonResponse({
+        id: '44444444-4444-4444-8444-444444444444', orderId: canonicalOrderId,
+        authorRole: 'ADMIN', body: '请放心', createdAt: '2026-09-03T10:01:00.000Z',
+      }, 201))
+      .mockResolvedValueOnce(jsonResponse({
+        userId: staffId, username: 'provider.one', displayName: '服务员', role: 'PROVIDER',
+        mustChangePassword: true, disabledAt: null, createdAt: '2026-09-01T10:00:00.000Z',
+      }, 201));
+    const api = createPilotApi(fetcher);
+
+    await expect(api.listOrderMessages(requestedOrderId)).resolves.toMatchObject({ items: [{ orderId: canonicalOrderId }] });
+    await expect(api.sendOrderMessage(requestedOrderId, '  请放心  ')).resolves.toMatchObject({ body: '请放心' });
+    await expect(api.createStaffAccount({ username: 'PROVIDER.ONE', displayName: ' 服务员 ', temporaryPassword: 'a'.repeat(12) })).resolves.toMatchObject({ username: 'provider.one', displayName: '服务员' });
+
+    expect(fetcher.mock.calls[1]![1]).toMatchObject({ body: JSON.stringify({ body: '请放心' }) });
+    expect(fetcher.mock.calls[2]![1]).toMatchObject({ body: JSON.stringify({ username: 'provider.one', displayName: '服务员', temporaryPassword: 'a'.repeat(12) }) });
+  });
+
   it('sends a fresh 8-100 character idempotency key with every write', async () => {
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse({ expiresAt: '2026-09-03T10:00:00.000Z' }, 201))
