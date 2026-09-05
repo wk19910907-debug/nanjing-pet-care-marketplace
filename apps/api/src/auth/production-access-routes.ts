@@ -1,5 +1,5 @@
 import rateLimit from '@fastify/rate-limit';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { AppConfig } from '../config.js';
 import type { PublicOwnerAccessService } from './public-owner-access-service.js';
@@ -31,12 +31,17 @@ function sessionResponse(session: { expiresAt: Date }, extra: Record<string, unk
 
 function auth(request: FastifyRequest) { return request.headers.authorization; }
 
-function requestAbort(request: FastifyRequest): { signal: AbortSignal; dispose: () => void } {
+function requestAbort(request: FastifyRequest, reply: FastifyReply): { signal: AbortSignal; dispose: () => void } {
   const controller = new AbortController();
   const abort = () => controller.abort();
+  const responseClose = () => { if (!reply.raw.writableEnded) abort(); };
   if (request.raw.aborted) abort();
   else request.raw.once('aborted', abort);
-  return { signal: controller.signal, dispose: () => request.raw.removeListener('aborted', abort) };
+  reply.raw.once('close', responseClose);
+  return { signal: controller.signal, dispose: () => {
+    request.raw.removeListener('aborted', abort);
+    reply.raw.removeListener('close', responseClose);
+  } };
 }
 
 /** Cookie-only browser entry points; every route is intentionally non-cacheable. */
@@ -52,7 +57,7 @@ export async function registerProductionAccessRoutes(app: FastifyInstance, depen
 
   app.post('/api/v1/public/owner-sessions', { bodyLimit: SMALL_BODY_LIMIT, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (request, reply) => {
     EMPTY_BODY.parse(request.body === undefined ? {} : request.body);
-    const lifecycle = requestAbort(request);
+    const lifecycle = requestAbort(request, reply);
     let result;
     try { result = await dependencies.publicOwnerAccess.ensureOwnerSession(auth(request), lifecycle.signal); }
     finally { lifecycle.dispose(); }

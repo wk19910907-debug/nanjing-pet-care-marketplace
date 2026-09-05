@@ -2,6 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { GuestOwnerLimiter } from '../src/auth/guest-owner-limiter.js';
 
 describe('guest owner limiter', () => {
+  it('does not admit an already-aborted request', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const limiter = new GuestOwnerLimiter();
+    let ran = false;
+    await expect(limiter.run(async () => { ran = true; }, controller.signal))
+      .rejects.toThrow('GUEST_CREATION_ABORTED');
+    expect(ran).toBe(false);
+  });
+
   it('rechecks the create cap after queued admission', async () => {
     let release: (() => void) | undefined;
     const limiter = new GuestOwnerLimiter({ maximumConcurrent: 1, maximumQueued: 1, maximumCreates: 1 });

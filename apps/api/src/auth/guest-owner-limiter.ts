@@ -21,6 +21,7 @@ export class GuestOwnerLimiter {
   }
 
   public async run<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (signal?.aborted) throw new Error('GUEST_CREATION_ABORTED');
     const now = this.now();
     while (this.createdAt[0] !== undefined && this.createdAt[0]! <= now - this.windowMilliseconds) this.createdAt.shift();
     if (this.createdAt.length + this.reservedCreates >= this.maximumCreates) throw new Error('GUEST_CREATION_RATE_LIMITED');
