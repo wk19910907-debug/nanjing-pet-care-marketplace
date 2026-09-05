@@ -35,7 +35,7 @@ function requestAbort(request: FastifyRequest, reply: FastifyReply): { signal: A
   const controller = new AbortController();
   const abort = () => controller.abort();
   const responseClose = () => { if (!reply.raw.writableEnded) abort(); };
-  if (request.raw.aborted) abort();
+  if (request.raw.aborted || request.raw.destroyed || request.raw.socket?.destroyed || reply.raw.destroyed) abort();
   else request.raw.once('aborted', abort);
   reply.raw.once('close', responseClose);
   return { signal: controller.signal, dispose: () => {
