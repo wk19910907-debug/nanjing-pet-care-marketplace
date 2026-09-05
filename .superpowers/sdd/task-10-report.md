@@ -46,3 +46,9 @@
 - Node `v22.22.2`: `node scripts/run-pilot-live-acceptance.mjs` — 1 real Chrome test passed in 16.1 seconds against a fresh PostgreSQL 16 container; Fastify restart persistence also passed.
 - Node `v22.22.2` pinned on `PATH`: `pnpm lint` and `pnpm typecheck` passed. `git diff --check` passed.
 - After the live run, no `petcare-live-*` temporary directory and no Docker container carrying `com.petcare.live-acceptance=true` remained. Playwright trace/video/screenshot are disabled and the runner removes its temporary download/output directory.
+
+## Final documentation review fix
+
+- Regression-first deployment assertions now require an explicit POSIX `SITE_DOMAIN` export, PowerShell equivalent, and a statement that Compose `--env-file` does not export host-shell variables.
+- The runbook now makes the limiter sequence executable without weakening fail-closed production: provision the managed WAF/Redis rule first on a separate pre-production or temporarily isolated non-public Origin, verify `/health/ready` and aggregated `429` from two controlled environments there, then set the production declaration and proceed to the production Compose bootstrap. It explicitly forbids starting public production `app caddy` before that validation.
+- Node `v22.22.2`: `node --test scripts/production-deployment-files.test.mjs` — 8/8 passed; `git diff --check` passed.

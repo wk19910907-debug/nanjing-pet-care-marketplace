@@ -51,6 +51,41 @@ chmod 600 deploy/.env.production
 docker compose --env-file deploy/.env.production -f deploy/compose.production.yml config --quiet
 ```
 
+`--env-file` 只传入 Compose 容器，**不会导出到宿主机 shell**。每个需要 `curl` 或负载探针的新 POSIX 终端都先显式设置这个非秘密域名（替换示例值，不要从环境文件打印或导出其他值）：
+
+```sh
+SITE_DOMAIN='pet.example.com'
+export SITE_DOMAIN
+test -n "$SITE_DOMAIN"
+```
+
+PowerShell 等价写法如下；Compose 环境文件同样不会设置 `$SITE_DOMAIN`：
+
+```powershell
+$SITE_DOMAIN = 'pet.example.com'
+if ([string]::IsNullOrWhiteSpace($SITE_DOMAIN)) { throw 'SITE_DOMAIN is required for curl checks.' }
+```
+
+### 生产启动前：共享入口限流验证
+
+Caddy 在这里仅负责 TLS 和反向代理，**不提供跨实例共享限流状态**。先在托管 WAF 或 Redis 计数器网关配置跨实例规则，覆盖 `POST /api/v1/public/owner-sessions`、`POST /api/v1/public/owner-recovery-sessions` 与 `POST /api/v1/staff/sessions`，按真实客户端 IP 聚合。规则必须先绑定到一个单独可达的预生产 Origin/健康检查端点及其独立配置，或只向验证人员开放的暂时隔离的非公网 Origin；绝不复用生产数据库、桶或 `deploy/.env.production`。
+
+从全新受控终端按此顺序操作：先让 WAF/Redis 规则在预生产 Origin 生效；确认该 Origin 的 `/health/ready` 可达；再由**两个独立的受控环境**（不同出口或工作节点）各自运行下列无效登录探针。不要使用真实账号、密码或生产 Origin。两边的请求总量必须合并计数，阈值后返回 `429`；只记录状态码计数和网关策略版本，不保存请求体。
+
+```sh
+# This is the separately reachable, non-production validation origin.
+SITE_DOMAIN='staging.pet.example.com'
+export SITE_DOMAIN
+test -n "$SITE_DOMAIN"
+curl --fail --show-error --silent "https://${SITE_DOMAIN}/health/ready"
+seq 1 12 | xargs -P 6 -I{} curl --silent --output /dev/null --write-out '%{http_code}\n' \
+  --request POST "https://${SITE_DOMAIN}/api/v1/staff/sessions" \
+  --header 'Content-Type: application/json' \
+  --data '{"username":"rate-limit-check","password":"not-a-real-password"}'
+```
+
+在两个独立环境验证得到聚合的 `429` 之后，才在生产的 `deploy/.env.production` 填写 `PILOT_SHARED_INGRESS_RATE_LIMITING=enabled`，重新运行 `docker compose --env-file deploy/.env.production -f deploy/compose.production.yml config --quiet`，然后进入第 4 节。验证前不得启动生产 `app caddy`，也不得让未受保护的生产 Origin 对公网可达；生产配置继续以缺少该声明时失败的方式关闭。
+
 ## 4. 首次部署
 
 部署前确认数据库已经备份，并先启动或确认第 1 节中的独立 PostgreSQL 服务可连接；本 Compose 文件故意不包含数据库容器。生产迁移使用 Prisma `migrate deploy`，不会执行 `migrate dev` 或自动重置数据库。以下每条命令都使用 Compose 的受保护环境文件，因此不会出现宿主机缺少 `DATABASE_URL`、迁移表或密钥的情况。
@@ -76,18 +111,9 @@ curl --fail --show-error --silent https://${SITE_DOMAIN}/health/ready
 
 正常 `app` 启动仍会在入口脚本中执行幂等的 `migrate deploy`；上面的单次迁移只是让首次管理员创建发生在 API 就绪检查之前。验证 `/health/ready` 返回200且 `ready/database/objectStorage/encryption` 均为true。确认浏览器证书有效、Cookie 为 `Secure`、HTTP 自动跳转 HTTPS，并且站点和 `/api` 保持同一 `https://` Origin。日志不得出现数据库 URL、S3凭据、会话或用户地址。
 
-### 共享入口限流验收
+### 上线后的共享入口复核
 
-Caddy 在这里仅负责 TLS 和反向代理，**不提供跨实例共享限流状态**。在多副本部署前，必须在托管 WAF 或支持 Redis 计数器的网关配置跨实例策略，至少覆盖 `POST /api/v1/public/owner-sessions`、`POST /api/v1/public/owner-recovery-sessions` 与 `POST /api/v1/staff/sessions`，并按真实客户端 IP 聚合。
-
-从两个不同出口/节点同时运行下列无效登录探针（不要使用真实账号或密码），确认总量跨两个 API 副本合并，并在策略阈值后得到 `429`；保存状态码计数和策略版本，不保存请求体。验证通过后才填写 `PILOT_SHARED_INGRESS_RATE_LIMITING=enabled`，再重启 `app`：
-
-```sh
-seq 1 12 | xargs -P 6 -I{} curl --silent --output /dev/null --write-out '%{http_code}\n' \
-  --request POST "https://${SITE_DOMAIN}/api/v1/staff/sessions" \
-  --header 'Content-Type: application/json' \
-  --data '{"username":"rate-limit-check","password":"not-a-real-password"}'
-```
+首次 `429` 验证必须已经在第 3 节的预生产/隔离 Origin 完成。生产启动后仅复核已记录的网关策略版本、跨副本计数器健康和 `/health/ready`，不要把未验证的限流作为公开生产 Origin 的首个测试。
 
 参考：[Docker Compose健康检查与启动顺序](https://docs.docker.com/compose/how-tos/startup-order/)、[Prisma生产迁移](https://docs.prisma.io/docs/cli/migrate/deploy)、[Caddy自动HTTPS](https://caddyserver.com/docs/automatic-https)。
 

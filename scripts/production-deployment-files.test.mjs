@@ -105,6 +105,10 @@ test('runbook covers prerequisites, secure deployment, recovery and acceptance',
   assert.match(runbook, /docker compose[\s\S]*--env-file deploy\/.env\.production[\s\S]*run --rm --no-deps -it --entrypoint pnpm app --filter @pet\/api staff:create-admin -- --username <管理员用户名>/);
   assert.match(runbook, /docker compose[\s\S]*up -d app caddy/);
   assert.match(runbook, /curl --fail[\s\S]*https:\/\/\$\{SITE_DOMAIN\}\/health\/ready/);
+  assert.match(runbook, /SITE_DOMAIN='pet\.example\.com'/);
+  assert.match(runbook, /export SITE_DOMAIN/);
+  assert.match(runbook, /\$SITE_DOMAIN = 'pet\.example\.com'/);
+  assert.match(runbook, /--env-file.*不会.*导出.*宿主机/);
   assert.doesNotMatch(runbook, /^pnpm staff:create-admin/m);
   assert.match(runbook, /docker compose[\s\S]*logs/);
   assert.match(runbook, /不得把密钥、密码.*提交到 Git/);
@@ -127,7 +131,11 @@ test('production operations state the non-negotiable web boundary and operator c
   assert.match(runbook, /Redis/);
   assert.match(runbook, /429/);
   assert.match(runbook, /curl/);
-  assert.match(runbook, /验证通过后才填写.*PILOT_SHARED_INGRESS_RATE_LIMITING=enabled/);
+  assert.match(runbook, /验证得到聚合.*429.*之后.*PILOT_SHARED_INGRESS_RATE_LIMITING=enabled/);
+  assert.match(runbook, /预生产|暂时隔离的非公网 Origin/);
+  assert.match(runbook, /两个独立.*受控.*环境/);
+  assert.match(runbook, /不得.*启动.*生产.*app caddy/);
+  assert.match(runbook, /验证.*429.*之后.*PILOT_SHARED_INGRESS_RATE_LIMITING=enabled[\s\S]*第 4 节/);
   assert.doesNotMatch(runbook, /本地角色直接入口/);
   assert.doesNotMatch(quickstart, /邀请码登录|邀请管理/);
   assert.match(readme, /未公开展示手机号、微信二维码、邀请码或邀请入口/);
