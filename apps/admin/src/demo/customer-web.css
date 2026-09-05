@@ -683,7 +683,8 @@
 .customer-web .public-access-zone p { margin: 0; color: var(--store-muted); font-size: 13px; line-height: 1.7; }
 .customer-web .access-kicker { color: var(--store-brand); font-size: 12px; font-weight: 900; letter-spacing: .12em; }
 .customer-web .access-text-button { min-height: 44px; margin-top: 12px; padding: 8px 0; color: var(--store-brand); background: transparent; font-weight: 800; text-decoration: underline; text-underline-offset: 4px; }
-.customer-web .public-staff-entry { text-align: right; }
+.customer-web .public-staff-entry { grid-column: 1 / -1; justify-self: end; text-align: right; }
+.customer-web .store-footer .public-staff-entry .access-card { margin-top: 12px; text-align: left; }
 .customer-web .access-card {
   max-width: 440px;
   padding: 28px;
@@ -836,7 +837,7 @@
     background: var(--store-brand);
   }
   .customer-web .public-access-zone { width: calc(100% - 24px); margin-bottom: 56px; padding: 20px; grid-template-columns: 1fr; }
-  .customer-web .public-staff-entry { text-align: left; }
+  .customer-web .public-staff-entry { width: 100%; justify-self: stretch; text-align: left; }
   .customer-web .access-card { padding: 22px; }
   .customer-web .access-actions { grid-template-columns: 1fr; }
 }

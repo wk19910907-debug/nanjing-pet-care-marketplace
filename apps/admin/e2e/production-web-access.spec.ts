@@ -57,6 +57,33 @@ async function submitBooking(page: Page, type: 'CAT_FEEDING' | 'DOG_WALKING', st
   expect(created).toMatchObject({ status: 'PENDING_PAYMENT' }); return created.id;
 }
 
+async function assertProductionViewport(page: Page, viewport: { width: number; height: number }) {
+  await page.setViewportSize(viewport);
+  const result = await page.evaluate(() => {
+    const controls = [...document.querySelectorAll<HTMLElement>(
+      'a[href], button, input:not([type="hidden"]), select, textarea, summary',
+    )].filter((element) => {
+      const style = getComputedStyle(element);
+      const bounds = element.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden'
+        && bounds.width > 0 && bounds.height > 0;
+    }).map((element) => ({
+      label: element.getAttribute('aria-label') ?? element.textContent?.trim().slice(0, 40) ?? element.tagName,
+      height: element.getBoundingClientRect().height,
+    }));
+    return {
+      overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      mainCount: document.querySelectorAll('main').length,
+      shortControls: controls.filter(({ height }) => height < 44),
+    };
+  });
+  expect(result, `${viewport.width}x${viewport.height} production viewport`).toEqual({
+    overflow: false,
+    mainCount: 1,
+    shortControls: [],
+  });
+}
+
 test('production web closes the guest, recovery, staff and order loop against PostgreSQL', async ({ browser }) => {
   test.setTimeout(300_000);
   const contexts = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext(), browser.newContext(), browser.newContext()]);
@@ -77,6 +104,16 @@ test('production web closes the guest, recovery, staff and order loop against Po
     });
     await ownerPage.setViewportSize({ width: 1280, height: 800 });
     await ownerPage.goto(baseUrl!);
+    for (const viewport of [
+      { width: 390, height: 844 },
+      { width: 900, height: 1100 },
+      { width: 1440, height: 1000 },
+    ]) await assertProductionViewport(ownerPage, viewport);
+    await expect(ownerPage.locator('main')).not.toContainText(/邀请码|选择角色|手机号|注册账号/);
+    const staffEntry = ownerPage.getByRole('button', { name: '员工登录' });
+    await expect(staffEntry).toHaveCount(1);
+    expect(await staffEntry.evaluate((element) => element.closest('footer') !== null)).toBe(true);
+    await ownerPage.setViewportSize({ width: 1280, height: 800 });
     await expect(ownerPage.getByRole('button', { name: '立即预约' })).toBeVisible({ timeout: 5_000 });
     await ownerPage.getByRole('button', { name: '立即预约' }).click();
     await expect(ownerPage.getByRole('heading', { name: '保存你的恢复凭据' })).toBeVisible();
@@ -105,7 +142,9 @@ test('production web closes the guest, recovery, staff and order loop against Po
     const initialTokenMatch = /#\/orders\/access\/([A-Za-z0-9_-]{43})/.exec(downloadedCredential);
     expect(Boolean(initialTokenMatch)).toBe(true);
     if (!initialTokenMatch) throw new Error('Downloaded recovery credential did not contain an access path.');
-    const initialRecoveryPath = `/#/orders/access/${initialTokenMatch[1]}`;
+    const initialRecoveryToken = initialTokenMatch[1];
+    if (!initialRecoveryToken) throw new Error('Downloaded recovery credential token was empty.');
+    const initialRecoveryPath = `/#/orders/access/${initialRecoveryToken}`;
     expect(downloadedCredential.includes(`${baseUrl}${initialRecoveryPath}`)).toBe(true);
     expect([...downloadedCredential.matchAll(/#\/orders\/access\/[A-Za-z0-9_-]{43}/g)]).toHaveLength(1);
     expect(downloadedCredential).not.toMatch(/PILOT_AUTH_PEPPER|FIELD_ENCRYPTION|DATABASE_URL|postgresql:\/\//i);
@@ -115,11 +154,29 @@ test('production web closes the guest, recovery, staff and order loop against Po
       return copied === `${origin}${recoveryPath}`;
     }, { origin: baseUrl!, recoveryPath: initialRecoveryPath })).toBe(true);
     await ownerPage.getByRole('button', { name: '我已保存', exact: true }).click();
+    await expect(ownerPage.locator('body')).not.toContainText(initialRecoveryToken);
     const start = new Date(Date.now() + 25 * 60_000);
     const catOrderId = await submitBooking(ownerPage, 'CAT_FEEDING', start, true);
     const dogOrderId = await submitBooking(ownerPage, 'DOG_WALKING', new Date(start.getTime() + 90 * 60_000));
+    const recoveredRequests: string[] = [];
+    const recoveredConsole: string[] = [];
+    recoveredPage.on('request', (request) => { recoveredRequests.push(request.url()); });
+    recoveredPage.on('console', (message) => { recoveredConsole.push(message.text()); });
     await recoveredPage.goto(`${baseUrl}${initialRecoveryPath}`);
     await expect(recoveredPage.getByRole('heading', { name: '我的订单' })).toBeVisible(); await expect(recoveredPage.getByText(catOrderId)).toBeVisible();
+    await expect.poll(() => recoveredPage.url()).toBe(`${baseUrl}/`);
+    expect(recoveredRequests.some((url) => url.includes(initialRecoveryToken))).toBe(false);
+    expect(recoveredConsole.join('\n')).not.toContain(initialRecoveryToken);
+    await expect(recoveredPage.locator('body')).not.toContainText(initialRecoveryToken);
+    const recoveredStorage = await recoveredPage.evaluate(() => ({
+      local: [...Array(localStorage.length)].map((_, index) => localStorage.key(index)).filter(Boolean)
+        .map((key) => `${key}:${localStorage.getItem(key!)}`),
+      session: [...Array(sessionStorage.length)].map((_, index) => sessionStorage.key(index)).filter(Boolean)
+        .map((key) => `${key}:${sessionStorage.getItem(key!)}`),
+    }));
+    expect(JSON.stringify(recoveredStorage)).not.toContain(initialRecoveryToken);
+    await assertProductionViewport(recoveredPage, { width: 900, height: 1100 });
+    await recoveredPage.setViewportSize({ width: 390, height: 844 });
     const recoveredInitialSession = await api(recoveredPage, '/api/v1/pilot/session');
     expect(recoveredInitialSession.status).toBe(200);
     expect((recoveredInitialSession.body as { userId?: unknown }).userId).toBe(initialUserId);
@@ -130,7 +187,7 @@ test('production web closes the guest, recovery, staff and order loop against Po
     expect(typeof rotatedToken).toBe('string');
     if (typeof rotatedToken !== 'string') throw new Error('Rotated recovery credential was missing.');
     const oldCredentialAttempt = await api(recoveredPage, '/api/v1/public/owner-recovery-sessions', {
-      method: 'POST', body: { token: initialTokenMatch[1] },
+      method: 'POST', body: { token: initialRecoveryToken },
     });
     expect(oldCredentialAttempt).toEqual({ status: 403, body: { code: 'FORBIDDEN' } });
     const rotatedContext = await browser.newContext();
@@ -141,11 +198,13 @@ test('production web closes the guest, recovery, staff and order loop against Po
     await expect(rotatedPage.getByText(catOrderId)).toBeVisible();
     const credentials = await (await fetch(credentialsUrl!)).json() as { adminUsername: string; adminTemporaryPassword: string };
     await staffLogin(adminPage, credentials.adminUsername, credentials.adminTemporaryPassword, '平台工作区');
+    await assertProductionViewport(adminPage, { width: 1440, height: 1000 });
     await adminPage.getByLabel('员工用户名').fill('nj.provider'); await adminPage.getByLabel('员工展示名称').fill('南京小周');
     await adminPage.getByRole('button', { name: '创建服务人员账号' }).click();
     const providerTemporaryPassword = await adminPage.locator('.pilot-one-time-secret code').textContent(); expect(providerTemporaryPassword).toBeTruthy();
     await adminPage.getByRole('button', { name: '我已安全记录，关闭' }).click();
     await staffLogin(providerPage, 'nj.provider', providerTemporaryPassword!, '服务人员工作区');
+    await assertProductionViewport(providerPage, { width: 390, height: 844 });
     await providerPage.getByRole('checkbox', { name: '上门喂猫' }).check(); await providerPage.getByLabel('申请服务区').selectOption('建邺区');
     await providerPage.getByLabel('喂猫经验（月）').fill('24'); await providerPage.getByRole('button', { name: '提交服务申请' }).click();
     await providerPage.getByLabel('开始时间').fill(localInput(new Date(Date.now() - 60 * 60_000))); await providerPage.getByLabel('结束时间').fill(localInput(new Date(Date.now() + 5 * 60 * 60_000)));

@@ -10,6 +10,7 @@ const environment = {
   S3_ENDPOINT: 'https://objects.example.com', S3_BUCKET: 'pilot-evidence',
   S3_ACCESS_KEY_ID: 'pilot-access-id', S3_SECRET_ACCESS_KEY: 'pilot-storage-secret',
   S3_REGION: 'auto', S3_FORCE_PATH_STYLE: 'true',
+  PILOT_SHARED_INGRESS_RATE_LIMITING: 'enabled',
 };
 
 describe('resolvePilotServerOverrides', () => {

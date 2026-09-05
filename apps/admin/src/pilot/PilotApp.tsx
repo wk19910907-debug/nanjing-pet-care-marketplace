@@ -250,6 +250,10 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
       onStartOrder={() => void startOwnerSession()}
       onQuoteStartOrder={() => void startOwnerSession()}
       bookingPending={ownerPending}
+      footerContent={<div className="public-staff-entry">
+        <button type="button" className="access-text-button" onClick={() => { setAccessMode('STAFF'); setAccessError(''); }}>员工登录</button>
+        {accessMode === 'STAFF' && <StaffLoginPanel api={api} onAuthenticated={loadSession}/>}
+      </div>}
       {...(catalogFailed ? { onReloadCatalog: () => void loadCatalog() } : {})}
       quoteSelection={quoteSelection}
       onQuoteChange={setQuoteSelection}
@@ -258,8 +262,6 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
         <div><p className="access-kicker">已有订单</p><h2>恢复订单访问</h2><p>在新设备上，可粘贴已保存的恢复凭据。</p>
           <button type="button" className="access-text-button" onClick={() => { setAccessMode('RECOVERY'); setAccessError(''); }}>恢复订单</button>
         </div>
-        <div className="public-staff-entry"><button type="button" className="access-text-button" onClick={() => { setAccessMode('STAFF'); setAccessError(''); }}>员工登录</button></div>
-        {accessMode === 'STAFF' && <StaffLoginPanel api={api} onAuthenticated={loadSession}/>}
         {accessMode === 'RECOVERY' && <RecoverySessionPanel error={accessError} onRecover={recover}/>}
         {accessError && accessMode === 'NONE' && <p className="pilot-error" role="alert">{accessError}</p>}
       </section>

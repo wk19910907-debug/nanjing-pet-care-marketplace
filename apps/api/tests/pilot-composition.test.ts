@@ -735,6 +735,7 @@ describe('pilot bootstrap and commands', () => {
   it('prints only the one-time raw code to stdout and keeps operations on stderr', async () => {
     const config = developmentConfig();
     const prisma = new PrismaClient({ datasourceUrl: config.databaseUrl });
+    const existingAdminCount = await prisma.user.count({ where: { role: 'ADMIN' } });
     const stdout: string[] = [];
     const stderr: string[] = [];
     const environment = {
@@ -752,7 +753,8 @@ describe('pilot bootstrap and commands', () => {
       expect(stderr.length).toBeGreaterThan(0);
       expect(stderr.join('')).not.toContain(result.code);
       expect(stderr.join('')).not.toContain(environment.PILOT_AUTH_PEPPER);
-      expect(await prisma.user.count({ where: { role: 'ADMIN' } })).toBe(1);
+      expect(await prisma.user.count({ where: { role: 'ADMIN' } }))
+        .toBe(Math.max(existingAdminCount, 1));
     } finally {
       await prisma.$disconnect();
     }

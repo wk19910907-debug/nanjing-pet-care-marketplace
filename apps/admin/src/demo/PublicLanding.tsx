@@ -13,6 +13,7 @@ import type { PublicQuoteSelection } from './publicQuote.js';
 
 type PublicLandingProps = {
   children: ReactNode;
+  footerContent?: ReactNode;
   onStartOrder: () => void;
   onQuoteStartOrder: (selection?: PublicQuoteSelection) => void;
   bookingPending?: boolean;
@@ -81,6 +82,7 @@ const processSteps = [
 export function PublicLanding({
   catalog,
   children,
+  footerContent,
   onStartOrder,
   onViewOrders,
   onReloadCatalog,
@@ -125,7 +127,7 @@ export function PublicLanding({
       </div>
     </nav>
 
-    <div className="store-main">
+    <main className="store-main">
       <section id="top" className="store-hero">
         <div className="store-hero-copy">
           <span className="store-kicker">PREMIUM PET CARE · NANJING</span>
@@ -202,12 +204,13 @@ export function PublicLanding({
         <details><summary>价格如何确定？</summary><p>页面显示起步价，提交前会展示服务器生成的最终报价。</p></details>
         <details><summary>南京哪些区域可以预约？</summary><p>可在预约页选择当前开放区域，是否能在指定时间接单以平台确认结果为准。</p></details>
       </section>
-    </div>
+    </main>
 
     <footer className="store-footer">
       <a className="store-brand" href="#top"><span className="store-brand-mark" aria-hidden="true"><CommerceIcon name="cat"/></span><span><strong>安心宠</strong><small>PET CARE · NANJING</small></span></a>
       <p>南京上门喂猫与遛狗服务 · 页面为试运营信息展示，服务范围与价格以预约确认结果为准。请勿填写门锁密码等敏感信息。</p>
       <nav aria-label="页脚导航"><a href="#services">服务</a><a href="#safeguards">保障</a><a href="#faq">常见问题</a></nav>
+      {footerContent}
     </footer>
 
     <nav className="customer-quick-nav" aria-label="快捷导航">
