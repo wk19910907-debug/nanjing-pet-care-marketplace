@@ -268,8 +268,11 @@ describe('production access routes', () => {
 
   it('keeps request-abort state isolated across sequential keep-alive responses', async () => {
     let operationCalls = 0;
+    const signals: AbortSignal[] = [];
     const app = appWithProductionAccess({
-      ensureOwnerSession: async () => {
+      ensureOwnerSession: async (_authorization, signal) => {
+        if (!signal) throw new Error('expected a request abort signal');
+        signals.push(signal);
         operationCalls += 1;
         return { created: true, session: { token: `owner-token-${operationCalls}`, expiresAt }, expiresAt };
       },
@@ -283,6 +286,8 @@ describe('production access routes', () => {
       expect(second.statusCode).toBe(201);
       expect(second.socket).toBe(first.socket);
       expect(operationCalls).toBe(2);
+      expect(signals).toHaveLength(2);
+      expect(signals.every((signal) => !signal.aborted)).toBe(true);
     } finally {
       agent.destroy();
       await app.close();
