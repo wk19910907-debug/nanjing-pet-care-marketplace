@@ -7,7 +7,10 @@ Set-StrictMode -Version Latest
 
 function Get-NormalizedPath {
   param([Parameter(Mandatory)][string]$Path)
-  return [IO.Path]::GetFullPath($Path).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+  $fullPath = [IO.Path]::GetFullPath($Path)
+  $root = [IO.Path]::GetPathRoot($fullPath)
+  if ($fullPath.Equals($root, [StringComparison]::OrdinalIgnoreCase)) { return $root }
+  return $fullPath.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
 }
 
 function Test-PathWithin {
@@ -17,8 +20,13 @@ function Test-PathWithin {
   )
   $normalizedPath = Get-NormalizedPath $Path
   $normalizedParent = Get-NormalizedPath $Parent
+  $prefix = if ($normalizedParent.EndsWith([IO.Path]::DirectorySeparatorChar)) {
+    $normalizedParent
+  } else {
+    $normalizedParent + [IO.Path]::DirectorySeparatorChar
+  }
   return $normalizedPath.Equals($normalizedParent, [StringComparison]::OrdinalIgnoreCase) -or
-    $normalizedPath.StartsWith($normalizedParent + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
+    $normalizedPath.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)
 }
 
 function Get-VaultRoot {
@@ -29,6 +37,66 @@ function Get-VaultRoot {
     $parent = Split-Path -Parent $candidate
     if ($parent -eq $candidate) { return $null }
     $candidate = $parent
+  }
+}
+
+function Test-PathIsRoot {
+  param([Parameter(Mandatory)][string]$Path)
+  $normalizedPath = Get-NormalizedPath $Path
+  return $normalizedPath.Equals([IO.Path]::GetPathRoot($normalizedPath), [StringComparison]::OrdinalIgnoreCase)
+}
+
+function Assert-NoReparsePoint {
+  param([Parameter(Mandatory)][string]$Path)
+  $candidate = Get-NormalizedPath $Path
+  while ($true) {
+    if (Test-Path -LiteralPath $candidate) {
+      $attributes = (Get-Item -LiteralPath $candidate -Force).Attributes
+      if (($attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'Destination must not include a reparse point'
+      }
+    }
+    if (Test-PathIsRoot $candidate) { return }
+    $candidate = Split-Path -Parent $candidate
+  }
+}
+
+function Test-OwnedSecretDirectory {
+  param([Parameter(Mandatory)][string]$Target)
+  $markerPath = Join-Path $Target '.local-production-owner'
+  if (-not (Test-Path -LiteralPath $markerPath -PathType Leaf)) { return $false }
+  Assert-NoReparsePoint $markerPath
+  $markerBytes = [IO.File]::ReadAllBytes($markerPath)
+  $expectedMarkerBytes = [Text.UTF8Encoding]::new($false).GetBytes("NanjingPetCare local production secrets v1`n")
+  if (-not [Linq.Enumerable]::SequenceEqual([byte[]]$markerBytes, [byte[]]$expectedMarkerBytes)) { return $false }
+  $acl = Get-Acl -LiteralPath $Target
+  if (-not $acl.AreAccessRulesProtected) { return $false }
+  $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+  foreach ($identity in @($acl.Access | ForEach-Object { $_.IdentityReference.Value } | Sort-Object -Unique)) {
+    if ($identity -ne $currentIdentity -and $identity -ne 'NT AUTHORITY\SYSTEM') { return $false }
+  }
+  return $true
+}
+
+function Assert-SafeSecretTarget {
+  param(
+    [Parameter(Mandatory)][string]$Target,
+    [Parameter(Mandatory)][string]$RepositoryRoot,
+    [AllowNull()][string]$VaultRoot
+  )
+  if (Test-PathIsRoot $Target) { throw 'Destination must be a dedicated non-root directory' }
+  if ((Test-PathWithin $Target $RepositoryRoot) -or ($null -ne $VaultRoot -and (Test-PathWithin $Target $VaultRoot))) {
+    throw 'Destination must be outside the repository and Vault'
+  }
+  Assert-NoReparsePoint $Target
+  $parent = Split-Path -Parent $Target
+  if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
+    throw 'Destination parent must be an existing non-reparse directory'
+  }
+  if (Test-Path -LiteralPath $Target) {
+    if (-not (Test-Path -LiteralPath $Target -PathType Container) -or -not (Test-OwnedSecretDirectory $Target)) {
+      throw 'Destination must be an absent leaf directory or an owned local production secret directory'
+    }
   }
 }
 
@@ -151,12 +219,17 @@ if ([string]::IsNullOrWhiteSpace($Destination)) {
   throw 'Destination must be an absolute path outside the repository and Vault'
 }
 $target = Get-NormalizedPath $Destination
-if ((Test-PathWithin $target $repositoryRoot) -or ($null -ne $vaultRoot -and (Test-PathWithin $target $vaultRoot))) {
-  throw 'Destination must be outside the repository and Vault'
-}
+Assert-SafeSecretTarget -Target $target -RepositoryRoot $repositoryRoot -VaultRoot $vaultRoot
 
+$ownerMarkerPath = Join-Path $target '.local-production-owner'
 $environmentPath = Join-Path $target 'local-production.env'
 $adminPasswordPath = Join-Path $target 'admin-password'
+foreach ($path in @($ownerMarkerPath, $environmentPath, $adminPasswordPath)) {
+  Assert-NoReparsePoint $path
+  if ((Test-Path -LiteralPath $path) -and -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+    throw 'The local production secret set is malformed; nothing was changed'
+  }
+}
 $environmentExists = Test-Path -LiteralPath $environmentPath -PathType Leaf
 $adminPasswordExists = Test-Path -LiteralPath $adminPasswordPath -PathType Leaf
 if ($environmentExists -xor $adminPasswordExists) {
@@ -172,8 +245,11 @@ if ($environmentExists) {
   exit 0
 }
 
-New-Item -ItemType Directory -Path $target -Force | Out-Null
+New-Item -ItemType Directory -Path $target -ErrorAction Stop | Out-Null
+Assert-NoReparsePoint $target
 Set-RestrictedAcl -Path $target -IsDirectory $true
+Write-Utf8NoBomFile -Path $ownerMarkerPath -Content "NanjingPetCare local production secrets v1`n"
+Set-RestrictedAcl -Path $ownerMarkerPath -IsDirectory $false
 
 $postgresPassword = New-RandomText -ByteCount 32
 $minioRootUser = New-RandomText -ByteCount 24

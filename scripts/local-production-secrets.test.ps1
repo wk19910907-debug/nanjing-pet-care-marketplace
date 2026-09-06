@@ -9,6 +9,7 @@ while ($null -ne $vaultRoot -and -not (Test-Path -LiteralPath (Join-Path $vaultR
   $vaultRoot = $parent
 }
 $generator = Join-Path $PSScriptRoot 'local-production-secrets.ps1'
+$currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 
 function Assert-True {
   param([Parameter(Mandatory)][bool]$Condition, [Parameter(Mandatory)][string]$Message)
@@ -34,6 +35,31 @@ function Invoke-Generator {
   return @($output | ForEach-Object { [string]$_ })
 }
 
+function Get-PathFingerprint {
+  param([Parameter(Mandatory)][string]$Path)
+  if (-not (Test-Path -LiteralPath $Path)) { return '<missing>' }
+  $item = Get-Item -LiteralPath $Path -Force
+  $content = if ($item -is [IO.FileInfo]) { [Convert]::ToBase64String([IO.File]::ReadAllBytes($Path)) } else { '<directory>' }
+  return "$content|$((Get-Acl -LiteralPath $Path).Sddl)"
+}
+
+function Assert-RejectedWithoutMutation {
+  param(
+    [Parameter(Mandatory)][string]$Destination,
+    [Parameter(Mandatory)][string[]]$WatchPaths,
+    [Parameter(Mandatory)][string]$Reason
+  )
+  $before = @{}
+  foreach ($path in $WatchPaths) { $before[$path] = Get-PathFingerprint $path }
+  $output = & pwsh -NoProfile -File $generator -Destination $Destination 2>&1
+  $exitCode = $LASTEXITCODE
+  Assert-True ($exitCode -ne 0) "$Reason must be rejected"
+  foreach ($path in $WatchPaths) {
+    Assert-True ((Get-PathFingerprint $path) -eq $before[$path]) "$Reason must leave bytes and ACLs unchanged"
+  }
+  Assert-True (-not (($output -join "`n").Contains('POSTGRES_PASSWORD'))) "$Reason failure must not print secrets"
+}
+
 Assert-True (Test-Path -LiteralPath $generator) 'Generator script is missing'
 
 $originalLocalAppData = $env:LOCALAPPDATA
@@ -45,6 +71,7 @@ try {
   $firstOutput = Invoke-Generator
   $environmentPath = Join-Path $expectedTarget 'local-production.env'
   $adminPasswordPath = Join-Path $expectedTarget 'admin-password'
+  $ownerMarkerPath = Join-Path $expectedTarget '.local-production-owner'
 
   Assert-True (Test-Path -LiteralPath $environmentPath -PathType Leaf) 'First run must create local-production.env'
   Assert-True (Test-Path -LiteralPath $adminPasswordPath -PathType Leaf) 'First run must create admin-password'
@@ -65,6 +92,11 @@ try {
   Assert-True (-not $environment.ContainsKey('ADMIN_PASSWORD')) 'Administrator password must not be stored in the environment file'
   Assert-True ($environment['PILOT_AUTH_PEPPER'] -ne $environment['FIELD_ENCRYPTION_KEY_V1']) 'Independent Base64 secrets must differ'
 
+  $safeOverrideTarget = Join-Path $temporaryLocalAppData 'safe-override-secret-leaf'
+  $safeOverrideOutput = Invoke-Generator -Arguments @('-Destination', $safeOverrideTarget)
+  Assert-True (Test-Path -LiteralPath (Join-Path $safeOverrideTarget '.local-production-owner') -PathType Leaf) 'A safe absent override leaf must be accepted and marked as owned'
+  Assert-True (($safeOverrideOutput -join "`n").Contains($safeOverrideTarget, [StringComparison]::OrdinalIgnoreCase)) 'Safe override output must name the secret directory'
+
   $firstEnvironmentBytes = [IO.File]::ReadAllBytes($environmentPath)
   $firstAdminPasswordBytes = [IO.File]::ReadAllBytes($adminPasswordPath)
   $secondOutput = Invoke-Generator
@@ -82,9 +114,69 @@ try {
     Assert-True (-not $acl.AreAccessRulesProtected -eq $false) "ACL inheritance must be removed for $path"
     $identities = @($acl.Access | ForEach-Object { $_.IdentityReference.Value } | Sort-Object -Unique)
     foreach ($identity in $identities) {
-      Assert-True ($identity -eq "$env:USERDOMAIN\$env:USERNAME" -or $identity -eq 'NT AUTHORITY\SYSTEM') "ACL for $path must only allow current user and SYSTEM"
+      Assert-True ($identity -eq $currentIdentity -or $identity -eq 'NT AUTHORITY\SYSTEM') "ACL for $path must only allow current user and SYSTEM"
     }
   }
+
+  $unrelatedDirectory = Join-Path $temporaryLocalAppData 'unrelated-existing-directory'
+  New-Item -ItemType Directory -Path $unrelatedDirectory -Force | Out-Null
+  $unrelatedSentinel = Join-Path $unrelatedDirectory 'sentinel.txt'
+  [IO.File]::WriteAllText($unrelatedSentinel, 'must remain unchanged', [Text.UTF8Encoding]::new($false))
+  Assert-RejectedWithoutMutation -Destination $unrelatedDirectory -WatchPaths @($unrelatedDirectory, $unrelatedSentinel) -Reason 'An unrelated existing directory'
+
+  $driveLetter = @('Z', 'Y', 'X', 'W', 'V', 'U') | Where-Object { -not (Test-Path -LiteralPath "$_`:\") } | Select-Object -First 1
+  Assert-True ($null -ne $driveLetter) 'A free drive letter is required for the safe root-rejection test'
+  $substituteRootBacking = Join-Path $temporaryLocalAppData 'substitute-drive-root'
+  New-Item -ItemType Directory -Path $substituteRootBacking -Force | Out-Null
+  $substituteSentinel = Join-Path $substituteRootBacking 'sentinel.txt'
+  [IO.File]::WriteAllText($substituteSentinel, 'must remain unchanged', [Text.UTF8Encoding]::new($false))
+  & subst.exe "$driveLetter`:" $substituteRootBacking | Out-Null
+  Assert-True ($LASTEXITCODE -eq 0) 'Unable to create a harmless substitute drive for the root-rejection test'
+  try {
+    Assert-RejectedWithoutMutation -Destination "$driveLetter`:\" -WatchPaths @($substituteRootBacking, $substituteSentinel) -Reason 'A filesystem root'
+  } finally {
+    & subst.exe "$driveLetter`:" '/d' | Out-Null
+  }
+
+  Assert-True (Test-Path -LiteralPath $ownerMarkerPath -PathType Leaf) 'First run must create an ownership marker'
+  $markerAcl = Get-Acl -LiteralPath $ownerMarkerPath
+  Assert-True $markerAcl.AreAccessRulesProtected 'Ownership-marker ACL inheritance must be removed'
+  foreach ($identity in @($markerAcl.Access | ForEach-Object { $_.IdentityReference.Value } | Sort-Object -Unique)) {
+    Assert-True ($identity -eq $currentIdentity -or $identity -eq 'NT AUTHORITY\SYSTEM') 'Ownership-marker ACL must only allow current user and SYSTEM'
+  }
+
+  $reparseBacking = Join-Path $temporaryLocalAppData 'reparse-backing'
+  $reparsePath = Join-Path $temporaryLocalAppData 'reparse-link'
+  New-Item -ItemType Directory -Path $reparseBacking -Force | Out-Null
+  $reparseSentinel = Join-Path $reparseBacking 'sentinel.txt'
+  [IO.File]::WriteAllText($reparseSentinel, 'must remain unchanged', [Text.UTF8Encoding]::new($false))
+  $junctionCreated = $false
+  try {
+    New-Item -ItemType Junction -Path $reparsePath -Target $reparseBacking -ErrorAction Stop | Out-Null
+    $junctionCreated = $true
+  } catch { }
+  if ($junctionCreated) {
+    try {
+      Assert-RejectedWithoutMutation -Destination (Join-Path $reparsePath 'NanjingPetCare') -WatchPaths @($reparseBacking, $reparseSentinel) -Reason 'A reparse-point ancestor'
+    } finally {
+      cmd.exe /c "rmdir `"$reparsePath`"" | Out-Null
+    }
+  }
+
+  $validEnvironmentBytes = [IO.File]::ReadAllBytes($environmentPath)
+  $validAdminPasswordBytes = [IO.File]::ReadAllBytes($adminPasswordPath)
+  [IO.File]::WriteAllText($environmentPath, 'malformed', [Text.UTF8Encoding]::new($false))
+  Assert-RejectedWithoutMutation -Destination $expectedTarget -WatchPaths @($expectedTarget, $environmentPath, $adminPasswordPath, $ownerMarkerPath) -Reason 'A malformed existing environment file'
+  [IO.File]::WriteAllBytes($environmentPath, $validEnvironmentBytes)
+  Remove-Item -LiteralPath $adminPasswordPath -Force
+  Assert-RejectedWithoutMutation -Destination $expectedTarget -WatchPaths @($expectedTarget, $environmentPath, $adminPasswordPath, $ownerMarkerPath) -Reason 'A partial existing secret set'
+  [IO.File]::WriteAllBytes($adminPasswordPath, $validAdminPasswordBytes)
+  [IO.File]::WriteAllBytes($environmentPath, [byte[]](0xEF, 0xBB, 0xBF) + $validEnvironmentBytes)
+  Assert-RejectedWithoutMutation -Destination $expectedTarget -WatchPaths @($expectedTarget, $environmentPath, $adminPasswordPath, $ownerMarkerPath) -Reason 'A BOM-prefixed existing environment file'
+  [IO.File]::WriteAllBytes($environmentPath, $validEnvironmentBytes)
+  [IO.File]::WriteAllBytes($adminPasswordPath, [byte[]](0xEF, 0xBB, 0xBF) + $validAdminPasswordBytes)
+  Assert-RejectedWithoutMutation -Destination $expectedTarget -WatchPaths @($expectedTarget, $environmentPath, $adminPasswordPath, $ownerMarkerPath) -Reason 'A BOM-prefixed existing administrator password file'
+  [IO.File]::WriteAllBytes($adminPasswordPath, $validAdminPasswordBytes)
 
   $unsafeRepositoryTarget = Join-Path $repositoryRoot '.local-production\unsafe'
   $unsafeVaultTarget = Join-Path $vaultRoot '.local-production\unsafe'
@@ -93,6 +185,7 @@ try {
     Assert-True ($LASTEXITCODE -ne 0) "Target inside repository or Vault must be rejected: $unsafeTarget"
     Assert-True (-not (($unsafeOutput -join "`n").Contains('POSTGRES_PASSWORD'))) 'Unsafe-destination failure must not print secrets'
   }
+  Assert-RejectedWithoutMutation -Destination $env:USERPROFILE -WatchPaths @($env:USERPROFILE) -Reason 'A user-profile root'
 } finally {
   $env:LOCALAPPDATA = $originalLocalAppData
   if (Test-Path -LiteralPath $temporaryLocalAppData) { Remove-Item -LiteralPath $temporaryLocalAppData -Recurse -Force }
