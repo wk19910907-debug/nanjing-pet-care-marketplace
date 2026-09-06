@@ -31,5 +31,5 @@ exec env -i \
   test "$(id -g)" -eq 1000
   test -f /run/admin-password/admin-password
   test "$(stat -c "%a:%u:%g" /run/admin-password/admin-password)" = "400:1000:1000"
-  exec pnpm --filter @pet/api bootstrap:local-production-admin -- --password-file /run/admin-password/admin-password
+  exec pnpm --filter @pet/api bootstrap:local-production-admin --password-file /run/admin-password/admin-password
 '

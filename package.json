@@ -31,7 +31,11 @@
     "test:live-cleanup": "node --test scripts/pilot-live-state.test.mjs scripts/pilot-live-children.test.mjs",
     "test:s3": "node -e \"process.env.PET_S3_LIVE_TEST='1';require('node:child_process').execSync('pnpm --filter @pet/api exec vitest run tests/s3-live.test.ts',{stdio:'inherit'})\"",
     "local-production:secrets": "pwsh -NoProfile -File scripts/local-production-secrets.ps1",
-    "test:local-production:deploy": "node --test scripts/local-production-deployment-files.test.mjs"
+    "test:local-production:deploy": "node --test scripts/local-production-deployment-files.test.mjs",
+    "local-production:start": "pwsh -NoProfile -File scripts/local-production.ps1 start",
+    "local-production:status": "pwsh -NoProfile -File scripts/local-production.ps1 status",
+    "local-production:stop": "pwsh -NoProfile -File scripts/local-production.ps1 stop",
+    "local-production:verify": "pwsh -NoProfile -File scripts/local-production.ps1 verify"
   },
   "dependencies": {
     "@prisma/client": "^6.16.1"

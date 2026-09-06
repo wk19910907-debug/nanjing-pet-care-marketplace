@@ -82,6 +82,9 @@ try {
     Assert-True ($environment.ContainsKey($name)) "Environment must contain $name"
   }
   Assert-True ($environment['POSTGRES_MAINTENANCE_PORT'] -eq '54329') 'PostgreSQL maintenance port must be explicit and stable'
+  Assert-True ($environment['LOCAL_HTTP_PORT'] -eq '8080' -and $environment['LOCAL_HTTPS_PORT'] -eq '443') 'Local host ports default to HTTP 8080 and fixed-origin HTTPS 443'
+  Assert-True ($environment['S3_ACCESS_KEY_ID'] -match '^[A-Za-z0-9_-]{20}$') 'Generated MinIO service-account access key must be exactly 20 URL-safe characters'
+  Assert-True ($environment['S3_SECRET_ACCESS_KEY'] -match '^[A-Za-z0-9_-]{40}$') 'Generated MinIO service-account secret key must be exactly 40 URL-safe characters'
   foreach ($name in @('PILOT_AUTH_PEPPER', 'FIELD_ENCRYPTION_KEY_V1')) {
     Assert-True ([Convert]::FromBase64String($environment[$name]).Length -eq 32) "$name must decode to exactly 32 bytes"
   }
@@ -120,6 +123,64 @@ try {
   }
 
   $unrelatedDirectory = Join-Path $temporaryLocalAppData 'unrelated-existing-directory'
+  $legacyAccessKey = 'L' * 32
+  $originalEnvironmentText = [IO.File]::ReadAllText($environmentPath)
+  $legacyEnvironmentText = $originalEnvironmentText.Replace("S3_ACCESS_KEY_ID=$($environment['S3_ACCESS_KEY_ID'])", "S3_ACCESS_KEY_ID=$legacyAccessKey")
+  [IO.File]::WriteAllText($environmentPath, $legacyEnvironmentText, [Text.UTF8Encoding]::new($false))
+  $migrationAcls = @{}
+  foreach ($path in @($expectedTarget, $environmentPath, $adminPasswordPath, $ownerMarkerPath)) { $migrationAcls[$path] = (Get-Acl -LiteralPath $path).Sddl }
+  $migrationAdminBytes = [IO.File]::ReadAllBytes($adminPasswordPath)
+  $migrationOutput = Invoke-Generator
+  $migratedEnvironment = Get-EnvironmentValues $environmentPath
+  Assert-True ($migratedEnvironment['S3_ACCESS_KEY_ID'] -match '^[A-Za-z0-9_-]{20}$') 'Legacy 32-character generator access key is migrated to supported length'
+  $migratedText = [IO.File]::ReadAllText($environmentPath)
+  Assert-True ($migratedText -ceq $legacyEnvironmentText.Replace("S3_ACCESS_KEY_ID=$legacyAccessKey", "S3_ACCESS_KEY_ID=$($migratedEnvironment['S3_ACCESS_KEY_ID'])")) 'Migration changes exactly the access-key field, preserving every other byte'
+  Assert-True ([Linq.Enumerable]::SequenceEqual([byte[]]$migrationAdminBytes, [byte[]][IO.File]::ReadAllBytes($adminPasswordPath))) 'Migration preserves administrator password bytes'
+  foreach ($path in $migrationAcls.Keys) { Assert-True ((Get-Acl -LiteralPath $path).Sddl -eq $migrationAcls[$path]) 'Migration preserves existing ACL restrictions' }
+  Assert-True (-not (($migrationOutput -join "`n").Contains($legacyAccessKey)) -and -not (($migrationOutput -join "`n").Contains($migratedEnvironment['S3_ACCESS_KEY_ID']))) 'Migration prints neither access-key value'
+  $null = Invoke-Generator
+  Assert-True ([IO.File]::ReadAllText($environmentPath) -ceq $migratedText) 'Migration is idempotent'
+  foreach ($invalidKey in @(('A' * 21), ('A' * 31), ('A' * 33), ('A' * 31 + '/'))) {
+    [IO.File]::WriteAllText($environmentPath, $migratedText.Replace("S3_ACCESS_KEY_ID=$($migratedEnvironment['S3_ACCESS_KEY_ID'])", "S3_ACCESS_KEY_ID=$invalidKey"), [Text.UTF8Encoding]::new($false))
+    Assert-RejectedWithoutMutation -Destination $expectedTarget -WatchPaths @($expectedTarget, $environmentPath, $adminPasswordPath, $ownerMarkerPath) -Reason 'A non-legacy invalid service-account access key'
+  }
+  [IO.File]::WriteAllText($environmentPath, $migratedText, [Text.UTF8Encoding]::new($false))
+  $legacySecretKey = 'S' * 43
+  $legacySecretText = $migratedText.Replace("S3_SECRET_ACCESS_KEY=$($migratedEnvironment['S3_SECRET_ACCESS_KEY'])", "S3_SECRET_ACCESS_KEY=$legacySecretKey")
+  [IO.File]::WriteAllText($environmentPath, $legacySecretText, [Text.UTF8Encoding]::new($false))
+  $secretMigrationOutput = Invoke-Generator
+  $secretMigratedEnvironment = Get-EnvironmentValues $environmentPath
+  Assert-True ($secretMigratedEnvironment['S3_SECRET_ACCESS_KEY'] -match '^[A-Za-z0-9_-]{40}$') 'Legacy 43-character secret key is migrated to supported length'
+  $secretMigratedText = [IO.File]::ReadAllText($environmentPath)
+  Assert-True ($secretMigratedText -ceq $legacySecretText.Replace("S3_SECRET_ACCESS_KEY=$legacySecretKey", "S3_SECRET_ACCESS_KEY=$($secretMigratedEnvironment['S3_SECRET_ACCESS_KEY'])")) 'Secret-key migration changes exactly its field, preserving every other byte'
+  Assert-True ([Linq.Enumerable]::SequenceEqual([byte[]]$migrationAdminBytes, [byte[]][IO.File]::ReadAllBytes($adminPasswordPath))) 'Secret-key migration preserves administrator password bytes'
+  foreach ($path in $migrationAcls.Keys) { Assert-True ((Get-Acl -LiteralPath $path).Sddl -eq $migrationAcls[$path]) 'Secret-key migration preserves existing ACL restrictions' }
+  Assert-True (-not (($secretMigrationOutput -join "`n").Contains($legacySecretKey)) -and -not (($secretMigrationOutput -join "`n").Contains($secretMigratedEnvironment['S3_SECRET_ACCESS_KEY']))) 'Secret-key migration prints neither value'
+  $null = Invoke-Generator
+  Assert-True ([IO.File]::ReadAllText($environmentPath) -ceq $secretMigratedText) 'Secret-key migration is idempotent'
+  foreach ($invalidKey in @(('S' * 41), ('S' * 42), ('S' * 44), ('S' * 42 + '/'))) {
+    [IO.File]::WriteAllText($environmentPath, $secretMigratedText.Replace("S3_SECRET_ACCESS_KEY=$($secretMigratedEnvironment['S3_SECRET_ACCESS_KEY'])", "S3_SECRET_ACCESS_KEY=$invalidKey"), [Text.UTF8Encoding]::new($false))
+    Assert-RejectedWithoutMutation -Destination $expectedTarget -WatchPaths @($expectedTarget, $environmentPath, $adminPasswordPath, $ownerMarkerPath) -Reason 'A non-legacy invalid service-account secret key'
+  }
+  [IO.File]::WriteAllText($environmentPath, $secretMigratedText, [Text.UTF8Encoding]::new($false))
+  $withoutPorts = [regex]::Replace($secretMigratedText, '(?m)^LOCAL_(HTTP|HTTPS)_PORT=\d+\r?\n?', '')
+  [IO.File]::WriteAllText($environmentPath, $withoutPorts, [Text.UTF8Encoding]::new($false))
+  $null = Invoke-Generator
+  $portedText = [IO.File]::ReadAllText($environmentPath)
+  $portSeparator = if ($withoutPorts.EndsWith("`n")) { '' } else { "`n" }
+  Assert-True ($portedText -ceq ($withoutPorts + $portSeparator + "LOCAL_HTTP_PORT=8080`nLOCAL_HTTPS_PORT=443`n")) 'Owned legacy environment gains only the two non-secret port fields'
+  foreach ($path in $migrationAcls.Keys) { Assert-True ((Get-Acl -LiteralPath $path).Sddl -eq $migrationAcls[$path]) 'Port-field migration preserves ACL restrictions' }
+  foreach ($invalidPort in @('0', '65536', 'abc', '443', '54329')) {
+    [IO.File]::WriteAllText($environmentPath, $portedText.Replace('LOCAL_HTTP_PORT=8080', "LOCAL_HTTP_PORT=$invalidPort"), [Text.UTF8Encoding]::new($false))
+    Assert-RejectedWithoutMutation -Destination $expectedTarget -WatchPaths @($environmentPath, $adminPasswordPath) -Reason 'An invalid or internally conflicting HTTP port'
+  }
+  [IO.File]::WriteAllText($environmentPath, $portedText.Replace('LOCAL_HTTPS_PORT=443', 'LOCAL_HTTPS_PORT=8443'), [Text.UTF8Encoding]::new($false))
+  Assert-RejectedWithoutMutation -Destination $expectedTarget -WatchPaths @($environmentPath) -Reason 'HTTPS port conflicting with fixed public origins'
+  $customPortText = $portedText.Replace('LOCAL_HTTP_PORT=8080', 'LOCAL_HTTP_PORT=8081')
+  [IO.File]::WriteAllText($environmentPath, $customPortText, [Text.UTF8Encoding]::new($false))
+  $null = Invoke-Generator
+  Assert-True ([IO.File]::ReadAllText($environmentPath) -ceq $customPortText) 'Valid custom HTTP port remains unchanged'
+  [IO.File]::WriteAllText($environmentPath, $portedText, [Text.UTF8Encoding]::new($false))
   New-Item -ItemType Directory -Path $unrelatedDirectory -Force | Out-Null
   $unrelatedSentinel = Join-Path $unrelatedDirectory 'sentinel.txt'
   [IO.File]::WriteAllText($unrelatedSentinel, 'must remain unchanged', [Text.UTF8Encoding]::new($false))
@@ -160,7 +221,7 @@ try {
     try {
       Assert-RejectedWithoutMutation -Destination (Join-Path $reparsePath 'NanjingPetCare') -WatchPaths @($reparseBacking, $reparseSentinel) -Reason 'A reparse-point ancestor'
     } finally {
-      cmd.exe /c "rmdir `"$reparsePath`"" | Out-Null
+      Remove-Item -LiteralPath $reparsePath -Force
     }
   }
 
@@ -187,9 +248,42 @@ try {
     Assert-True (-not (($unsafeOutput -join "`n").Contains('POSTGRES_PASSWORD'))) 'Unsafe-destination failure must not print secrets'
   }
   Assert-RejectedWithoutMutation -Destination $env:USERPROFILE -WatchPaths @($env:USERPROFILE) -Reason 'A user-profile root'
+
+  $validMarkerBytes = [IO.File]::ReadAllBytes($ownerMarkerPath)
+  [IO.File]::WriteAllText($ownerMarkerPath, 'invalid owner marker', [Text.UTF8Encoding]::new($false))
+  $invalidDefaultOutput = & pwsh -NoProfile -File $generator 2>&1
+  Assert-True ($LASTEXITCODE -ne 0) 'A damaged existing default secret directory must fail closed instead of creating replacement secrets in a child'
+  Assert-True (-not (Test-Path -LiteralPath (Join-Path $expectedTarget 'local-production-secrets'))) 'A damaged owned parent must not silently fall back'
+  [IO.File]::WriteAllBytes($ownerMarkerPath, $validMarkerBytes)
+
+  # The application also stores runtime/backups here; never claim or rewrite that parent.
+  $sharedLocalAppData = Join-Path $temporaryLocalAppData 'shared-application-data'
+  $sharedParent = Join-Path $sharedLocalAppData 'NanjingPetCare'
+  $backups = Join-Path $sharedParent 'backups'
+  $runtime = Join-Path $sharedParent 'runtime'
+  New-Item -ItemType Directory -Path $backups, $runtime -Force | Out-Null
+  $beforeParent = Get-PathFingerprint $sharedParent
+  $beforeBackups = Get-PathFingerprint $backups
+  $beforeRuntime = Get-PathFingerprint $runtime
+  $env:LOCALAPPDATA = $sharedLocalAppData
+  $null = Invoke-Generator
+  $secureLeaf = Join-Path $sharedParent 'local-production-secrets'
+  Assert-True (Test-Path -LiteralPath (Join-Path $secureLeaf 'local-production.env')) 'An unowned application parent must use the dedicated secure child'
+  Assert-True ((Get-PathFingerprint $sharedParent) -eq $beforeParent) 'Default selection must preserve the existing parent ACL'
+  Assert-True ((Get-PathFingerprint $backups) -eq $beforeBackups) 'Default selection must preserve backups'
+  Assert-True ((Get-PathFingerprint $runtime) -eq $beforeRuntime) 'Default selection must preserve runtime'
+  $secureBytes = [IO.File]::ReadAllBytes((Join-Path $secureLeaf 'local-production.env'))
+  $null = Invoke-Generator
+  Assert-True ([Linq.Enumerable]::SequenceEqual([byte[]]$secureBytes, [byte[]][IO.File]::ReadAllBytes((Join-Path $secureLeaf 'local-production.env')))) 'The dedicated secure child must be reused without rotation'
+  Assert-RejectedWithoutMutation -Destination $sharedParent -WatchPaths @($sharedParent, $backups, $runtime) -Reason 'An explicitly selected unowned application parent'
 } finally {
   $env:LOCALAPPDATA = $originalLocalAppData
-  if (Test-Path -LiteralPath $temporaryLocalAppData) { Remove-Item -LiteralPath $temporaryLocalAppData -Recurse -Force }
+  $resolvedTemporaryRoot = [IO.Path]::GetFullPath($temporaryLocalAppData)
+  if ($resolvedTemporaryRoot.StartsWith([IO.Path]::GetFullPath([IO.Path]::GetTempPath()), [StringComparison]::OrdinalIgnoreCase) -and
+      (Split-Path -Leaf $resolvedTemporaryRoot).StartsWith('NanjingPetCare-secrets-test-') -and
+      (Test-Path -LiteralPath $resolvedTemporaryRoot)) {
+    Remove-Item -LiteralPath $resolvedTemporaryRoot -Recurse -Force
+  }
 }
 
 Write-Output 'local-production-secrets tests passed'

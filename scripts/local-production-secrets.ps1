@@ -163,15 +163,20 @@ function Get-EnvironmentValues {
 function Assert-ExistingSecretsAreValid {
   param(
     [Parameter(Mandatory)][string]$EnvironmentPath,
-    [Parameter(Mandatory)][string]$AdminPasswordPath
+    [Parameter(Mandatory)][string]$AdminPasswordPath,
+    [switch]$AllowLegacyEnvironment
   )
   $environment = Get-EnvironmentValues $EnvironmentPath
   $required = @(
-    'NODE_ENV', 'PILOT_MODE', 'PILOT_SHARED_INGRESS_RATE_LIMITING', 'SITE_DOMAIN', 'STORAGE_DOMAIN',
+    'NODE_ENV', 'PILOT_MODE', 'PILOT_SHARED_INGRESS_RATE_LIMITING', 'SITE_DOMAIN', 'STORAGE_DOMAIN', 'LOCAL_HTTP_PORT', 'LOCAL_HTTPS_PORT',
     'PILOT_PUBLIC_ORIGIN', 'POSTGRES_USER', 'POSTGRES_DB', 'POSTGRES_PASSWORD', 'POSTGRES_MAINTENANCE_PORT', 'DATABASE_URL',
     'MINIO_ROOT_USER', 'MINIO_ROOT_PASSWORD', 'S3_ENDPOINT', 'S3_PUBLIC_ENDPOINT', 'S3_BUCKET',
     'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'S3_REGION', 'FIELD_ENCRYPTION_KEY_V1', 'PILOT_AUTH_PEPPER'
   )
+  $hasLegacyPorts = -not $environment.Contains('LOCAL_HTTP_PORT') -and -not $environment.Contains('LOCAL_HTTPS_PORT')
+  if ($AllowLegacyEnvironment -and $hasLegacyPorts) {
+    $required = @($required | Where-Object { $_ -notin @('LOCAL_HTTP_PORT', 'LOCAL_HTTPS_PORT') })
+  }
   if ($environment.Count -ne $required.Count -or @($required | Where-Object { -not $environment.Contains($_) }).Count -ne 0) {
     throw 'The existing local production environment file is malformed; nothing was changed'
   }
@@ -184,11 +189,25 @@ function Assert-ExistingSecretsAreValid {
   foreach ($name in $expected.Keys) {
     if ($environment[$name] -ne $expected[$name]) { throw 'The existing local production environment file is malformed; nothing was changed' }
   }
-  foreach ($name in @('POSTGRES_PASSWORD', 'MINIO_ROOT_PASSWORD', 'S3_SECRET_ACCESS_KEY')) {
+  if (-not $hasLegacyPorts -and ($environment['LOCAL_HTTPS_PORT'] -ne '443' -or
+      $environment['LOCAL_HTTP_PORT'] -notmatch '^[1-9][0-9]{0,4}$' -or
+      [int]$environment['LOCAL_HTTP_PORT'] -gt 65535 -or
+      $environment['LOCAL_HTTP_PORT'] -in @('443', $environment['POSTGRES_MAINTENANCE_PORT']))) {
+    throw 'The existing local production port configuration is invalid; nothing was changed'
+  }
+  foreach ($name in @('POSTGRES_PASSWORD', 'MINIO_ROOT_PASSWORD')) {
     if ($environment[$name] -notmatch '^[A-Za-z0-9_-]{32,}$') { throw 'The existing local production environment file is malformed; nothing was changed' }
   }
-  foreach ($name in @('MINIO_ROOT_USER', 'S3_ACCESS_KEY_ID')) {
+  foreach ($name in @('MINIO_ROOT_USER')) {
     if ($environment[$name] -notmatch '^[A-Za-z0-9_-]{16,}$') { throw 'The existing local production environment file is malformed; nothing was changed' }
+  }
+  if ($environment['S3_ACCESS_KEY_ID'] -notmatch '^[A-Za-z0-9_-]{3,20}$' -and
+      -not ($AllowLegacyEnvironment -and $environment['S3_ACCESS_KEY_ID'] -match '^[A-Za-z0-9_-]{32}$')) {
+    throw 'The existing local production environment file is malformed; nothing was changed'
+  }
+  if ($environment['S3_SECRET_ACCESS_KEY'] -notmatch '^[A-Za-z0-9_-]{32,40}$' -and
+      -not ($AllowLegacyEnvironment -and $environment['S3_SECRET_ACCESS_KEY'] -match '^[A-Za-z0-9_-]{43}$')) {
+    throw 'The existing local production environment file is malformed; nothing was changed'
   }
   foreach ($name in @('FIELD_ENCRYPTION_KEY_V1', 'PILOT_AUTH_PEPPER')) {
     try { $decoded = [Convert]::FromBase64String($environment[$name]) } catch { throw 'The existing local production environment file is malformed; nothing was changed' }
@@ -208,18 +227,36 @@ function Assert-ExistingSecretsAreValid {
   if ($adminPassword -notmatch '^[A-Za-z0-9_-]{32,}$') { throw 'The existing administrator password file is malformed; nothing was changed' }
 }
 
+function Get-LocalProductionSecretTarget {
+  param([string]$Destination, [Parameter(Mandatory)][string]$RepositoryRoot)
+  if ([string]::IsNullOrWhiteSpace($Destination)) {
+    if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) { throw 'LOCALAPPDATA is unavailable' }
+    $Destination = Join-Path $env:LOCALAPPDATA 'NanjingPetCare'
+    Assert-NoReparsePoint $Destination
+    if ((Test-Path -LiteralPath $Destination -PathType Container) -and -not (Test-OwnedSecretDirectory $Destination)) {
+      foreach ($secretName in @('.local-production-owner', 'local-production.env', 'admin-password')) {
+        if (Test-Path -LiteralPath (Join-Path $Destination $secretName)) {
+          throw 'The existing default secret directory is not safely owned; nothing was changed'
+        }
+      }
+      $Destination = Join-Path $Destination 'local-production-secrets'
+    }
+  } elseif (-not [IO.Path]::IsPathFullyQualified($Destination)) {
+    throw 'Destination must be an absolute path outside the repository and Vault'
+  }
+  $target = Get-NormalizedPath $Destination
+  Assert-SafeSecretTarget -Target $target -RepositoryRoot $RepositoryRoot -VaultRoot (Get-VaultRoot $RepositoryRoot)
+  return $target
+}
+
+# Share exactly the same selection and validation with the lifecycle controller.
+if ($MyInvocation.InvocationName -eq '.') { return }
+
 if (-not $IsWindows) { throw 'Local production secret generation requires Windows' }
 if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) { throw 'LOCALAPPDATA is unavailable' }
 
 $repositoryRoot = Get-NormalizedPath (Join-Path $PSScriptRoot '..')
-$vaultRoot = Get-VaultRoot $repositoryRoot
-if ([string]::IsNullOrWhiteSpace($Destination)) {
-  $Destination = Join-Path $env:LOCALAPPDATA 'NanjingPetCare'
-} elseif (-not [IO.Path]::IsPathFullyQualified($Destination)) {
-  throw 'Destination must be an absolute path outside the repository and Vault'
-}
-$target = Get-NormalizedPath $Destination
-Assert-SafeSecretTarget -Target $target -RepositoryRoot $repositoryRoot -VaultRoot $vaultRoot
+$target = Get-LocalProductionSecretTarget -Destination $Destination -RepositoryRoot $repositoryRoot
 
 $ownerMarkerPath = Join-Path $target '.local-production-owner'
 $environmentPath = Join-Path $target 'local-production.env'
@@ -237,7 +274,35 @@ if ($environmentExists -xor $adminPasswordExists) {
 }
 
 if ($environmentExists) {
-  Assert-ExistingSecretsAreValid -EnvironmentPath $environmentPath -AdminPasswordPath $adminPasswordPath
+  Assert-ExistingSecretsAreValid -EnvironmentPath $environmentPath -AdminPasswordPath $adminPasswordPath -AllowLegacyEnvironment
+  $existingEnvironment = Get-EnvironmentValues $environmentPath
+  if ($existingEnvironment['S3_ACCESS_KEY_ID'] -match '^[A-Za-z0-9_-]{32}$' -or
+      $existingEnvironment['S3_SECRET_ACCESS_KEY'] -match '^[A-Za-z0-9_-]{43}$' -or
+      -not $existingEnvironment.Contains('LOCAL_HTTP_PORT')) {
+    # Legacy lengths cannot be accepted by MinIO. Validate the complete owned set
+    # first, then atomically replace only the recognized legacy field(s).
+    $replacementText = [IO.File]::ReadAllText($environmentPath, [Text.UTF8Encoding]::new($false))
+    if ($existingEnvironment['S3_ACCESS_KEY_ID'] -match '^[A-Za-z0-9_-]{32}$') {
+      $replacementAccessKey = (New-RandomText -ByteCount 16).Substring(0, 20)
+      $replacementText = [regex]::Replace($replacementText, '(?m)^S3_ACCESS_KEY_ID=[A-Za-z0-9_-]{32}(?=\r?$)', "S3_ACCESS_KEY_ID=$replacementAccessKey")
+    }
+    if ($existingEnvironment['S3_SECRET_ACCESS_KEY'] -match '^[A-Za-z0-9_-]{43}$') {
+      $replacementSecretKey = (New-RandomText -ByteCount 32).Substring(0, 40)
+      $replacementText = [regex]::Replace($replacementText, '(?m)^S3_SECRET_ACCESS_KEY=[A-Za-z0-9_-]{43}(?=\r?$)', "S3_SECRET_ACCESS_KEY=$replacementSecretKey")
+    }
+    if (-not $existingEnvironment.Contains('LOCAL_HTTP_PORT')) {
+      if (-not $replacementText.EndsWith("`n")) { $replacementText += "`n" }
+      $replacementText += "LOCAL_HTTP_PORT=8080`nLOCAL_HTTPS_PORT=443`n"
+    }
+    $replacementPath = Join-Path $target ('.local-production-upgrade-' + [guid]::NewGuid().ToString('N'))
+    try {
+      Write-Utf8NoBomFile -Path $replacementPath -Content $replacementText
+      Set-RestrictedAcl -Path $replacementPath -IsDirectory $false
+      [IO.File]::Replace($replacementPath, $environmentPath, [NullString]::Value)
+    } finally {
+      if (Test-Path -LiteralPath $replacementPath) { Remove-Item -LiteralPath $replacementPath -Force }
+    }
+  }
   Set-RestrictedAcl -Path $target -IsDirectory $true
   Set-RestrictedAcl -Path $environmentPath -IsDirectory $false
   Set-RestrictedAcl -Path $adminPasswordPath -IsDirectory $false
@@ -254,8 +319,8 @@ Set-RestrictedAcl -Path $ownerMarkerPath -IsDirectory $false
 $postgresPassword = New-RandomText -ByteCount 32
 $minioRootUser = New-RandomText -ByteCount 24
 $minioRootPassword = New-RandomText -ByteCount 32
-$minioAccessKeyId = New-RandomText -ByteCount 24
-$minioSecretAccessKey = New-RandomText -ByteCount 32
+$minioAccessKeyId = (New-RandomText -ByteCount 16).Substring(0, 20)
+$minioSecretAccessKey = (New-RandomText -ByteCount 32).Substring(0, 40)
 $fieldEncryptionKey = New-RandomBase64 -ByteCount 32
 $pilotAuthPepper = New-RandomBase64 -ByteCount 32
 $adminPassword = New-RandomText -ByteCount 32
@@ -271,6 +336,8 @@ POSTGRES_USER=petcare
 POSTGRES_DB=petcare
 POSTGRES_PASSWORD=$postgresPassword
 POSTGRES_MAINTENANCE_PORT=54329
+LOCAL_HTTP_PORT=8080
+LOCAL_HTTPS_PORT=443
 DATABASE_URL=postgresql://petcare:$postgresPassword@postgres:5432/petcare?schema=public
 MINIO_ROOT_USER=$minioRootUser
 MINIO_ROOT_PASSWORD=$minioRootPassword

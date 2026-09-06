@@ -24,15 +24,22 @@ test('local production Compose keeps stateful services private, hardened, and pe
 
   assert.match(postgres, /- "127\.0\.0\.1:\$\{POSTGRES_MAINTENANCE_PORT:\?set POSTGRES_MAINTENANCE_PORT in the local production environment file\}:5432"/);
   assert.doesNotMatch(minio, /^\s+ports:/m);
+  assert.match(minio, /^      MINIO_API_CORS_ALLOW_ORIGIN: https:\/\/petcare\.localhost$/m);
+  assert.equal([...minio.matchAll(/MINIO_API_CORS_ALLOW_ORIGIN:/g)].length, 1, 'MinIO must allow exactly the single application origin');
   assert.match(postgres, /healthcheck:/);
   assert.match(minio, /healthcheck:/);
   assert.match(minioInitService, /minio:\s*\n\s+condition: service_healthy/);
+  assert.match(minioInitService, /MC_CONFIG_DIR: \/config/);
   assert.match(app, /postgres:\s*\n\s+condition: service_healthy/);
   assert.match(app, /minio:\s*\n\s+condition: service_healthy/);
   assert.match(app, /minio-init:\s*\n\s+condition: service_completed_successfully/);
 
   assert.match(compose, /edge:\s*\n\s+driver: bridge/);
   assert.match(compose, /backend:\s*\n\s+driver: bridge[\s\S]*?subnet: 172\.31\.0\.0\/24/);
+  assert.match(compose, /subnet: 172\.31\.0\.0\/24\s*\n\s+ip_range: 172\.31\.0\.128\/25/);
+  for (const dynamicService of [postgres, minio, minioInitService]) {
+    assert.doesNotMatch(dynamicService, /ipv4_address:/, 'dynamic infrastructure services must use the upper-half pool, outside fixed app/WAF addresses');
+  }
   assert.match(app, /ipv4_address: 172\.31\.0\.3/);
   assert.match(app, /PILOT_TRUST_PROXY: 172\.31\.0\.2/);
   assert.match(postgres, /security_opt:\s*\n\s+- no-new-privileges:true/);
@@ -56,11 +63,15 @@ test('local production Compose keeps stateful services private, hardened, and pe
   assert.match(minioInit, /mc mb --ignore-existing "local\/\$S3_BUCKET"/);
   assert.match(minioInit, /mc anonymous set none "local\/\$S3_BUCKET"/);
   assert.match(minioInit, /mc version enable "local\/\$S3_BUCKET"/);
-  assert.match(minioInit, /mc cors set "local\/\$S3_BUCKET" \/config\/cors\.json/);
+  assert.doesNotMatch(minioInit, /mc cors set|cors\.json|<CORSConfiguration/, 'the pinned MinIO release does not support bucket CORS; use its exact server origin control');
   assert.match(minioInit, /admin policy create local app-bucket-policy \/config\/app-bucket-policy\.json/);
   assert.match(minioInit, /admin user svcacct add local "\$MINIO_ROOT_USER"[\s\S]*?--access-key "\$S3_ACCESS_KEY_ID"[\s\S]*?--secret-key "\$S3_SECRET_ACCESS_KEY"/);
   assert.match(minioInit, /admin user svcacct edit local "\$S3_ACCESS_KEY_ID"[\s\S]*?--policy \/config\/app-bucket-policy\.json/);
-  assert.match(minioInit, /mc anonymous get "local\/\$S3_BUCKET" \| grep -Eq '\(private\|none\)'/);
+  assert.match(minioInit, /anonymous_policy=\$\(mc anonymous get "local\/\$S3_BUCKET"\)/);
+  assert.match(minioInit, /case "\$anonymous_policy" in/);
+  assert.match(minioInit, /\*' is `private`'\|\*' is `none`'\) ;;/);
+  assert.match(minioInit, /\*\) exit 1 ;;/);
+  assert.doesNotMatch(minioInit, /\bgrep\b/);
   const policy = minioInit.match(/cat > \/config\/app-bucket-policy\.json <<EOF\r?\n([\s\S]*?)\r?\nEOF/)?.[1];
   assert.ok(policy, 'the bucket policy is generated as JSON');
   assert.deepEqual(JSON.parse(policy), {
@@ -69,16 +80,13 @@ test('local production Compose keeps stateful services private, hardened, and pe
       Effect: 'Allow',
       Action: ['s3:GetObject', 's3:PutObject'],
       Resource: ['arn:aws:s3:::$S3_BUCKET/*'],
+    }, {
+      Effect: 'Allow',
+      Action: ['s3:ListBucket'],
+      Resource: ['arn:aws:s3:::$S3_BUCKET'],
     }],
   });
 
-  const cors = minioInit.match(/cat > \/config\/cors\.json <<'EOF'\r?\n([\s\S]*?)\r?\nEOF/)?.[1];
-  assert.ok(cors, 'the CORS configuration is generated as XML');
-  assert.match(cors, /^<\?xml version="1\.0" encoding="UTF-8"\?>\r?\n<CORSConfiguration xmlns="http:\/\/s3\.amazonaws\.com\/doc\/2006-03-01\/">/);
-  assert.deepEqual([...cors.matchAll(/<AllowedOrigin>([^<]+)<\/AllowedOrigin>/g)].map((match) => match[1]), ['https://petcare.localhost']);
-  assert.deepEqual([...cors.matchAll(/<AllowedMethod>([^<]+)<\/AllowedMethod>/g)].map((match) => match[1]), ['GET', 'PUT', 'HEAD']);
-  assert.deepEqual([...cors.matchAll(/<ExposeHeader>([^<]+)<\/ExposeHeader>/g)].map((match) => match[1]), ['ETag', 'x-amz-checksum-sha256']);
-  assert.match(cors, /<\/CORSConfiguration>$/);
 });
 
 test('local production WAF is the sole TLS edge and protects only the application host', async () => {
@@ -100,8 +108,11 @@ test('local production WAF is the sole TLS edge and protects only the applicatio
   assert.match(dockerfile, /USER 1000:1000/);
 
   assert.match(waf, /build:\s*\n\s+context: \.\n\s+dockerfile: local-production\/Dockerfile\.waf/);
-  assert.match(waf, /- "80:80"/);
-  assert.match(waf, /- "443:443"/);
+  assert.match(waf, /image: nanjing-petcare-waf:local/);
+  assert.match(waf, /- "127\.0\.0\.1:\$\{LOCAL_HTTP_PORT:\?[^}]+\}:80"/);
+  assert.match(waf, /- "127\.0\.0\.1:\$\{LOCAL_HTTPS_PORT:\?[^}]+\}:443"/);
+  assert.match(waf, /- "127\.0\.0\.1:\$\{LOCAL_HTTPS_PORT:\?[^}]+\}:443\/udp"/);
+  assert.doesNotMatch(waf, /- "(?:80:80|443:443|0\.0\.0\.0:)/);
   assert.match(waf, /ipv4_address: 172\.31\.0\.2/);
   assert.match(waf, /edge:/);
   assert.match(waf, /backend:/);
@@ -113,8 +124,8 @@ test('local production WAF is the sole TLS edge and protects only the applicatio
   assert.match(waf, /caddy_config:\/config/);
   assert.doesNotMatch(app, /^\s+ports:/m);
   assert.doesNotMatch(minio, /^\s+ports:/m);
-  assert.equal([...compose.matchAll(/- "80:80"/g)].length, 1, 'only WAF may publish TCP port 80');
-  assert.equal([...compose.matchAll(/- "443:443"/g)].length, 1, 'only WAF may publish TCP port 443');
+  assert.equal([...compose.matchAll(/\}:80"/g)].length, 1, 'only WAF may publish container TCP port 80');
+  assert.equal([...compose.matchAll(/\}:443"/g)].length, 1, 'only WAF may publish container TCP port 443');
 
   assert.match(caddyfile, /order coraza_waf first/);
   assert.match(caddyfile, /https:\/\/petcare\.localhost\s*\{[\s\S]*?coraza_waf\s*\{[\s\S]*?load_owasp_crs[\s\S]*?directives `Include \/etc\/caddy\/coraza\.conf`[\s\S]*?\}[\s\S]*?reverse_proxy app:3000\s*\{[\s\S]*?header_up X-Forwarded-For \{client_ip\}/);
@@ -158,6 +169,7 @@ test('local production initializes storage, schema, and the guarded administrato
   assert.match(adminInit, /user: "0:0"/);
   assert.match(adminInit, /LOCAL_PRODUCTION_REHEARSAL: enabled/);
   assert.match(adminInit, /admin-password-host:ro/);
+  assert.match(adminInit, /\$\{LOCAL_PRODUCTION_SECRET_DIR:\?[^}]+\}\/admin-password:\/run\/secrets\/admin-password-host:ro/);
   assert.match(adminInit, /\/run\/admin-password:size=64k,mode=0700/);
   assert.match(adminInit, /migrate:\s*\n\s+condition: service_completed_successfully/);
   assert.doesNotMatch(adminInit, /MINIO_ROOT_USER|MINIO_ROOT_PASSWORD/);
@@ -178,6 +190,8 @@ test('local production initializes storage, schema, and the guarded administrato
   assert.match(adminInitScript, /test "\$\(id -g\)" -eq 1000/);
   assert.match(adminInitScript, /test -f \/run\/admin-password\/admin-password/);
   assert.match(adminInitScript, /--password-file \/run\/admin-password\/admin-password/);
+  assert.match(adminInitScript, /bootstrap:local-production-admin --password-file \/run\/admin-password\/admin-password/);
+  assert.doesNotMatch(adminInitScript, /bootstrap:local-production-admin -- --password-file/);
   assert.match(dockerfile, /ENV COREPACK_HOME=\/opt\/corepack/);
   assert.match(dockerfile, /corepack prepare pnpm@10\.15\.0 --activate/);
   assert.match(dockerfile, /chown -R node:node \/opt\/corepack/);

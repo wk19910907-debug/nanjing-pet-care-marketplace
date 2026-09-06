@@ -41,6 +41,7 @@ services:
     command: server /data --console-address :9001
     restart: unless-stopped
     environment:
+      MINIO_API_CORS_ALLOW_ORIGIN: https://petcare.localhost
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in the local production environment file}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in the local production environment file}
     volumes:
@@ -68,6 +69,7 @@ services:
     restart: "no"
     entrypoint: ["/bin/sh", "/usr/local/bin/minio-init.sh"]
     environment:
+      MC_CONFIG_DIR: /config
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER in the local production environment file}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in the local production environment file}
       S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET in the local production environment file}
@@ -141,7 +143,7 @@ services:
         condition: service_completed_successfully
     volumes:
       - ./local-production/admin-init.sh:/usr/local/bin/admin-init.sh:ro
-      - ${LOCALAPPDATA:?set LOCALAPPDATA}/NanjingPetCare/admin-password:/run/secrets/admin-password-host:ro
+      - ${LOCAL_PRODUCTION_SECRET_DIR:?set LOCAL_PRODUCTION_SECRET_DIR with the lifecycle controller}/admin-password:/run/secrets/admin-password-host:ro
     networks:
       backend:
     user: "0:0"
@@ -164,6 +166,7 @@ services:
         max-file: "3"
 
   waf:
+    image: nanjing-petcare-waf:local
     build:
       context: .
       dockerfile: local-production/Dockerfile.waf
@@ -172,9 +175,9 @@ services:
       app:
         condition: service_healthy
     ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      - "127.0.0.1:${LOCAL_HTTP_PORT:?set LOCAL_HTTP_PORT in the local production environment file}:80"
+      - "127.0.0.1:${LOCAL_HTTPS_PORT:?set LOCAL_HTTPS_PORT in the local production environment file}:443"
+      - "127.0.0.1:${LOCAL_HTTPS_PORT:?set LOCAL_HTTPS_PORT in the local production environment file}:443/udp"
     volumes:
       - ./local-production/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./local-production/coraza.conf:/etc/caddy/coraza.conf:ro
@@ -262,6 +265,7 @@ networks:
     ipam:
       config:
         - subnet: 172.31.0.0/24
+          ip_range: 172.31.0.128/25
 
 volumes:
   postgres_data:
