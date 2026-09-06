@@ -129,3 +129,35 @@ test('local production WAF is the sole TLS edge and protects only the applicatio
   assert.match(coraza, /SecRequestBodyNoFilesLimit 1048576/);
   assert.match(coraza, /Include @owasp_crs\/\*\.conf/);
 });
+
+test('local production initializes storage, schema, and the guarded administrator before serving traffic', async () => {
+  const compose = await source('deploy/compose.local-production.yml');
+  const apiPackage = JSON.parse(await source('apps/api/package.json'));
+
+  const service = (name) => compose.match(new RegExp(`\\n  ${name}:\\n[\\s\\S]*?(?=\\n  \\w[\\w-]*:\\n|\\nnetworks:)`))?.[0] ?? '';
+  const migrate = service('migrate');
+  const adminInit = service('admin-init');
+  const app = service('app');
+  const waf = service('waf');
+
+  assert.equal(apiPackage.scripts['bootstrap:local-production-admin'], 'tsx src/pilot/bootstrap-local-production-admin.ts');
+  assert.match(migrate, /restart: "no"/);
+  assert.match(migrate, /prisma", "migrate", "deploy"/);
+  assert.match(migrate, /postgres:\s*\n\s+condition: service_healthy/);
+  assert.match(migrate, /minio:\s*\n\s+condition: service_healthy/);
+  assert.match(migrate, /minio-init:\s*\n\s+condition: service_completed_successfully/);
+  assert.doesNotMatch(migrate, /^\s+ports:/m);
+
+  assert.match(adminInit, /restart: "no"/);
+  assert.match(adminInit, /bootstrap:local-production-admin/);
+  assert.match(adminInit, /--password-file", "\/run\/secrets\/admin-password/);
+  assert.match(adminInit, /LOCAL_PRODUCTION_REHEARSAL: enabled/);
+  assert.match(adminInit, /admin-password:ro/);
+  assert.match(adminInit, /migrate:\s*\n\s+condition: service_completed_successfully/);
+  assert.doesNotMatch(adminInit, /MINIO_ROOT_USER|MINIO_ROOT_PASSWORD/);
+  assert.doesNotMatch(adminInit, /^\s+ports:/m);
+
+  assert.match(app, /admin-init:\s*\n\s+condition: service_completed_successfully/);
+  assert.doesNotMatch(app, /admin-password|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD/);
+  assert.match(waf, /app:\s*\n\s+condition: service_healthy/);
+});

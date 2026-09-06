@@ -92,6 +92,68 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  migrate:
+    image: nanjing-petcare:local
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: "no"
+    entrypoint: ["pnpm", "exec", "prisma", "migrate", "deploy", "--schema", "prisma/schema.prisma"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in the local production environment file}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      backend:
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  admin-init:
+    image: nanjing-petcare:local
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: "no"
+    entrypoint: ["pnpm", "--filter", "@pet/api", "bootstrap:local-production-admin", "--", "--password-file", "/run/secrets/admin-password"]
+    environment:
+      LOCAL_PRODUCTION_REHEARSAL: enabled
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in the local production environment file}
+      PILOT_AUTH_PEPPER: ${PILOT_AUTH_PEPPER:?set PILOT_AUTH_PEPPER in the local production environment file}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ${LOCALAPPDATA:?set LOCALAPPDATA}/NanjingPetCare/admin-password:/run/secrets/admin-password:ro
+    networks:
+      backend:
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   waf:
     build:
       context: .
@@ -99,7 +161,7 @@ services:
     restart: unless-stopped
     depends_on:
       app:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "80:80"
       - "443:443"
@@ -135,6 +197,7 @@ services:
       context: ..
       dockerfile: Dockerfile
     restart: unless-stopped
+    entrypoint: ["pnpm", "--filter", "@pet/api", "start:pilot"]
     environment:
       NODE_ENV: ${NODE_ENV:?set NODE_ENV in the local production environment file}
       PILOT_MODE: ${PILOT_MODE:?set PILOT_MODE in the local production environment file}
@@ -159,6 +222,10 @@ services:
       minio:
         condition: service_healthy
       minio-init:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+      admin-init:
         condition: service_completed_successfully
     expose:
       - "3000"

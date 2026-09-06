@@ -9,6 +9,7 @@
     "lint": "eslint src tests --max-warnings=0",
     "start:pilot": "tsx src/server.ts",
     "bootstrap:pilot": "tsx src/pilot/bootstrap.ts",
+    "bootstrap:local-production-admin": "tsx src/pilot/bootstrap-local-production-admin.ts",
     "staff:create-admin": "tsx src/pilot/create-staff.ts"
   },
   "dependencies": {
