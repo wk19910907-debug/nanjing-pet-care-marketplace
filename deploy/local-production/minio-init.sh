@@ -43,12 +43,12 @@ mc admin policy create local app-bucket-policy /config/app-bucket-policy.json
 if mc admin user svcacct info local "$S3_ACCESS_KEY_ID" >/dev/null 2>&1; then
   mc admin user svcacct edit local "$S3_ACCESS_KEY_ID" \
     --secret-key "$S3_SECRET_ACCESS_KEY" \
-    --policy /config/app-bucket-policy.json
+    --policy /config/app-bucket-policy.json >/dev/null 2>&1
 else
   mc admin user svcacct add local "$MINIO_ROOT_USER" \
     --access-key "$S3_ACCESS_KEY_ID" \
     --secret-key "$S3_SECRET_ACCESS_KEY" \
-    --policy /config/app-bucket-policy.json
+    --policy /config/app-bucket-policy.json >/dev/null 2>&1
 fi
 
 mc anonymous get "local/$S3_BUCKET" | grep -Eq '(private|none)'

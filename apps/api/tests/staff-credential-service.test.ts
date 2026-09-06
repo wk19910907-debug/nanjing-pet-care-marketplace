@@ -207,6 +207,31 @@ describe('StaffCredentialService', () => {
     expectMetadataOnlyAudit(JSON.stringify(events), [bootstrapInput.username, bootstrapInput.temporaryPassword, credential.passwordHash]);
   });
 
+  it('leaves the same existing ADMIN credential unchanged when bootstrap is repeated', async () => {
+    const now = () => new Date('2026-09-02T08:00:00Z');
+    const service = createService(now);
+    const input = {
+      username: 'admin', displayName: '系统管理员', temporaryPassword: 'Bootstrap-password-2026',
+    };
+
+    const created = await service.bootstrapInitialAdmin(input);
+    const before = await prisma.staffCredential.findUniqueOrThrow({ where: { userId: created.userId } });
+    const repeated = await service.bootstrapInitialAdmin(input);
+    const after = await prisma.staffCredential.findUniqueOrThrow({ where: { userId: created.userId } });
+
+    expect(repeated).toEqual(created);
+    expect(after).toMatchObject({
+      id: before.id,
+      userId: before.userId,
+      usernameNormalized: before.usernameNormalized,
+      passwordHash: before.passwordHash,
+      mustChangePassword: before.mustChangePassword,
+      createdAt: before.createdAt,
+      updatedAt: before.updatedAt,
+    });
+    expect(await prisma.staffCredential.count({ where: { user: { role: 'ADMIN' } } })).toBe(1);
+  });
+
   it('does not bootstrap another ADMIN when an ADMIN user already exists without a credential', async () => {
     const now = () => new Date('2026-09-02T08:00:00Z');
     const service = createService(now);
