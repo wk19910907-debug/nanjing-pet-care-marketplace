@@ -22,6 +22,9 @@ exec env -i \
   XDG_CACHE_HOME="$node_cache" \
   PNPM_HOME=/pnpm \
   PATH=/pnpm:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  LOCAL_PRODUCTION_REHEARSAL="$LOCAL_PRODUCTION_REHEARSAL" \
+  DATABASE_URL="$DATABASE_URL" \
+  PILOT_AUTH_PEPPER="$PILOT_AUTH_PEPPER" \
   su -p node -s /bin/sh -c '
   set -eu
   test "$(id -u)" -eq 1000

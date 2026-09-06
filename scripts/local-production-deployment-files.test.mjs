@@ -170,6 +170,10 @@ test('local production initializes storage, schema, and the guarded administrato
   assert.match(adminInitScript, /chown node:node "\$staged_password"(?: "\$node_home" "\$node_cache")? "\$staging_directory"/);
   assert.match(adminInitScript, /su -p node -s \/bin\/sh -c/);
   assert.match(adminInitScript, /set -eu/);
+  assert.match(adminInitScript, /LOCAL_PRODUCTION_REHEARSAL="\$LOCAL_PRODUCTION_REHEARSAL"/);
+  assert.match(adminInitScript, /DATABASE_URL="\$DATABASE_URL"/);
+  assert.match(adminInitScript, /PILOT_AUTH_PEPPER="\$PILOT_AUTH_PEPPER"/);
+  assert.doesNotMatch(adminInitScript, /env -i[\s\S]*?ROOT_[A-Z_]+=/);
   assert.match(adminInitScript, /test "\$\(id -u\)" -eq 1000/);
   assert.match(adminInitScript, /test "\$\(id -g\)" -eq 1000/);
   assert.match(adminInitScript, /test -f \/run\/admin-password\/admin-password/);
