@@ -16,6 +16,7 @@ $controller = Join-Path $PSScriptRoot 'local-production.ps1'
 Assert-True (Test-Path -LiteralPath $controller) 'Lifecycle controller is missing'
 . $controller
 $realReadyProbe = ${function:Test-LocalProductionReady}
+$realProcess = ${function:Invoke-LocalProductionProcess}
 
 # Exercise the actual native-process adapter before replacing external dependencies.
 $probeValue = 'space ; $() " quoted'
@@ -45,6 +46,10 @@ function Invoke-LocalProductionProcess {
   if ($FilePath -eq 'docker' -and $script:dockerMissing) { return @{ ExitCode = 127; Output = 'SECRET-CANARY daemon diagnostic' } }
   if ($command -eq 'compose version' -and -not $script:plugin) { return @{ ExitCode = 1; Output = 'SECRET-CANARY' } }
   if ($script:failure -and $command.Contains($script:failure)) { return @{ ExitCode = 17; Output = 'SECRET-CANARY process failure' } }
+  if ($FilePath -eq 'pwsh' -and $command.Contains('local-production-secrets.ps1')) {
+    & pwsh @Arguments | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Fixture generator failed' }
+  }
   if ($Arguments -contains 'ps') { return @{ ExitCode = 0; Output = '[{"Service":"app","State":"running","Health":"healthy","ExitCode":0,"Command":"SECRET-CANARY","Name":"SECRET-CANARY","Labels":"SECRET-CANARY"},{"Service":"migrate","State":"exited","Health":"","ExitCode":17}]' } }
   return @{ ExitCode = 0; Output = 'SECRET-CANARY successful process output' }
 }
@@ -52,6 +57,12 @@ function Test-LocalProductionReady { $script:probeCount++; return $script:ready 
 function Start-Sleep { param([int]$Seconds) }
 
 $originalLocalAppData = $env:LOCALAPPDATA
+$inheritedNames = @('DATABASE_URL', 'S3_ENDPOINT', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'POSTGRES_MAINTENANCE_PORT', 'LOCAL_HTTP_PORT', 'LOCAL_HTTPS_PORT', 'LOCAL_PRODUCTION_SECRET_DIR')
+$originalInherited = @{}
+foreach ($name in $inheritedNames) {
+  $originalInherited[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+  [Environment]::SetEnvironmentVariable($name, 'SECRET-CANARY inherited conflict', 'Process')
+}
 $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ('petcare-controller-' + [guid]::NewGuid().ToString('N'))
 try {
   New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
@@ -69,13 +80,20 @@ try {
   Assert-True ($output.Contains('system')) 'Start explains scoped TLS trust without installing a system CA'
   Assert-True ($script:calls[0].Arguments -contains 'local-production-secrets.ps1' -or ($script:calls[0].Arguments -join ' ').Contains('local-production-secrets.ps1')) 'Start generates secrets first'
   $composeCalls = @($script:calls | Where-Object { $_.Arguments -contains '--project-name' })
+  $expectedEnvironment = Get-EnvironmentValues (Join-Path $target 'local-production.env')
   Assert-True ($composeCalls.Count -ge 6) 'Start must build and run all initialization stages'
   foreach ($call in $composeCalls) {
     Assert-True ($call.Arguments -contains 'nanjing-petcare-local-production') 'Every Compose call names the project'
     Assert-True ($call.Arguments -contains (Join-Path $target 'local-production.env')) 'Every Compose call selects the env file as one argument'
     Assert-True (($call.Arguments -join ' ').Contains('compose.local-production.yml')) 'Every Compose call selects the compose file'
     Assert-True ($call.Environment.LOCAL_PRODUCTION_SECRET_DIR -eq $target) 'Compose gets the exact secret directory'
+    foreach ($name in $expectedEnvironment.Keys) {
+      Assert-True ($call.Environment[$name] -ceq $expectedEnvironment[$name]) "Compose child explicitly uses validated file input for $name despite inherited conflicts"
+    }
   }
+  $nativeCheck = 'const fs=require("node:fs");for(const line of fs.readFileSync(process.argv[1],"utf8").split(/\r?\n/)){if(!line.trim())continue;const index=line.indexOf("=");if(process.env[line.slice(0,index)]!==line.slice(index+1))process.exit(17)}if(process.env.LOCAL_PRODUCTION_SECRET_DIR!==process.argv[2])process.exit(18);process.stdout.write("VALIDATED_INPUTS_MATCH")'
+  $native = & $realProcess -FilePath node -Arguments @('-e', $nativeCheck, (Join-Path $target 'local-production.env'), $target) -Environment $composeCalls[0].Environment
+  Assert-True ($native.ExitCode -eq 0 -and $native.Output -eq 'VALIDATED_INPUTS_MATCH') 'Real native child sees only validated file values for every input despite conflicting inherited environment'
   $commands = @($script:calls | ForEach-Object { $_.Arguments -join ' ' })
   foreach ($job in @('minio-init', 'migrate', 'admin-init')) {
     Assert-True (@($commands | Where-Object { $_.Contains("--exit-code-from $job $job") }).Count -eq 1) "Start must enforce the $job exit code"
@@ -99,6 +117,23 @@ try {
   $null = Invoke-LocalProduction -Action stop
   Assert-True ($script:calls[-1].Arguments[-1] -eq 'stop') 'Stop preserves containers and volumes'
   Assert-True (-not (($script:calls | ForEach-Object { $_.Arguments -join ' ' }) -join ' ').Contains('down')) 'Never implicitly bring down volumes'
+
+  $environmentPath = Join-Path $target 'local-production.env'
+  $validEnvironmentText = [IO.File]::ReadAllText($environmentPath)
+  $invalidEnvironments = @(
+    ($validEnvironmentText + "`nUNRECOGNIZED=not-a-secret"),
+    ($validEnvironmentText + "`nDATABASE_URL=duplicate"),
+    ($validEnvironmentText + "`nmalformed line without equals"),
+    $validEnvironmentText.Replace('NODE_ENV=', 'node_env='),
+    $validEnvironmentText.Replace('S3_ENDPOINT=http://minio:9000', 'S3_ENDPOINT=$(throw "must not evaluate")')
+  )
+  foreach ($invalidEnvironment in $invalidEnvironments) {
+    [IO.File]::WriteAllText($environmentPath, $invalidEnvironment, [Text.UTF8Encoding]::new($false))
+    $script:calls.Clear()
+    Assert-Fails { Invoke-LocalProductionCompose @{File='docker-compose';Prefix=@()} $target @('config','--quiet') 'configuration' } 'malformed'
+    Assert-True ($script:calls.Count -eq 0) 'Invalid environment cannot launch Compose'
+  }
+  [IO.File]::WriteAllText($environmentPath, $validEnvironmentText, [Text.UTF8Encoding]::new($false))
 
   $script:dockerMissing = $true
   Assert-Fails { Invoke-LocalProduction -Action status } 'Docker is unavailable; install/start Docker Desktop'
@@ -138,6 +173,7 @@ try {
     Assert-True ($package.scripts."local-production:$action" -eq "pwsh -NoProfile -File scripts/local-production.ps1 $action") "Package exposes $action"
   }
 } finally {
+  foreach ($name in $originalInherited.Keys) { [Environment]::SetEnvironmentVariable($name, $originalInherited[$name], 'Process') }
   $env:LOCALAPPDATA = $originalLocalAppData
   $resolvedTemporaryRoot = [IO.Path]::GetFullPath($temporaryRoot)
   if ($resolvedTemporaryRoot.StartsWith([IO.Path]::GetFullPath([IO.Path]::GetTempPath()), [StringComparison]::OrdinalIgnoreCase) -and

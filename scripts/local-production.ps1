@@ -25,7 +25,10 @@ function Invoke-LocalProductionProcess {
     $process.StartInfo.RedirectStandardOutput = $true
     $process.StartInfo.RedirectStandardError = $true
     foreach ($argument in $Arguments) { $process.StartInfo.ArgumentList.Add($argument) }
-    foreach ($name in $Environment.Keys) { $process.StartInfo.Environment[$name] = [string]$Environment[$name] }
+    foreach ($name in $Environment.Keys) {
+      $null = $process.StartInfo.Environment.Remove($name)
+      $process.StartInfo.Environment[$name] = [string]$Environment[$name]
+    }
     $null = $process.Start()
     $stdout = $process.StandardOutput.ReadToEndAsync()
     $stderr = $process.StandardError.ReadToEndAsync()
@@ -60,9 +63,25 @@ function Get-LocalProductionCompose {
 
 function Invoke-LocalProductionCompose {
   param($Compose, [string]$Target, [string[]]$Arguments, [string]$Stage, [int]$TimeoutSeconds = 300)
+  $Target = Get-LocalProductionSecretTarget -Destination $Target -RepositoryRoot (Get-NormalizedPath (Join-Path $PSScriptRoot '..'))
+  $environmentPath = Join-Path $Target 'local-production.env'
+  $adminPasswordPath = Join-Path $Target 'admin-password'
+  Assert-NoReparsePoint $environmentPath
+  Assert-NoReparsePoint $adminPasswordPath
+  $values = Get-EnvironmentValues $environmentPath
+  Assert-ExistingSecretsAreValid -EnvironmentPath $environmentPath -AdminPasswordPath $adminPasswordPath -EnvironmentValues $values
+  # Shell variables outrank --env-file in Compose. Supply the exact validated
+  # snapshot explicitly; do not evaluate dotenv expansions or inherit these keys.
+  $childEnvironment = @{ LOCAL_PRODUCTION_SECRET_DIR = $Target }
+  foreach ($name in $values.Keys) { $childEnvironment[$name] = $values[$name] }
   $composeFile = Join-Path $PSScriptRoot '../deploy/compose.local-production.yml'
+  foreach ($interpolation in [regex]::Matches([IO.File]::ReadAllText($composeFile), '(?<!\$)\$\{([A-Z][A-Z0-9_]*)')) {
+    if (-not $childEnvironment.ContainsKey($interpolation.Groups[1].Value)) {
+      throw 'Compose references an unsupported environment input; no process was launched.'
+    }
+  }
   $options = @('--project-name', 'nanjing-petcare-local-production', '--env-file', (Join-Path $Target 'local-production.env'), '--file', ([IO.Path]::GetFullPath($composeFile)))
-  $result = Invoke-LocalProductionProcess -FilePath $Compose.File -Arguments @($Compose.Prefix + $options + $Arguments) -TimeoutSeconds $TimeoutSeconds -Environment @{ LOCAL_PRODUCTION_SECRET_DIR = $Target }
+  $result = Invoke-LocalProductionProcess -FilePath $Compose.File -Arguments @($Compose.Prefix + $options + $Arguments) -TimeoutSeconds $TimeoutSeconds -Environment $childEnvironment
   Assert-LocalProductionResult $result $Stage
   return $result
 }

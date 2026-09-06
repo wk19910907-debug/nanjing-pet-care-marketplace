@@ -152,7 +152,7 @@ function Get-EnvironmentValues {
   foreach ($line in [IO.File]::ReadAllLines($Path, [Text.UTF8Encoding]::new($false))) {
     if ([string]::IsNullOrWhiteSpace($line)) { continue }
     $parts = $line.Split('=', 2)
-    if ($parts.Count -ne 2 -or [string]::IsNullOrWhiteSpace($parts[0]) -or $values.Contains($parts[0])) {
+    if ($parts.Count -ne 2 -or $parts[0] -cnotmatch '^[A-Z][A-Z0-9_]*$' -or $values.Contains($parts[0])) {
       throw 'The existing local production environment file is malformed; nothing was changed'
     }
     $values[$parts[0]] = $parts[1]
@@ -164,9 +164,10 @@ function Assert-ExistingSecretsAreValid {
   param(
     [Parameter(Mandatory)][string]$EnvironmentPath,
     [Parameter(Mandatory)][string]$AdminPasswordPath,
-    [switch]$AllowLegacyEnvironment
+    [switch]$AllowLegacyEnvironment,
+    [Collections.IDictionary]$EnvironmentValues
   )
-  $environment = Get-EnvironmentValues $EnvironmentPath
+  $environment = if ($null -ne $EnvironmentValues) { $EnvironmentValues } else { Get-EnvironmentValues $EnvironmentPath }
   $required = @(
     'NODE_ENV', 'PILOT_MODE', 'PILOT_SHARED_INGRESS_RATE_LIMITING', 'SITE_DOMAIN', 'STORAGE_DOMAIN', 'LOCAL_HTTP_PORT', 'LOCAL_HTTPS_PORT',
     'PILOT_PUBLIC_ORIGIN', 'POSTGRES_USER', 'POSTGRES_DB', 'POSTGRES_PASSWORD', 'POSTGRES_MAINTENANCE_PORT', 'DATABASE_URL',

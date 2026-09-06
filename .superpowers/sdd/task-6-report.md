@@ -80,3 +80,33 @@ All Node/pnpm invocations used `C:\Users\Administrator\AppData\Local\Programs\no
 - The Task 7 security/browser acceptance implementation remains an expected dependency. Task 8 documentation should explain the dedicated-child default and `LOCAL_PRODUCTION_SECRET_DIR` Compose contract.
 - Task 8 must also describe MinIO's server-level exact-origin CORS setting for the pinned release; Task 7 must exercise a real browser-origin OPTIONS/presigned PUT path (the direct HTTP origin probes here do not replace browser acceptance).
 - Task 8 must document `LOCAL_HTTP_PORT` (default8080; valid 1–65535 except443/54329) and fixed `LOCAL_HTTPS_PORT=443`, loopback-only host publication, upper-half dynamic IPAM, and the narrow bucket-level ListBucket permission required by HeadBucket readiness.
+
+## P1 review remediation — Compose environment precedence
+
+### Cause and change
+
+Compose gives inherited shell variables precedence over `--env-file`. The previous controller supplied only `LOCAL_PRODUCTION_SECRET_DIR` explicitly, so an inherited database URL, storage credential/endpoint, or published port could override the validated file.
+
+Every Compose invocation now revalidates the selected owned external directory and its non-reparse files, parses the environment without evaluation, validates that exact parsed snapshot, and supplies every parsed key explicitly in the child environment. The process adapter removes the inherited entry before assigning each selected value. `LOCAL_PRODUCTION_SECRET_DIR` always comes from the validated chosen path. The controller also checks every `${KEY...}` interpolation reference in the Compose source and refuses to launch if any reference lacks a controlled child value.
+
+The shared parser requires canonical uppercase `KEY=VALUE` syntax, splits at only the first equals sign, and performs no variable expansion or execution. Duplicate keys are rejected by parsing; unknown keys and malformed values are rejected by the exact schema. The validator accepts the already parsed dictionary so validation and child construction use the same snapshot rather than separate file reads.
+
+### RED → GREEN evidence
+
+1. Added inherited conflicts for DATABASE_URL, S3_ENDPOINT, S3 access/secret credentials, POSTGRES_MAINTENANCE_PORT, LOCAL_HTTP_PORT, LOCAL_HTTPS_PORT, and LOCAL_PRODUCTION_SECRET_DIR. The lifecycle suite failed at `Compose child explicitly uses validated file input for NODE_ENV despite inherited conflicts` because the child mapping contained only the directory.
+2. Added explicit child mappings, exact-snapshot validation, and unsupported-interpolation rejection. The suite then failed at the new malformed-environment regression because the old parser accepted lowercase keys through its case-insensitive dictionary.
+3. Required uppercase key syntax. The complete suite passed, including unknown/duplicate/malformed/lowercase/expression-like values failing before any Compose process launches.
+4. Added an actual native-process check: a child Node process reads the protected fixture directly and compares every file value and the selected directory to its environment under the conflicting host settings. It reports only a fixed success marker; all comparisons passed.
+
+### Fresh verification
+
+All Node/pnpm commands used the Node22.22.2 PATH prefix documented above.
+
+- `pwsh -NoProfile -File scripts/local-production.test.ps1` — 220 assertions passed.
+- `pwsh -NoProfile -File scripts/local-production-secrets.test.ps1` — passed.
+- `node --test scripts/local-production-deployment-files.test.mjs` — 4/4 passed.
+- `pnpm --filter @pet/api test -- bootstrap-local-production-admin.test.ts` — 6/6 passed.
+- Invoked standalone `docker-compose config --quiet` through the real controller helper with all eight inherited inputs set to conflicting synthetic values — exited0; only a fixed non-secret success message was displayed.
+- `git diff --check` — passed.
+
+Files changed: `scripts/local-production.ps1`, `scripts/local-production-secrets.ps1`, and `scripts/local-production.test.ps1`. No services were restarted and no secret files or values were changed during this remediation. No remaining concern identified for this review item.
