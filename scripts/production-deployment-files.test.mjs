@@ -84,7 +84,7 @@ test('production environment template is complete but contains no usable secrets
     'SITE_DOMAIN', 'WAF_TRUSTED_PROXY_CIDRS', 'NODE_ENV', 'DATABASE_URL', 'FIELD_ENCRYPTION_KEY_V1',
     'PILOT_MODE', 'PILOT_HOST', 'PILOT_PORT', 'PILOT_PUBLIC_ORIGIN',
     'PILOT_AUTH_PEPPER', 'PILOT_SESSION_DAYS', 'PILOT_INVITE_HOURS',
-    'S3_ENDPOINT', 'S3_PUBLIC_ENDPOINT', 'S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY',
+    'S3_ENDPOINT', 'S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY',
     'S3_REGION', 'S3_FORCE_PATH_STYLE', 'WECHAT_LOGIN_ENABLED',
   ];
   for (const key of required) assert.match(environment, new RegExp(`^${key}=`, 'm'), `missing ${key}`);
@@ -94,7 +94,8 @@ test('production environment template is complete but contains no usable secrets
   assert.match(environment, /^PILOT_PORT=3000$/m);
   assert.match(environment, /^WECHAT_LOGIN_ENABLED=false$/m);
   assert.match(environment, /^WAF_TRUSTED_PROXY_CIDRS=$/m);
-  assert.match(environment, /# Optional:.*\r?\nS3_PUBLIC_ENDPOINT=/);
+  assert.match(environment, /# Optional:.*\r?\n# S3_PUBLIC_ENDPOINT=https:\/\/storage\.example\.com/);
+  assert.doesNotMatch(environment, /^S3_PUBLIC_ENDPOINT=/m);
   assert.doesNotMatch(environment, /BEGIN (?:RSA )?PRIVATE KEY|AKIA[0-9A-Z]{16}|postgresql:\/\/[^:\s]+:[^@\s]+@/);
 });
 

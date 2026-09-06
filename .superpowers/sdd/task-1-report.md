@@ -89,3 +89,28 @@ git diff --check
 Result: 48 API tests across 3 files passed; API typecheck passed; deployment tests passed (8/8); `git diff --check` passed.
 
 The earlier Prisma/Vitest concern is resolved for `server.test.ts` by deferring the unused composition runtime import during override-resolution tests.
+
+## Review follow-up: optional template value
+
+### RED
+
+```powershell
+$env:PATH = 'C:\Users\Administrator\AppData\Local\Programs\node-v22.22.2-win-x64;' + $env:PATH
+pnpm test:deploy
+```
+
+Result: deployment test failed as expected because the template still contained active `S3_PUBLIC_ENDPOINT=` rather than a commented concrete example. After the example changed, the same test also exposed the stale assertion that incorrectly made this optional variable required.
+
+### GREEN
+
+- Replaced the active blank assignment with `# S3_PUBLIC_ENDPOINT=https://storage.example.com`.
+- Updated deployment assertions to require the commented example, reject an active blank assignment, and not include this optional setting among required environment keys.
+
+```powershell
+$env:PATH = 'C:\Users\Administrator\AppData\Local\Programs\node-v22.22.2-win-x64;' + $env:PATH
+pnpm --filter @pet/api test -- production-readiness.test.ts
+pnpm test:deploy
+git diff --check
+```
+
+Result: production-readiness passed (36/36); deployment tests passed (8/8); `git diff --check` passed.
