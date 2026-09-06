@@ -78,9 +78,10 @@ try {
   Assert-True (-not $expectedTarget.StartsWith($repositoryRoot, [StringComparison]::OrdinalIgnoreCase)) 'Default target must be outside the repository'
 
   $environment = Get-EnvironmentValues -Path $environmentPath
-  foreach ($name in @('NODE_ENV', 'PILOT_MODE', 'PILOT_SHARED_INGRESS_RATE_LIMITING', 'SITE_DOMAIN', 'STORAGE_DOMAIN', 'S3_ENDPOINT', 'S3_PUBLIC_ENDPOINT', 'S3_BUCKET')) {
+  foreach ($name in @('NODE_ENV', 'PILOT_MODE', 'PILOT_SHARED_INGRESS_RATE_LIMITING', 'SITE_DOMAIN', 'STORAGE_DOMAIN', 'POSTGRES_MAINTENANCE_PORT', 'S3_ENDPOINT', 'S3_PUBLIC_ENDPOINT', 'S3_BUCKET')) {
     Assert-True ($environment.ContainsKey($name)) "Environment must contain $name"
   }
+  Assert-True ($environment['POSTGRES_MAINTENANCE_PORT'] -eq '54329') 'PostgreSQL maintenance port must be explicit and stable'
   foreach ($name in @('PILOT_AUTH_PEPPER', 'FIELD_ENCRYPTION_KEY_V1')) {
     Assert-True ([Convert]::FromBase64String($environment[$name]).Length -eq 32) "$name must decode to exactly 32 bytes"
   }

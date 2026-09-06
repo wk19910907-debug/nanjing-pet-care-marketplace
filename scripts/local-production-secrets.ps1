@@ -168,7 +168,7 @@ function Assert-ExistingSecretsAreValid {
   $environment = Get-EnvironmentValues $EnvironmentPath
   $required = @(
     'NODE_ENV', 'PILOT_MODE', 'PILOT_SHARED_INGRESS_RATE_LIMITING', 'SITE_DOMAIN', 'STORAGE_DOMAIN',
-    'PILOT_PUBLIC_ORIGIN', 'POSTGRES_USER', 'POSTGRES_DB', 'POSTGRES_PASSWORD', 'DATABASE_URL',
+    'PILOT_PUBLIC_ORIGIN', 'POSTGRES_USER', 'POSTGRES_DB', 'POSTGRES_PASSWORD', 'POSTGRES_MAINTENANCE_PORT', 'DATABASE_URL',
     'MINIO_ROOT_USER', 'MINIO_ROOT_PASSWORD', 'S3_ENDPOINT', 'S3_PUBLIC_ENDPOINT', 'S3_BUCKET',
     'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'S3_REGION', 'FIELD_ENCRYPTION_KEY_V1', 'PILOT_AUTH_PEPPER'
   )
@@ -178,7 +178,7 @@ function Assert-ExistingSecretsAreValid {
   $expected = @{
     NODE_ENV = 'production'; PILOT_MODE = 'enabled'; PILOT_SHARED_INGRESS_RATE_LIMITING = 'enabled'
     SITE_DOMAIN = 'petcare.localhost'; STORAGE_DOMAIN = 'storage.petcare.localhost'; PILOT_PUBLIC_ORIGIN = 'https://petcare.localhost'
-    POSTGRES_USER = 'petcare'; POSTGRES_DB = 'petcare'; S3_ENDPOINT = 'http://minio:9000'
+    POSTGRES_USER = 'petcare'; POSTGRES_DB = 'petcare'; POSTGRES_MAINTENANCE_PORT = '54329'; S3_ENDPOINT = 'http://minio:9000'
     S3_PUBLIC_ENDPOINT = 'https://storage.petcare.localhost'; S3_BUCKET = 'pet-evidence'; S3_REGION = 'us-east-1'
   }
   foreach ($name in $expected.Keys) {
@@ -270,6 +270,7 @@ PILOT_PUBLIC_ORIGIN=https://petcare.localhost
 POSTGRES_USER=petcare
 POSTGRES_DB=petcare
 POSTGRES_PASSWORD=$postgresPassword
+POSTGRES_MAINTENANCE_PORT=54329
 DATABASE_URL=postgresql://petcare:$postgresPassword@postgres:5432/petcare?schema=public
 MINIO_ROOT_USER=$minioRootUser
 MINIO_ROOT_PASSWORD=$minioRootPassword

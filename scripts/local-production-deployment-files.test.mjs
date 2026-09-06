@@ -18,19 +18,22 @@ test('local production Compose keeps stateful services private, hardened, and pe
   const minioInitService = compose.match(/\n  minio-init:\n[\s\S]*?(?=\n  \w[\w-]*:\n|\nnetworks:)/)?.[0] ?? '';
   const app = compose.match(/\n  app:\n[\s\S]*?(?=\n  \w[\w-]*:\n|\nnetworks:)/)?.[0] ?? '';
 
-  assert.match(postgres, /- "127\.0\.0\.1:\$\{POSTGRES_MAINTENANCE_PORT[^}]*\}:5432"/);
+  assert.match(postgres, /- "127\.0\.0\.1:\$\{POSTGRES_MAINTENANCE_PORT:\?set POSTGRES_MAINTENANCE_PORT in the local production environment file\}:5432"/);
   assert.doesNotMatch(minio, /^\s+ports:/m);
   assert.match(postgres, /healthcheck:/);
   assert.match(minio, /healthcheck:/);
   assert.match(minioInitService, /minio:\s*\n\s+condition: service_healthy/);
   assert.match(app, /postgres:\s*\n\s+condition: service_healthy/);
+  assert.match(app, /minio:\s*\n\s+condition: service_healthy/);
   assert.match(app, /minio-init:\s*\n\s+condition: service_completed_successfully/);
 
   assert.match(compose, /edge:\s*\n\s+driver: bridge/);
   assert.match(compose, /backend:\s*\n\s+driver: bridge[\s\S]*?subnet: 172\.31\.0\.0\/24/);
   assert.match(app, /ipv4_address: 172\.31\.0\.3/);
   assert.match(app, /PILOT_TRUST_PROXY: 172\.31\.0\.2/);
-  for (const service of [postgres, minio, app]) {
+  assert.match(postgres, /security_opt:\s*\n\s+- no-new-privileges:true/);
+  assert.doesNotMatch(postgres, /cap_drop:/);
+  for (const service of [minio, app]) {
     assert.match(service, /security_opt:\s*\n\s+- no-new-privileges:true/);
     assert.match(service, /cap_drop:\s*\n\s+- ALL/);
     assert.match(service, /logging:\s*\n\s+driver: json-file[\s\S]*?max-size: "10m"[\s\S]*?max-file: "3"/);
@@ -43,11 +46,26 @@ test('local production Compose keeps stateful services private, hardened, and pe
   assert.match(minioInit, /mc mb --ignore-existing "local\/\$S3_BUCKET"/);
   assert.match(minioInit, /mc anonymous set none "local\/\$S3_BUCKET"/);
   assert.match(minioInit, /mc version enable "local\/\$S3_BUCKET"/);
-  assert.match(minioInit, /mc cors set "local\/\$S3_BUCKET" \/config\/cors\.json/);
+  assert.match(minioInit, /mc cors set "local\/\$S3_BUCKET" \/config\/cors\.xml/);
   assert.match(minioInit, /admin policy create local app-bucket-policy \/config\/app-bucket-policy\.json/);
   assert.match(minioInit, /admin user svcacct add local "\$MINIO_ROOT_USER"[\s\S]*?--access-key "\$S3_ACCESS_KEY_ID"[\s\S]*?--secret-key "\$S3_SECRET_ACCESS_KEY"/);
   assert.match(minioInit, /admin user svcacct edit local "\$S3_ACCESS_KEY_ID"[\s\S]*?--policy \/config\/app-bucket-policy\.json/);
-  assert.match(minioInit, /https:\/\/petcare\.localhost/);
-  assert.match(minioInit, /"GET", "PUT", "HEAD"/);
-  assert.match(minioInit, /"ETag", "x-amz-checksum-sha256"/);
+  const policy = minioInit.match(/cat > \/config\/app-bucket-policy\.json <<EOF\r?\n([\s\S]*?)\r?\nEOF/)?.[1];
+  assert.ok(policy, 'the bucket policy is generated as JSON');
+  assert.deepEqual(JSON.parse(policy), {
+    Version: '2012-10-17',
+    Statement: [{
+      Effect: 'Allow',
+      Action: ['s3:GetObject', 's3:PutObject'],
+      Resource: ['arn:aws:s3:::$S3_BUCKET/*'],
+    }],
+  });
+
+  const cors = minioInit.match(/cat > \/config\/cors\.xml <<'EOF'\r?\n([\s\S]*?)\r?\nEOF/)?.[1];
+  assert.ok(cors, 'the CORS configuration is generated as XML');
+  assert.match(cors, /^<\?xml version="1\.0" encoding="UTF-8"\?>\r?\n<CORSConfiguration xmlns="http:\/\/s3\.amazonaws\.com\/doc\/2006-03-01\/">/);
+  assert.equal((cors.match(/<AllowedOrigin>https:\/\/petcare\.localhost<\/AllowedOrigin>/g) ?? []).length, 1);
+  assert.deepEqual([...cors.matchAll(/<AllowedMethod>([^<]+)<\/AllowedMethod>/g)].map((match) => match[1]), ['GET', 'PUT', 'HEAD']);
+  assert.deepEqual([...cors.matchAll(/<ExposeHeader>([^<]+)<\/ExposeHeader>/g)].map((match) => match[1]), ['ETag', 'x-amz-checksum-sha256']);
+  assert.match(cors, /<\/CORSConfiguration>$/);
 });

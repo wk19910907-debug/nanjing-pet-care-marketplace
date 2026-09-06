@@ -9,7 +9,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in the local production environment file}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the local production environment file}
     ports:
-      - "127.0.0.1:${POSTGRES_MAINTENANCE_PORT:-54329}:5432"
+      - "127.0.0.1:${POSTGRES_MAINTENANCE_PORT:?set POSTGRES_MAINTENANCE_PORT in the local production environment file}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -22,8 +22,6 @@ services:
       backend:
     security_opt:
       - no-new-privileges:true
-    cap_drop:
-      - ALL
     logging:
       driver: json-file
       options:

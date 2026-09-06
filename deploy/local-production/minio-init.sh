@@ -11,33 +11,32 @@ cat > /config/app-bucket-policy.json <<EOF
       "Effect": "Allow",
       "Action": ["s3:GetObject", "s3:PutObject"],
       "Resource": ["arn:aws:s3:::$S3_BUCKET/*"]
-    },
-    {
-      "Effect": "Allow",
-      "Action": ["s3:ListBucket"],
-      "Resource": ["arn:aws:s3:::$S3_BUCKET"]
     }
   ]
 }
 EOF
 
-cat > /config/cors.json <<'EOF'
-[
-  {
-    "AllowedOrigins": ["https://petcare.localhost"],
-    "AllowedMethods": ["GET", "PUT", "HEAD"],
-    "AllowedHeaders": ["*"],
-    "ExposeHeaders": ["ETag", "x-amz-checksum-sha256"],
-    "MaxAgeSeconds": 300
-  }
-]
+cat > /config/cors.xml <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<CORSConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <CORSRule>
+    <AllowedOrigin>https://petcare.localhost</AllowedOrigin>
+    <AllowedMethod>GET</AllowedMethod>
+    <AllowedMethod>PUT</AllowedMethod>
+    <AllowedMethod>HEAD</AllowedMethod>
+    <AllowedHeader>*</AllowedHeader>
+    <ExposeHeader>ETag</ExposeHeader>
+    <ExposeHeader>x-amz-checksum-sha256</ExposeHeader>
+    <MaxAgeSeconds>300</MaxAgeSeconds>
+  </CORSRule>
+</CORSConfiguration>
 EOF
 
 mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
 mc mb --ignore-existing "local/$S3_BUCKET"
 mc anonymous set none "local/$S3_BUCKET"
 mc version enable "local/$S3_BUCKET"
-mc cors set "local/$S3_BUCKET" /config/cors.json
+mc cors set "local/$S3_BUCKET" /config/cors.xml
 
 mc admin policy create local app-bucket-policy /config/app-bucket-policy.json
 
