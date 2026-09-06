@@ -6,4 +6,9 @@ FROM caddy:2.11.4-alpine
 
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
 
-USER caddy
+RUN addgroup -S -g 1000 waf \
+  && adduser -S -D -H -u 1000 -G waf waf \
+  && mkdir -p /data /config \
+  && chown -R waf:waf /data /config
+
+USER 1000:1000

@@ -94,7 +94,10 @@ test('local production WAF is the sole TLS edge and protects only the applicatio
   assert.match(dockerfile, /^FROM caddy:2\.11\.4-builder AS builder$/m);
   assert.match(dockerfile, /xcaddy build --with github\.com\/corazawaf\/coraza-caddy\/v2@v2\.5\.0/);
   assert.match(dockerfile, /^FROM caddy:2\.11\.4-alpine$/m);
-  assert.match(dockerfile, /USER caddy/);
+  assert.match(dockerfile, /addgroup -S -g 1000 waf/);
+  assert.match(dockerfile, /adduser -S -D -H -u 1000 -G waf waf/);
+  assert.match(dockerfile, /chown -R waf:waf \/data \/config/);
+  assert.match(dockerfile, /USER 1000:1000/);
 
   assert.match(waf, /build:\s*\n\s+context: \.\n\s+dockerfile: local-production\/Dockerfile\.waf/);
   assert.match(waf, /- "80:80"/);
@@ -105,10 +108,13 @@ test('local production WAF is the sole TLS edge and protects only the applicatio
   assert.match(waf, /read_only: true/);
   assert.match(waf, /cap_drop:\s*\n\s+- ALL/);
   assert.match(waf, /cap_add:\s*\n\s+- NET_BIND_SERVICE/);
+  assert.match(waf, /user: "1000:1000"/);
   assert.match(waf, /caddy_data:\/data/);
   assert.match(waf, /caddy_config:\/config/);
   assert.doesNotMatch(app, /^\s+ports:/m);
   assert.doesNotMatch(minio, /^\s+ports:/m);
+  assert.equal([...compose.matchAll(/- "80:80"/g)].length, 1, 'only WAF may publish TCP port 80');
+  assert.equal([...compose.matchAll(/- "443:443"/g)].length, 1, 'only WAF may publish TCP port 443');
 
   assert.match(caddyfile, /order coraza_waf first/);
   assert.match(caddyfile, /https:\/\/petcare\.localhost\s*\{[\s\S]*?coraza_waf\s*\{[\s\S]*?load_owasp_crs[\s\S]*?directives `Include \/etc\/caddy\/coraza\.conf`[\s\S]*?\}[\s\S]*?reverse_proxy app:3000\s*\{[\s\S]*?header_up X-Forwarded-For \{client_ip\}/);
@@ -121,4 +127,5 @@ test('local production WAF is the sole TLS edge and protects only the applicatio
   assert.match(coraza, /tx\.paranoia_level=1/);
   assert.match(coraza, /SecRequestBodyLimit 1048576/);
   assert.match(coraza, /SecRequestBodyNoFilesLimit 1048576/);
+  assert.match(coraza, /Include @owasp_crs\/\*\.conf/);
 });
