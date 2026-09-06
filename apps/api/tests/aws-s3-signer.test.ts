@@ -9,6 +9,47 @@ const config = {
 };
 
 describe('createAwsS3Signer', () => {
+  it('uses the public endpoint in the default production signing path', async () => {
+    const signer = createAwsS3Signer({
+      ...config,
+      endpoint: 'http://minio:9000',
+      publicEndpoint: 'https://storage.petcare.localhost',
+    });
+
+    const uploadUrl = await signer.presignPut({
+      objectKey: 'orders/order-1/evidence-1', mimeType: 'image/jpeg', sizeBytes: 123,
+      sha256: 'ab'.repeat(32), expiresInSeconds: 600,
+    });
+    const readUrl = await signer.presignGet({ objectKey: 'orders/order-1/evidence-1', expiresInSeconds: 300 });
+
+    expect(new URL(uploadUrl).origin).toBe('https://storage.petcare.localhost');
+    expect(new URL(readUrl).origin).toBe('https://storage.petcare.localhost');
+  });
+
+  it('does not log S3 endpoints or credentials while constructing and signing', async () => {
+    const methods = ['debug', 'info', 'warn', 'error', 'log'] as const;
+    const spies = methods.map((method) => vi.spyOn(console, method).mockImplementation(() => undefined));
+    try {
+      const signer = createAwsS3Signer({
+        ...config,
+        endpoint: 'http://minio:9000',
+        publicEndpoint: 'https://storage.petcare.localhost',
+      });
+      await signer.presignPut({
+        objectKey: 'orders/order-1/evidence-1', mimeType: 'image/jpeg', sizeBytes: 123,
+        sha256: 'ab'.repeat(32), expiresInSeconds: 600,
+      });
+      await signer.presignGet({ objectKey: 'orders/order-1/evidence-1', expiresInSeconds: 300 });
+
+      const output = spies.flatMap((spy) => spy.mock.calls.flat()).map(String).join('\n');
+      for (const value of [
+        'https://storage.petcare.localhost', config.accessKeyId, config.secretAccessKey,
+      ]) expect(output).not.toContain(value);
+    } finally {
+      spies.forEach((spy) => spy.mockRestore());
+    }
+  });
+
   it('uses the internal endpoint for probes and object heads while presigning through a public endpoint', async () => {
     const internal = {
       presign: vi.fn(async () => 'http://minio:9000/internal-signed-url'),

@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { createAwsS3Signer } from './adapters/aws-s3-signer.js';
 import type { S3Signer } from './adapters/s3-object-storage.js';
 import { loadConfig, type AppConfig, type ObjectStorageConfig } from './config.js';
-import { createPilotApplication, type PilotCompositionOverrides } from './pilot/composition.js';
+import type { PilotCompositionOverrides } from './pilot/composition.js';
 
 export function resolvePilotServerOverrides(
   config: AppConfig,
@@ -21,6 +21,7 @@ export async function runPilotServer(
 ) {
   const config = loadConfig(environment);
   if (!config.pilot) throw new Error('PILOT_MODE_REQUIRED');
+  const { createPilotApplication } = await import('./pilot/composition.js');
   const application = await createPilotApplication(
     config,
     resolvePilotServerOverrides(config, overrides),

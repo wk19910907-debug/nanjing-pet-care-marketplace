@@ -65,7 +65,7 @@ export function createAwsS3Signer(
     : internalClient;
   const presign = dependencies?.createClient
     ? signingClient.presign.bind(signingClient)
-    : dependencies?.presign ?? internalClient.presign.bind(internalClient);
+    : dependencies?.presign ?? signingClient.presign.bind(signingClient);
   const sendHead = dependencies?.createClient
     ? internalClient.sendHead.bind(internalClient)
     : dependencies?.sendHead ?? internalClient.sendHead.bind(internalClient);

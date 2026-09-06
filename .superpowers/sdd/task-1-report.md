@@ -37,6 +37,7 @@ All commands used `C:\Users\Administrator\AppData\Local\Programs\node-v22.22.2-w
 - `apps/api/tests/aws-s3-signer.test.ts`
 - `apps/api/tests/production-readiness.test.ts`
 - `apps/api/tests/server.test.ts`
+- `apps/api/src/server.ts`
 - `deploy/.env.production.example`
 - `scripts/production-deployment-files.test.mjs`
 
@@ -49,4 +50,42 @@ All commands used `C:\Users\Administrator\AppData\Local\Programs\node-v22.22.2-w
 
 ## Concerns
 
-`apps/api/tests/server.test.ts` remains un-runnable in this worktree because `@prisma/client@6.19.3` resolves `default.js` through `#main-entry-point`, but Node/Vitest reports that package import is undefined. Running `pnpm exec prisma generate --schema prisma/schema.prisma` completed successfully but did not change that failure. The endpoint-related suites, typecheck, and deployment tests pass; this dependency-resolution problem appears unrelated to Task 1.
+At initial implementation, `server.test.ts` could not collect because eagerly importing Pilot composition caused Vitest to transform Prisma's generated `#main-entry-point` wrapper. This is resolved in the review follow-up below.
+
+## Review follow-up: 2026-09-06
+
+### RED
+
+```powershell
+$env:PATH = 'C:\Users\Administrator\AppData\Local\Programs\node-v22.22.2-win-x64;' + $env:PATH
+pnpm --filter @pet/api test -- aws-s3-signer.test.ts
+```
+
+Result: 1 expected failure, 8 passes. The new default/no-dependency signing test received `http://minio:9000` instead of `https://storage.petcare.localhost`, proving the production path incorrectly selected the internal client.
+
+### Fixes and GREEN
+
+- Default presigning now binds `signingClient.presign`; probes and heads remain bound to `internalClient`.
+- Added a no-dependency regression test that locally generates actual PUT and GET signed URLs and asserts their public origin.
+- Added a console spy assertion that construction and PUT/GET signing emit neither `S3_PUBLIC_ENDPOINT` nor S3 credentials. No production logging was added.
+- Moved the composition runtime import inside `runPilotServer`. `resolvePilotServerOverrides` can now be tested without eagerly loading Prisma through Vitest; the composition still loads when the server actually starts.
+
+```powershell
+$env:PATH = 'C:\Users\Administrator\AppData\Local\Programs\node-v22.22.2-win-x64;' + $env:PATH
+pnpm exec prisma generate --schema prisma/schema.prisma
+pnpm --filter @pet/api test -- server.test.ts
+```
+
+Result: Prisma Client 6.19.3 generated successfully; `server.test.ts` passed (2 tests).
+
+```powershell
+$env:PATH = 'C:\Users\Administrator\AppData\Local\Programs\node-v22.22.2-win-x64;' + $env:PATH
+pnpm --filter @pet/api test -- aws-s3-signer.test.ts production-readiness.test.ts server.test.ts
+pnpm --filter @pet/api typecheck
+pnpm test:deploy
+git diff --check
+```
+
+Result: 48 API tests across 3 files passed; API typecheck passed; deployment tests passed (8/8); `git diff --check` passed.
+
+The earlier Prisma/Vitest concern is resolved for `server.test.ts` by deferring the unused composition runtime import during override-resolution tests.
