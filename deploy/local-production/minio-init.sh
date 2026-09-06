@@ -16,7 +16,7 @@ cat > /config/app-bucket-policy.json <<EOF
 }
 EOF
 
-cat > /config/cors.xml <<'EOF'
+cat > /config/cors.json <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <CORSConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
   <CORSRule>
@@ -36,7 +36,7 @@ mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
 mc mb --ignore-existing "local/$S3_BUCKET"
 mc anonymous set none "local/$S3_BUCKET"
 mc version enable "local/$S3_BUCKET"
-mc cors set "local/$S3_BUCKET" /config/cors.xml
+mc cors set "local/$S3_BUCKET" /config/cors.json
 
 mc admin policy create local app-bucket-policy /config/app-bucket-policy.json
 

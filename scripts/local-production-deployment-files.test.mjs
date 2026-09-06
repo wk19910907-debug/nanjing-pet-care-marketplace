@@ -32,11 +32,17 @@ test('local production Compose keeps stateful services private, hardened, and pe
   assert.match(app, /ipv4_address: 172\.31\.0\.3/);
   assert.match(app, /PILOT_TRUST_PROXY: 172\.31\.0\.2/);
   assert.match(postgres, /security_opt:\s*\n\s+- no-new-privileges:true/);
-  assert.doesNotMatch(postgres, /cap_drop:/);
-  for (const service of [minio, app]) {
+  assert.match(postgres, /cap_drop:\s*\n\s+- ALL/);
+  const postgresCapAdd = postgres.match(/cap_add:\s*\r?\n((?:\s+- \w+\r?\n?)+)/)?.[1] ?? '';
+  assert.deepEqual([...postgresCapAdd.matchAll(/- (\w+)/g)].map((match) => match[1]), [
+    'CHOWN', 'DAC_OVERRIDE', 'FOWNER', 'SETGID', 'SETUID',
+  ]);
+  for (const service of [postgres, minio, minioInitService, app]) {
     assert.match(service, /security_opt:\s*\n\s+- no-new-privileges:true/);
-    assert.match(service, /cap_drop:\s*\n\s+- ALL/);
     assert.match(service, /logging:\s*\n\s+driver: json-file[\s\S]*?max-size: "10m"[\s\S]*?max-file: "3"/);
+  }
+  for (const service of [minio, minioInitService, app]) {
+    assert.match(service, /cap_drop:\s*\n\s+- ALL/);
   }
 
   assert.doesNotMatch(app, /MINIO_ROOT_USER|MINIO_ROOT_PASSWORD/);
@@ -46,10 +52,11 @@ test('local production Compose keeps stateful services private, hardened, and pe
   assert.match(minioInit, /mc mb --ignore-existing "local\/\$S3_BUCKET"/);
   assert.match(minioInit, /mc anonymous set none "local\/\$S3_BUCKET"/);
   assert.match(minioInit, /mc version enable "local\/\$S3_BUCKET"/);
-  assert.match(minioInit, /mc cors set "local\/\$S3_BUCKET" \/config\/cors\.xml/);
+  assert.match(minioInit, /mc cors set "local\/\$S3_BUCKET" \/config\/cors\.json/);
   assert.match(minioInit, /admin policy create local app-bucket-policy \/config\/app-bucket-policy\.json/);
   assert.match(minioInit, /admin user svcacct add local "\$MINIO_ROOT_USER"[\s\S]*?--access-key "\$S3_ACCESS_KEY_ID"[\s\S]*?--secret-key "\$S3_SECRET_ACCESS_KEY"/);
   assert.match(minioInit, /admin user svcacct edit local "\$S3_ACCESS_KEY_ID"[\s\S]*?--policy \/config\/app-bucket-policy\.json/);
+  assert.match(minioInit, /mc anonymous get "local\/\$S3_BUCKET" \| grep -Eq '\(private\|none\)'/);
   const policy = minioInit.match(/cat > \/config\/app-bucket-policy\.json <<EOF\r?\n([\s\S]*?)\r?\nEOF/)?.[1];
   assert.ok(policy, 'the bucket policy is generated as JSON');
   assert.deepEqual(JSON.parse(policy), {
@@ -61,10 +68,10 @@ test('local production Compose keeps stateful services private, hardened, and pe
     }],
   });
 
-  const cors = minioInit.match(/cat > \/config\/cors\.xml <<'EOF'\r?\n([\s\S]*?)\r?\nEOF/)?.[1];
+  const cors = minioInit.match(/cat > \/config\/cors\.json <<'EOF'\r?\n([\s\S]*?)\r?\nEOF/)?.[1];
   assert.ok(cors, 'the CORS configuration is generated as XML');
   assert.match(cors, /^<\?xml version="1\.0" encoding="UTF-8"\?>\r?\n<CORSConfiguration xmlns="http:\/\/s3\.amazonaws\.com\/doc\/2006-03-01\/">/);
-  assert.equal((cors.match(/<AllowedOrigin>https:\/\/petcare\.localhost<\/AllowedOrigin>/g) ?? []).length, 1);
+  assert.deepEqual([...cors.matchAll(/<AllowedOrigin>([^<]+)<\/AllowedOrigin>/g)].map((match) => match[1]), ['https://petcare.localhost']);
   assert.deepEqual([...cors.matchAll(/<AllowedMethod>([^<]+)<\/AllowedMethod>/g)].map((match) => match[1]), ['GET', 'PUT', 'HEAD']);
   assert.deepEqual([...cors.matchAll(/<ExposeHeader>([^<]+)<\/ExposeHeader>/g)].map((match) => match[1]), ['ETag', 'x-amz-checksum-sha256']);
   assert.match(cors, /<\/CORSConfiguration>$/);
