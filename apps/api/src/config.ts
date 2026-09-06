@@ -17,6 +17,11 @@ const PublicOriginSchema = z.url().refine((value) => {
   return ['http:', 'https:'].includes(url.protocol) && url.origin === value;
 }, 'PILOT_PUBLIC_ORIGIN must be an exact HTTP(S) origin');
 
+const S3PublicEndpointSchema = z.url().refine((value) => {
+  const url = new URL(value);
+  return ['http:', 'https:'].includes(url.protocol) && url.origin === value;
+}, 'S3_PUBLIC_ENDPOINT must be an exact HTTP(S) origin');
+
 const TrustedProxiesSchema = z.string().trim().min(1).transform((value) => (
   value.split(',').map((entry) => entry.trim())
 )).superRefine((entries, context) => {
@@ -59,6 +64,7 @@ const EnvironmentSchema = z.object({
   WECHAT_PAY_PLATFORM_CERT: z.string().optional(),
   PAYMENT_WEBHOOK_BASE_URL: z.url().optional(),
   S3_ENDPOINT: z.url().optional(),
+  S3_PUBLIC_ENDPOINT: S3PublicEndpointSchema.optional(),
   S3_BUCKET: z.string().optional(),
   S3_ACCESS_KEY_ID: z.string().optional(),
   S3_SECRET_ACCESS_KEY: z.string().optional(),
@@ -140,6 +146,7 @@ export type PilotConfig = {
 
 export type ObjectStorageConfig = {
   endpoint: string;
+  publicEndpoint?: string;
   bucket: string;
   accessKeyId: string;
   secretAccessKey: string;
@@ -212,6 +219,7 @@ export function loadConfig(environment: Record<string, string | undefined>): App
     ...(fieldEncryptionKeyring ? { fieldEncryptionKeyring } : {}),
     objectStorage: {
       endpoint: parsed.S3_ENDPOINT!, bucket: parsed.S3_BUCKET!, accessKeyId: parsed.S3_ACCESS_KEY_ID!,
+      ...(parsed.S3_PUBLIC_ENDPOINT ? { publicEndpoint: parsed.S3_PUBLIC_ENDPOINT } : {}),
       secretAccessKey: parsed.S3_SECRET_ACCESS_KEY!, region: parsed.S3_REGION!,
       forcePathStyle: parsed.S3_FORCE_PATH_STYLE === 'true',
     },

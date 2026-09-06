@@ -36,6 +36,28 @@ describe('production readiness', () => {
     expect(() => loadConfig(environment)).toThrow(key);
   });
 
+  it('keeps the browser-facing S3 endpoint optional and validates it as an exact HTTP(S) origin', () => {
+    const config = loadConfig({
+      ...pilotProductionEnvironment,
+      S3_ENDPOINT: 'http://minio:9000',
+      S3_PUBLIC_ENDPOINT: 'https://storage.petcare.localhost',
+    });
+    expect(config.production?.objectStorage).toMatchObject({
+      endpoint: 'http://minio:9000',
+      publicEndpoint: 'https://storage.petcare.localhost',
+    });
+
+    for (const publicEndpoint of [
+      'https://storage.petcare.localhost/path',
+      'https://storage.petcare.localhost?query=value',
+      's3://storage.petcare.localhost',
+    ]) {
+      expect(() => loadConfig({ ...pilotProductionEnvironment, S3_PUBLIC_ENDPOINT: publicEndpoint }))
+        .toThrow('S3_PUBLIC_ENDPOINT');
+    }
+    expect(loadConfig(pilotProductionEnvironment).production?.objectStorage).not.toHaveProperty('publicEndpoint');
+  });
+
   it('exposes only readiness booleans and provider names, never credentials', () => {
     const config = loadConfig(productionEnvironment);
     const response = readinessSnapshot(config, { database: true, objectStorage: true, adminCredential: true });

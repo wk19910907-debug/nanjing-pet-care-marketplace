@@ -18,10 +18,31 @@ type PresignOptions = {
 };
 
 type AwsS3SignerDependencies = {
+  createClient?: (endpoint: string) => AwsS3SignerClient;
+  presign?: (command: SignedCommand, options: PresignOptions) => Promise<string>;
+  sendHead?: (command: HeadObjectCommand) => Promise<HeadObjectCommandOutput>;
+  sendProbe?: (command: HeadBucketCommand, options: { abortSignal: AbortSignal }) => Promise<unknown>;
+};
+
+type AwsS3SignerClient = {
   presign(command: SignedCommand, options: PresignOptions): Promise<string>;
   sendHead(command: HeadObjectCommand): Promise<HeadObjectCommandOutput>;
   sendProbe(command: HeadBucketCommand, options: { abortSignal: AbortSignal }): Promise<unknown>;
 };
+
+function createClient(config: ObjectStorageConfig, endpoint: string): AwsS3SignerClient {
+  const client = new S3Client({
+    endpoint,
+    region: config.region,
+    forcePathStyle: config.forcePathStyle,
+    credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
+  });
+  return {
+    presign: (command, options) => getSignedUrl(client, command, options),
+    sendHead: (command) => client.send(command),
+    sendProbe: (command, options) => client.send(command, options),
+  };
+}
 
 function isMissingObject(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
@@ -34,19 +55,23 @@ export function createAwsS3Signer(
   config: ObjectStorageConfig,
   dependencies?: AwsS3SignerDependencies,
 ): S3Signer {
-  const client = dependencies ? undefined : new S3Client({
-    endpoint: config.endpoint,
-    region: config.region,
-    forcePathStyle: config.forcePathStyle,
-    credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
-  });
-  const presign = dependencies?.presign ?? ((command: SignedCommand, options: PresignOptions) => (
-    getSignedUrl(client!, command, options)
-  ));
-  const sendHead = dependencies?.sendHead ?? ((command: HeadObjectCommand) => client!.send(command));
-  const sendProbe = dependencies?.sendProbe ?? ((command: HeadBucketCommand, options: { abortSignal: AbortSignal }) => (
-    client!.send(command, options)
-  ));
+  const internalClient = dependencies?.createClient
+    ? dependencies.createClient(config.endpoint)
+    : createClient(config, config.endpoint);
+  const signingClient = config.publicEndpoint && config.publicEndpoint !== config.endpoint
+    ? (dependencies?.createClient
+      ? dependencies.createClient(config.publicEndpoint)
+      : createClient(config, config.publicEndpoint))
+    : internalClient;
+  const presign = dependencies?.createClient
+    ? signingClient.presign.bind(signingClient)
+    : dependencies?.presign ?? internalClient.presign.bind(internalClient);
+  const sendHead = dependencies?.createClient
+    ? internalClient.sendHead.bind(internalClient)
+    : dependencies?.sendHead ?? internalClient.sendHead.bind(internalClient);
+  const sendProbe = dependencies?.createClient
+    ? internalClient.sendProbe.bind(internalClient)
+    : dependencies?.sendProbe ?? internalClient.sendProbe.bind(internalClient);
 
   return {
     probe: async () => {

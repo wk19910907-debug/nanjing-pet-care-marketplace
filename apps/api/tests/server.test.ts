@@ -7,7 +7,7 @@ const environment = {
   PILOT_MODE: 'enabled', PILOT_PUBLIC_ORIGIN: 'https://pilot.example.com',
   PILOT_AUTH_PEPPER: Buffer.alloc(32, 9).toString('base64'),
   FIELD_ENCRYPTION_KEY_V1: Buffer.alloc(32, 2).toString('base64'),
-  S3_ENDPOINT: 'https://objects.example.com', S3_BUCKET: 'pilot-evidence',
+  S3_ENDPOINT: 'https://objects.example.com', S3_PUBLIC_ENDPOINT: 'https://browser-objects.example.com', S3_BUCKET: 'pilot-evidence',
   S3_ACCESS_KEY_ID: 'pilot-access-id', S3_SECRET_ACCESS_KEY: 'pilot-storage-secret',
   S3_REGION: 'auto', S3_FORCE_PATH_STYLE: 'true',
   PILOT_SHARED_INGRESS_RATE_LIMITING: 'enabled',
@@ -21,7 +21,7 @@ describe('resolvePilotServerOverrides', () => {
     const resolved = resolvePilotServerOverrides(config, { staticDir: 'dist' }, factory);
 
     expect(factory).toHaveBeenCalledWith({
-      endpoint: 'https://objects.example.com', bucket: 'pilot-evidence',
+      endpoint: 'https://objects.example.com', publicEndpoint: 'https://browser-objects.example.com', bucket: 'pilot-evidence',
       accessKeyId: 'pilot-access-id', secretAccessKey: 'pilot-storage-secret',
       region: 'auto', forcePathStyle: true,
     });

@@ -1,33 +1,52 @@
-# Task 1 backend report — booking profile idempotency
+# Task 1 report: browser-facing S3 signing endpoint
 
-## Scope delivered
+## Implementation
 
-- Added nullable, owner-scoped `clientRequestId` columns and compound unique indexes for `Pet` and `ServiceAddress` in an additive Prisma migration.
-- Added optional 1–100 character ASCII request identifiers (`A–Z`, `a–z`, digits, `_`, `-`) to both create endpoints.
-- Implemented owner-scoped idempotent pet and address creates. The original stored record is returned with HTTP 201 for the same normalized payload; a differing payload returns `PROFILE_REQUEST_CONFLICT` (HTTP 409) without modifying it.
-- Payload comparison decrypts stored pet notes, address detail, and access instructions in memory. No plaintext sensitive-content hashes were added.
-- Owner address creates and lists return the safe address view: `id`, `city`, `district`, `serviceZone`, and decrypted `detail`. They never expose access instructions or encrypted columns. `GET /v1/addresses` is `Cache-Control: no-store`.
-- Existing no-request-id callers continue to create independent records. OWNER authorization remains required.
+- Added optional `S3_PUBLIC_ENDPOINT`, restricted to an exact `http` or `https` origin with no path or query string.
+- Added `publicEndpoint?: string` to `ObjectStorageConfig` without making it required, preserving existing production configurations that only set `S3_ENDPOINT`.
+- The signer now creates an internal S3 client for `HeadBucket` and `HeadObject`, and a separate signing client only when `publicEndpoint` is present and differs from the internal endpoint. Both clients use the same region, path-style setting, and credentials.
+- Documented the optional public endpoint in the production environment template and asserted that contract in deployment tests.
 
-## RED
+## TDD evidence
 
-Created `apps/api/tests/booking-details-idempotency.test.ts` against a uniquely named disposable PostgreSQL database. Before implementation it failed as expected: concurrent same-key pet/address creates produced two records, same-key conflicts resolved, and invalid request identifiers were ignored by the route.
+### RED
 
-## GREEN / verification
+1. `pnpm --filter @pet/api test -- production-readiness.test.ts server.test.ts` (with Node 22.22.2 on `PATH`)
+   - Expected configuration failure observed: `publicEndpoint` was absent from parsed object storage configuration.
+   - `server.test.ts` additionally could not load due to the pre-existing Prisma package-import error recorded under Concerns.
+2. `pnpm --filter @pet/api test -- aws-s3-signer.test.ts` (with Node 22.22.2 on `PATH`)
+   - Expected routing failure observed: PUT presigning returned `http://minio:9000/internal-signed-url` rather than `https://storage.petcare.localhost/browser-signed-url`.
 
-- `pnpm --filter @pet/api test tests/booking-details-idempotency.test.ts` — 10 passed, using a database created and dropped by the test.
-- `pnpm --filter @pet/api lint` — passed.
-- `pnpm --filter @pet/api typecheck` — currently blocked by an unrelated, pre-existing/miniprogram-side missing declaration for `core-js-pure/actual/url/index.js` in `apps/miniprogram/services/fulfillment-models.ts`.
+### GREEN
 
-The dedicated test covers concurrent same-key convergence, conflicting replay preservation, owner isolation, no-key compatibility, encryption and owner-only decrypted detail, role gates, strict request-key validation, 409 mapping, POST safe detail output, and no-store address lists.
+- `pnpm --filter @pet/api test -- aws-s3-signer.test.ts production-readiness.test.ts`
+  - Passed: 44 tests across 2 files.
+- `pnpm test:deploy`
+  - Passed: 8 tests, 0 failures.
+- `pnpm --filter @pet/api typecheck`
+  - Passed: exit 0.
+- `git diff --check`
+  - Passed: exit 0.
 
-## Review follow-up
+All commands used `C:\Users\Administrator\AppData\Local\Programs\node-v22.22.2-win-x64` first on `PATH`.
 
-- Coordinates are normalized to PostgreSQL `Decimal(9,6)` precision before persistence and replay comparison. The strict location policy still receives the original submitted coordinates, so precision normalization cannot expand the accepted service area.
-- Existing owner/key records are loaded and compared before applying the current location policy. This preserves an original request's safe replay when operating-area policy changes, while a same-key payload change still returns a conflict.
-- Address-route invalid request identifiers now have explicit coverage alongside pet-route validation.
+## Changed files
 
-## Concerns / handoff
+- `apps/api/src/config.ts`
+- `apps/api/src/adapters/aws-s3-signer.ts`
+- `apps/api/tests/aws-s3-signer.test.ts`
+- `apps/api/tests/production-readiness.test.ts`
+- `apps/api/tests/server.test.ts`
+- `deploy/.env.production.example`
+- `scripts/production-deployment-files.test.mjs`
 
-- The migration is intentionally not deployed to the runtime database; deployment belongs to the integration owner.
-- Existing `accessInstructions` persistence and provider-access flows remain untouched for backward compatibility. The owner create/list views introduced here do not expose it.
+## Self-review
+
+- Public endpoints are not required in production validation, preserving current deployments.
+- Internal probe/head commands and public PUT/GET signing are exercised through separate injected clients.
+- Commands do not serialize S3 credentials or the optional configuration field.
+- Existing checksum handling, expiration inputs, credentials, region, and path-style semantics are unchanged.
+
+## Concerns
+
+`apps/api/tests/server.test.ts` remains un-runnable in this worktree because `@prisma/client@6.19.3` resolves `default.js` through `#main-entry-point`, but Node/Vitest reports that package import is undefined. Running `pnpm exec prisma generate --schema prisma/schema.prisma` completed successfully but did not change that failure. The endpoint-related suites, typecheck, and deployment tests pass; this dependency-resolution problem appears unrelated to Task 1.
