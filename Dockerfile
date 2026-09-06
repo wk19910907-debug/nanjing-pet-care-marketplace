@@ -2,10 +2,12 @@
 FROM node:22.23.2-alpine3.24 AS build
 
 ENV PNPM_HOME=/pnpm
+ENV COREPACK_HOME=/opt/corepack
 ENV PATH=$PNPM_HOME:$PATH
 WORKDIR /app
 
-RUN corepack enable \
+RUN mkdir -p "$COREPACK_HOME" \
+  && corepack enable \
   && corepack prepare pnpm@10.15.0 --activate
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -25,15 +27,18 @@ RUN pnpm --filter @pet/api exec prisma generate --schema ../../prisma/schema.pri
 FROM node:22.23.2-alpine3.24 AS runtime
 
 ENV PNPM_HOME=/pnpm
+ENV COREPACK_HOME=/opt/corepack
 ENV PATH=$PNPM_HOME:$PATH
 ENV NODE_ENV=production
 WORKDIR /app
 
 RUN apk add --no-cache openssl \
+  && mkdir -p "$COREPACK_HOME" \
   && corepack enable \
   && corepack prepare pnpm@10.15.0 --activate
 
 COPY --from=build --chown=node:node /app /app
+RUN chown -R node:node /opt/corepack
 
 USER node
 EXPOSE 3000

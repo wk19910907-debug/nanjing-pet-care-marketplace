@@ -134,6 +134,7 @@ test('local production initializes storage, schema, and the guarded administrato
   const compose = await source('deploy/compose.local-production.yml');
   const apiPackage = JSON.parse(await source('apps/api/package.json'));
   const adminInitScript = await optionalSource('deploy/local-production/admin-init.sh');
+  const dockerfile = await source('Dockerfile');
 
   const service = (name) => compose.match(new RegExp(`\\n  ${name}:\\n[\\s\\S]*?(?=\\n  \\w[\\w-]*:\\n|\\nnetworks:)`))?.[0] ?? '';
   const migrate = service('migrate');
@@ -166,9 +167,16 @@ test('local production initializes storage, schema, and the guarded administrato
   assert.match(adminInitScript, /^#!\/bin\/sh$/m);
   assert.match(adminInitScript, /cat "\$host_password" > "\$staged_password"/);
   assert.match(adminInitScript, /chmod 0400 "\$staged_password"/);
-  assert.match(adminInitScript, /chown node:node "\$staged_password" "\$staging_directory"/);
-  assert.match(adminInitScript, /exec su -p node -s \/bin\/sh -c/);
+  assert.match(adminInitScript, /chown node:node "\$staged_password"(?: "\$node_home" "\$node_cache")? "\$staging_directory"/);
+  assert.match(adminInitScript, /su -p node -s \/bin\/sh -c/);
+  assert.match(adminInitScript, /set -eu/);
+  assert.match(adminInitScript, /test "\$\(id -u\)" -eq 1000/);
+  assert.match(adminInitScript, /test "\$\(id -g\)" -eq 1000/);
+  assert.match(adminInitScript, /test -f \/run\/admin-password\/admin-password/);
   assert.match(adminInitScript, /--password-file \/run\/admin-password\/admin-password/);
+  assert.match(dockerfile, /ENV COREPACK_HOME=\/opt\/corepack/);
+  assert.match(dockerfile, /corepack prepare pnpm@10\.15\.0 --activate/);
+  assert.match(dockerfile, /chown -R node:node \/opt\/corepack/);
 
   assert.match(app, /admin-init:\s*\n\s+condition: service_completed_successfully/);
   assert.doesNotMatch(app, /admin-password|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD/);
@@ -178,6 +186,6 @@ test('local production initializes storage, schema, and the guarded administrato
 test('MinIO service-account commands cannot write supplied credentials to init output', async () => {
   const minioInit = await source('deploy/local-production/minio-init.sh');
 
-  assert.match(minioInit, /mc admin user svcacct edit local "\$S3_ACCESS_KEY_ID"[\s\S]*?--policy \/config\/app-bucket-policy\.json >\/dev\/null 2>&1/);
+  assert.match(minioInit, /mc admin user svcacct edit local "\$S3_ACCESS_KEY_ID" \\\n+    --secret-key "\$S3_SECRET_ACCESS_KEY" \\\n+    --policy \/config\/app-bucket-policy\.json >\/dev\/null 2>&1/);
   assert.match(minioInit, /mc admin user svcacct add local "\$MINIO_ROOT_USER"[\s\S]*?--policy \/config\/app-bucket-policy\.json >\/dev\/null 2>&1/);
 });
