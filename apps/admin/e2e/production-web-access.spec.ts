@@ -231,6 +231,7 @@ test('production web closes the guest, recovery, staff and order loop against Po
     await task.getByLabel('履约图片').setInputFiles({ name: 'acceptance.png', mimeType: 'image/png', buffer: png }); await task.getByRole('button', { name: '上传履约图片' }).click();
     for (const label of ['宠物数量已确认', '猫粮已补充', '饮水已补充', '猫砂已清理']) await task.getByRole('checkbox', { name: label }).check();
     await task.getByLabel('服务报告备注').fill('真实上传适配器验收。'); await task.getByRole('checkbox', { name: '我已确认服务后的宠物状态并如实填写报告' }).check(); await task.getByRole('button', { name: '提交服务报告' }).click();
+    await expect(task.getByText(/服务报告已于/)).toBeVisible();
     await recoveredPage.getByRole('button', { name: '刷新', exact: true }).click(); await recoveredPage.getByRole('button', { name: '查看履约证据 1' }).click(); await expect(recoveredPage.getByRole('button', { name: '确认服务完成' })).toBeEnabled(); await recoveredPage.getByRole('button', { name: '确认服务完成' }).click(); await expect(recoveredPage.getByText('服务已完成')).toBeVisible();
     expect((await api(providerPage, `/api/v1/orders/${dogOrderId}/address/assigned`)).status).toBe(403); expect((await api(attackerPage, `/api/v1/pilot/orders/${catOrderId}/messages`)).status).toBe(403);
     expect((await fetch(`${controlUrl}/restart`, { method: 'POST' })).status).toBe(200); await recoveredPage.reload(); await expect(recoveredPage.getByText('服务已完成')).toBeVisible();
