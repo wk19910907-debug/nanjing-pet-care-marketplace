@@ -3,6 +3,10 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const source = (path) => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
+const optionalSource = async (path) => source(path).catch((error) => {
+  if (error?.code === 'ENOENT') return '';
+  throw error;
+});
 
 test('local production Compose keeps stateful services private, hardened, and persistent', async () => {
   const compose = await source('deploy/compose.local-production.yml');
@@ -75,4 +79,46 @@ test('local production Compose keeps stateful services private, hardened, and pe
   assert.deepEqual([...cors.matchAll(/<AllowedMethod>([^<]+)<\/AllowedMethod>/g)].map((match) => match[1]), ['GET', 'PUT', 'HEAD']);
   assert.deepEqual([...cors.matchAll(/<ExposeHeader>([^<]+)<\/ExposeHeader>/g)].map((match) => match[1]), ['ETag', 'x-amz-checksum-sha256']);
   assert.match(cors, /<\/CORSConfiguration>$/);
+});
+
+test('local production WAF is the sole TLS edge and protects only the application host', async () => {
+  const compose = await source('deploy/compose.local-production.yml');
+  const dockerfile = await optionalSource('deploy/local-production/Dockerfile.waf');
+  const caddyfile = await optionalSource('deploy/local-production/Caddyfile');
+  const coraza = await optionalSource('deploy/local-production/coraza.conf');
+
+  const waf = compose.match(/\n  waf:\n[\s\S]*?(?=\n  \w[\w-]*:\n|\nnetworks:)/)?.[0] ?? '';
+  const app = compose.match(/\n  app:\n[\s\S]*?(?=\n  \w[\w-]*:\n|\nnetworks:)/)?.[0] ?? '';
+  const minio = compose.match(/\n  minio:\n[\s\S]*?(?=\n  \w[\w-]*:\n|\nnetworks:)/)?.[0] ?? '';
+
+  assert.match(dockerfile, /^FROM caddy:2\.11\.4-builder AS builder$/m);
+  assert.match(dockerfile, /xcaddy build --with github\.com\/corazawaf\/coraza-caddy\/v2@v2\.5\.0/);
+  assert.match(dockerfile, /^FROM caddy:2\.11\.4-alpine$/m);
+  assert.match(dockerfile, /USER caddy/);
+
+  assert.match(waf, /build:\s*\n\s+context: \.\n\s+dockerfile: local-production\/Dockerfile\.waf/);
+  assert.match(waf, /- "80:80"/);
+  assert.match(waf, /- "443:443"/);
+  assert.match(waf, /ipv4_address: 172\.31\.0\.2/);
+  assert.match(waf, /edge:/);
+  assert.match(waf, /backend:/);
+  assert.match(waf, /read_only: true/);
+  assert.match(waf, /cap_drop:\s*\n\s+- ALL/);
+  assert.match(waf, /cap_add:\s*\n\s+- NET_BIND_SERVICE/);
+  assert.match(waf, /caddy_data:\/data/);
+  assert.match(waf, /caddy_config:\/config/);
+  assert.doesNotMatch(app, /^\s+ports:/m);
+  assert.doesNotMatch(minio, /^\s+ports:/m);
+
+  assert.match(caddyfile, /order coraza_waf first/);
+  assert.match(caddyfile, /https:\/\/petcare\.localhost\s*\{[\s\S]*?coraza_waf\s*\{[\s\S]*?load_owasp_crs[\s\S]*?directives `Include \/etc\/caddy\/coraza\.conf`[\s\S]*?\}[\s\S]*?reverse_proxy app:3000\s*\{[\s\S]*?header_up X-Forwarded-For \{client_ip\}/);
+  assert.match(caddyfile, /https:\/\/storage\.petcare\.localhost\s*\{[\s\S]*?reverse_proxy minio:9000/);
+  const storage = caddyfile.match(/https:\/\/storage\.petcare\.localhost\s*\{[\s\S]*?\n\}/)?.[0] ?? '';
+  assert.match(storage, /respond @minio_console 404/);
+  assert.doesNotMatch(storage, /coraza_waf|request_body|uri replace|header_up.*(?:X-Amz|Authorization)/i);
+
+  assert.match(coraza, /SecRuleEngine On/);
+  assert.match(coraza, /tx\.paranoia_level=1/);
+  assert.match(coraza, /SecRequestBodyLimit 1048576/);
+  assert.match(coraza, /SecRequestBodyNoFilesLimit 1048576/);
 });

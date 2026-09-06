@@ -1,0 +1,26 @@
+{
+	order coraza_waf first
+}
+
+https://petcare.localhost {
+	coraza_waf {
+		load_owasp_crs
+		directives `Include /etc/caddy/coraza.conf`
+	}
+
+	reverse_proxy app:3000 {
+		# Replace any client-supplied chain with the single peer IP observed by this edge.
+		header_up X-Forwarded-For {client_ip}
+	}
+}
+
+https://storage.petcare.localhost {
+	@minio_console {
+		path /minio/admin/* /minio/console/*
+	}
+	respond @minio_console 404
+
+	# Do not inspect or rewrite signed S3 requests; their URI, query, headers, and body
+	# are covered by the AWS Signature Version 4 calculation.
+	reverse_proxy minio:9000
+}
