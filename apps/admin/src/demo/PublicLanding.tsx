@@ -1,4 +1,4 @@
-import type { PointerEvent, ReactNode } from 'react';
+import { useState, type PointerEvent, type ReactNode } from 'react';
 import catCareAvif from '../assets/cat-care-card.avif';
 import catCareWebp from '../assets/cat-care-card.webp';
 import dogWalkAvif from '../assets/dog-walk-card.avif';
@@ -31,6 +31,7 @@ type ServicePresentation = {
   copy: string;
   duration: string;
   details: readonly string[];
+  careSteps: readonly string[];
   icon: CommerceIconName;
   imageAvif: string;
   imageWebp: string;
@@ -42,8 +43,9 @@ const services: readonly ServicePresentation[] = [
     type: 'CAT_FEEDING',
     title: '上门喂猫',
     copy: '让猫咪留在熟悉的家，按预约清单完成基础照护。',
-    duration: '约 25 分钟',
+    duration: '约 30 分钟',
     details: ['喂食换水', '猫砂清理', '状态反馈'],
+    careSteps: ['确认宠物数量', '添加猫粮与饮水', '清理猫砂', '提交现场服务记录'],
     icon: 'cat',
     imageAvif: catCareAvif,
     imageWebp: catCareWebp,
@@ -55,6 +57,7 @@ const services: readonly ServicePresentation[] = [
     copy: '在熟悉的社区完成牵引散步，并及时反馈服务状态。',
     duration: '约 30 分钟',
     details: ['牵引散步', '补充饮水', '状态反馈'],
+    careSteps: ['检查并扣好牵引绳', '按订单约定时长散步', '记录本次遛狗时长', '提交现场服务记录'],
     icon: 'dog',
     imageAvif: dogWalkAvif,
     imageWebp: dogWalkWebp,
@@ -93,10 +96,12 @@ export function PublicLanding({
   quoteSelection,
   onQuoteChange,
 }: PublicLandingProps) {
+  const [viewedServiceType, setViewedServiceType] = useState<ServiceType>('CAT_FEEDING');
   const availableServices = catalog
     ? services.filter(({ type }) => catalog.services[type].enabled)
     : [];
   const bookingAvailable = availableServices.length > 0;
+  const viewedService = availableServices.find(({ type }) => type === viewedServiceType) ?? availableServices[0];
   const viewOrders = onViewOrders ?? onStartOrder;
   const startService = (type: ServiceType) => {
     const selection = { ...quoteSelection, serviceType: type };
@@ -184,6 +189,21 @@ export function PublicLanding({
         <p className="store-price-note">{pricingSource === 'demo' ? DEMO_PRICE_NOTE : '最终价格以确认预约时的服务器报价为准'}</p>
         {catalog && <details className="optional-pricing"><summary>查看区域与参考价格</summary><PublicQuote pricingSource={pricingSource} catalog={catalog} selection={quoteSelection} onChange={onQuoteChange} onStartOrder={onQuoteStartOrder}/></details>}
       </section>
+
+      {viewedService && <section className="landing-section store-care-content" aria-label="服务内容">
+        <div className="store-care-heading"><span className="store-kicker">服务内容</span><h2 id="care-content-title">上门服务具体做什么</h2><p>先看清服务范围，再选择适合宠物的一项。实际安排以订单确认结果为准。</p></div>
+        <div className="store-care-tabs" role="tablist" aria-label="查看服务内容">
+          {availableServices.map((service) => <button key={service.type} type="button" role="tab"
+            aria-selected={viewedService.type === service.type} onClick={() => setViewedServiceType(service.type)}>{service.title}</button>)}
+        </div>
+        <div className="store-care-panel" role="tabpanel">
+          <div><span className="store-product-label">{viewedService.duration} · 平台匹配服务人员</span><h3>{viewedService.title}</h3><p>{viewedService.copy}</p>
+            <ol>{viewedService.careSteps.map((step, index) => <li key={step}><span>{String(index + 1).padStart(2, '0')}</span>{step}</li>)}</ol>
+            <button type="button" className="store-care-book" disabled={bookingPending} onClick={() => startService(viewedService.type)}>查看时间并预约{viewedService.title} <CommerceIcon name="arrow"/></button>
+          </div>
+          <picture><source srcSet={viewedService.imageAvif} type="image/avif"/><img src={viewedService.imageWebp} width="960" height="720" alt={viewedService.imageAlt} loading="lazy"/></picture>
+        </div>
+      </section>}
 
       {children}
 

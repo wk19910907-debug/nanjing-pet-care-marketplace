@@ -151,6 +151,36 @@ describe('PublicLanding', () => {
     expect(screen.queryByText(/推荐宠托师|评分|销量/)).toBeNull();
   });
 
+  it('lets owners browse the actual care scope and book the selected service', async () => {
+    const onQuoteStartOrder = vi.fn();
+    render(<PublicLanding pricingSource="server" catalog={catalog} onStartOrder={vi.fn()}
+      onQuoteStartOrder={onQuoteStartOrder}
+      quoteSelection={{ serviceType: 'CAT_FEEDING', district: '鼓楼区' }} onQuoteChange={vi.fn()}>{null}</PublicLanding>);
+
+    expect(screen.getByRole('heading', { name: '上门服务具体做什么' })).toBeTruthy();
+    const guide = within(screen.getByRole('region', { name: '服务内容' }));
+    expect(guide.getByText('确认宠物数量')).toBeTruthy();
+    expect(guide.getByText('添加猫粮与饮水')).toBeTruthy();
+    expect(guide.getByText('清理猫砂')).toBeTruthy();
+    await userEvent.click(guide.getByRole('tab', { name: '上门遛狗' }));
+    expect(guide.getByText('检查并扣好牵引绳')).toBeTruthy();
+    expect(guide.getByText('按订单约定时长散步')).toBeTruthy();
+    expect(guide.queryByText('清理猫砂')).toBeNull();
+    await userEvent.click(guide.getByRole('button', { name: '查看时间并预约上门遛狗' }));
+    expect(onQuoteStartOrder).toHaveBeenCalledWith({ serviceType: 'DOG_WALKING', district: '鼓楼区' });
+  });
+
+  it('does not present an unavailable service in the care-content tabs', () => {
+    render(<PublicLanding pricingSource="server" catalog={{ ...catalog, services: {
+      CAT_FEEDING: { enabled: false, basePriceFen: 3200 },
+      DOG_WALKING: { enabled: true, basePriceFen: 3700 },
+    } }} onStartOrder={vi.fn()} onQuoteStartOrder={vi.fn()}
+      quoteSelection={{ serviceType: 'CAT_FEEDING', district: '鼓楼区' }} onQuoteChange={vi.fn()}>{null}</PublicLanding>);
+    const guide = within(screen.getByRole('region', { name: '服务内容' }));
+    expect(guide.queryByRole('tab', { name: '上门喂猫' })).toBeNull();
+    expect(guide.getByText('检查并扣好牵引绳')).toBeTruthy();
+  });
+
   it('uses a compact four-column mobile app layout without removing reduced-motion support', () => {
     const css = readFileSync('src/demo/customer-web.css', 'utf8');
     expect(css).toMatch(/\.customer-web \.store-quick-categories\s*\{[^}]*grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/s);
