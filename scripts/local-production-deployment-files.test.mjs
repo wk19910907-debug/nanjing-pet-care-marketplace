@@ -136,6 +136,10 @@ test('local production WAF is the sole TLS edge and protects only the applicatio
 
   assert.match(coraza, /SecRuleEngine On/);
   assert.match(coraza, /tx\.paranoia_level=1/);
+  const allowedMethods = coraza.match(/setvar:'tx\.allowed_methods=([^']+)'/)?.[1];
+  assert.equal(allowedMethods, 'GET HEAD POST PUT PATCH DELETE OPTIONS', 'password change, catalog updates and logout must reach their application handlers');
+  assert.ok(coraza.indexOf('tx.allowed_methods=') < coraza.indexOf('Include @owasp_crs/*.conf'));
+  assert.doesNotMatch(coraza, /SecRuleRemoveById\s+911100|TRACE|CONNECT/);
   assert.match(coraza, /SecRequestBodyLimit 1048576/);
   assert.match(coraza, /SecRequestBodyNoFilesLimit 1048576/);
   assert.match(coraza, /Include @owasp_crs\/\*\.conf/);

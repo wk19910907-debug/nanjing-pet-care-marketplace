@@ -15,6 +15,10 @@ function Assert-Fails([scriptblock]$Operation, [string]$Message) {
 $controller = Join-Path $PSScriptRoot 'local-production.ps1'
 Assert-True (Test-Path -LiteralPath $controller) 'Lifecycle controller is missing'
 . $controller
+Assert-True ([bool](Get-Command Write-LocalProductionVerification -ErrorAction SilentlyContinue)) 'Verification output filter is missing'
+$filtered = @(Write-LocalProductionVerification -Output "Cookie: SECRET-CANARY`n[local-production] readiness PASS 200`n[local-production] SECRET-CANARY PASS 200`n[local-production] readiness PASS 200 SECRET-CANARY`n[local-production] signed-put FAIL 1")
+Assert-True ($filtered.Count -eq 2) 'Verification output permits only complete known check records'
+Assert-True (-not ($filtered -join '').Contains('SECRET-CANARY')) 'Verification output suppresses arbitrary diagnostics'
 $realReadyProbe = ${function:Test-LocalProductionReady}
 $realProcess = ${function:Invoke-LocalProductionProcess}
 
