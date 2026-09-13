@@ -143,6 +143,10 @@ test('local production WAF is the sole TLS edge and protects only the applicatio
   assert.match(coraza, /SecRequestBodyLimit 1048576/);
   assert.match(coraza, /SecRequestBodyNoFilesLimit 1048576/);
   assert.match(coraza, /Include @owasp_crs\/\*\.conf/);
+  assert.match(dockerfile, /github\.com\/mholt\/caddy-ratelimit@5625512f24f6f59d6f64fb3aafe5eecff0b286db/);
+  assert.match(caddyfile, /order rate_limit after coraza_waf/);
+  assert.match(caddyfile, /zone local_ingress\s*\{[^}]*key\s+\{client_ip\}[^}]*events\s+300[^}]*window\s+1m/s);
+  assert.match(caddyfile, /zone live_probe\s*\{[\s\S]*path \/health\/live[\s\S]*events\s+10[\s\S]*window\s+1s/);
 });
 
 test('local production initializes storage, schema, and the guarded administrator before serving traffic', async () => {
@@ -210,4 +214,18 @@ test('MinIO service-account commands cannot write supplied credentials to init o
 
   assert.match(minioInit, /mc admin user svcacct edit local "\$S3_ACCESS_KEY_ID" \\\n+    --secret-key "\$S3_SECRET_ACCESS_KEY" \\\n+    --policy \/config\/app-bucket-policy\.json >\/dev\/null 2>&1/);
   assert.match(minioInit, /mc admin user svcacct add local "\$MINIO_ROOT_USER"[\s\S]*?--policy \/config\/app-bucket-policy\.json >\/dev\/null 2>&1/);
+});
+
+test('local production runbook covers operation, recovery, and public-production gaps', async () => {
+  const runbook = await optionalSource('deploy/LOCAL_PRODUCTION.md');
+  const readme = await source('README.md');
+  for (const command of ['pnpm local-production:start', 'pnpm local-production:status', 'pnpm local-production:verify', 'pnpm local-production:stop']) {
+    assert.ok(runbook.includes(command), `runbook is missing ${command}`);
+  }
+  for (const item of [
+    'Node.js 22', 'pnpm 10', 'Docker Desktop', 'https://petcare.localhost', 'https://storage.petcare.localhost',
+    'LOCALAPPDATA', 'admin-password', 'pg_dump', 'pg_restore', 'minio_data', '证书', '保留',
+    '真实域名', 'DNS', 'WAF', '异机备份', '共享限流', '监控告警', '生产账号',
+  ]) assert.ok(runbook.includes(item), `runbook is missing ${item}`);
+  assert.match(readme, /deploy\/LOCAL_PRODUCTION\.md/);
 });

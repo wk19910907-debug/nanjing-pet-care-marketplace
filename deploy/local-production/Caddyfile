@@ -1,11 +1,29 @@
 {
 	order coraza_waf first
+	order rate_limit after coraza_waf
 }
 
 https://petcare.localhost {
 	coraza_waf {
 		load_owasp_crs
 		directives `Include /etc/caddy/coraza.conf`
+	}
+	rate_limit {
+		# Single-instance rehearsal guard. Public multi-replica deployment needs shared state.
+		zone local_ingress {
+			key {client_ip}
+			events 300
+			window 1m
+		}
+		# A small, harmless route-specific zone makes the 429 behavior testable.
+		zone live_probe {
+			match {
+				path /health/live
+			}
+			key {client_ip}
+			events 10
+			window 1s
+		}
 	}
 
 	reverse_proxy app:3000 {

@@ -10,6 +10,13 @@ const checksum = createHash('sha256').update(png).digest('hex');
 const localInput = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 type Check = (name: string, operation: () => Promise<number>) => Promise<number>;
 
+export function isAcceptanceProviderAccount(account: {
+  username: string; displayName: string; role: string; disabledAt: string | null;
+}) {
+  const match = /^verify\.([0-9a-f]{12})$/.exec(account.username);
+  return Boolean(match && account.displayName === `验收${match[1]}` && account.role === 'PROVIDER' && account.disabledAt === null);
+}
+
 async function login(page: Page, username: string, password: string, workspace: string, changedPassword = password) {
   await page.goto(origin);
   await page.getByRole('button', { name: '员工登录' }).click();
@@ -55,6 +62,23 @@ export async function verifyBrowserWorkflow({ browser, check, adminPassword, rem
   let readUrl = '';
   let uploadUrl = '';
   let uploadHeaders: Record<string, string> = {};
+  const disableAcceptanceProviders = async () => {
+    const result = await admin.evaluate(async () => {
+      const response = await fetch('/api/v1/admin/staff-accounts');
+      return { status: response.status, accounts: response.ok ? await response.json() : [] };
+    }) as { status: number; accounts: Array<{ userId: string; username: string; displayName: string; role: string; disabledAt: string | null }> };
+    expect(result.status).toBe(200);
+    expect(Array.isArray(result.accounts)).toBe(true);
+    for (const account of result.accounts.filter(isAcceptanceProviderAccount)) {
+      const status = await admin.evaluate(async (userId) => {
+        const response = await fetch(`/api/v1/admin/staff-accounts/${encodeURIComponent(userId)}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ disabled: true }),
+        });
+        return response.status;
+      }, account.userId);
+      expect(status).toBe(200);
+    }
+  };
 
   await check('owner-booking', async () => {
     await owner.goto(origin);
@@ -81,6 +105,9 @@ export async function verifyBrowserWorkflow({ browser, check, adminPassword, rem
   });
   await check('administrator-login', async () => { await login(admin, 'admin', adminPassword, '平台工作区'); return 200; });
   await check('provider-onboarding', async () => {
+    // Earlier acceptance runs leave durable accounts. Disable only accounts
+    // with our exact generated identity so dispatch remains repeatable.
+    await disableAcceptanceProviders();
     await admin.getByLabel('员工用户名').fill(providerUsername);
     await admin.getByLabel('员工展示名称').fill(providerName);
     await admin.getByRole('button', { name: '创建服务人员账号' }).click();
@@ -184,6 +211,7 @@ export async function verifyBrowserWorkflow({ browser, check, adminPassword, rem
         return 200;
       });
       await check('persisted-evidence', readEvidence);
+      await disableAcceptanceProviders();
     },
   };
 }

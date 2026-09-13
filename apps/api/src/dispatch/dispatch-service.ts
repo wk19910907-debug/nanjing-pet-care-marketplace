@@ -63,6 +63,10 @@ export class DispatchService {
         reviewStatus: 'APPROVED', acceptsInvitations: true,
         serviceTypes: { has: order.serviceType }, serviceZone: order.address.serviceZone,
         id: { notIn: [...previouslyInvited] },
+        user: { is: { OR: [
+          { staffCredential: { is: null } },
+          { staffCredential: { is: { disabledAt: null } } },
+        ] } },
       },
       include: {
         availability: { where: { startsAt: { lte: order.startsAt }, endsAt: { gte: endsAt } } },

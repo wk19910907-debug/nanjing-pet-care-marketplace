@@ -1,7 +1,26 @@
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const verifier = await import('./verify-local-production.mjs').catch(() => ({}));
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+test('acceptance provider cleanup matches only its exact generated accounts', async () => {
+  const apiRequire = createRequire(path.join(root, 'apps/api/package.json'));
+  const { tsImport } = apiRequire('tsx/esm/api');
+  const accounts = await tsImport(pathToFileURL(path.join(root, 'apps/admin/e2e/local-production.spec.ts')).href, import.meta.url);
+  assert.equal(typeof accounts.isAcceptanceProviderAccount, 'function');
+  const valid = { userId: 'id', username: 'verify.abcdef123456', displayName: '验收abcdef123456', role: 'PROVIDER', disabledAt: null };
+  assert.equal(accounts.isAcceptanceProviderAccount(valid), true);
+  for (const record of [
+    { ...valid, username: 'verify.admin' },
+    { ...valid, displayName: '真实服务人员' },
+    { ...valid, role: 'ADMIN' },
+    { ...valid, disabledAt: '2026-09-13T00:00:00.000Z' },
+  ]) assert.equal(accounts.isAcceptanceProviderAccount(record), false);
+});
 
 test('named checks never report exception details, headers, signed URLs or environment secrets', async () => {
   assert.equal(typeof verifier.createChecks, 'function');

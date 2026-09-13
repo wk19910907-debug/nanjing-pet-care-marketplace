@@ -59,6 +59,24 @@ describe('managed dispatch', () => {
     expect(first[0]?.expiresAt.getTime()).toBeGreaterThan(Date.now() + 4 * 60_000);
   });
 
+  it('never invites a provider whose staff account is disabled', async () => {
+    const initial = await createOrder();
+    const order = await prisma.order.update({
+      where: { id: initial.id }, data: { startsAt: new Date(Date.now() + 7 * 24 * 60 * 60_000) },
+    });
+    const disabled = await createProvider(0, order.startsAt);
+    const available = await createProvider(1, order.startsAt);
+    await prisma.staffCredential.create({ data: {
+      userId: disabled.user.id,
+      usernameNormalized: `verify.${randomUUID()}`,
+      passwordHash: 'test-only-hash',
+      disabledAt: new Date(),
+    }});
+    const invitations = await dispatch.start(order.id, new Date());
+    expect(invitations.map((item) => item.providerId)).not.toContain(disabled.profile.id);
+    expect(invitations.map((item) => item.providerId)).toContain(available.profile.id);
+  });
+
   it('allows only one concurrent invitation acceptance', async () => {
     const order = await createOrder();
     await Promise.all(Array.from({ length: 3 }, (_, index) => createProvider(index + 10, order.startsAt)));

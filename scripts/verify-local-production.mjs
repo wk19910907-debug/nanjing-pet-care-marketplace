@@ -13,7 +13,7 @@ const origin = 'https://petcare.localhost';
 const storageOrigin = 'https://storage.petcare.localhost';
 export const checkNames = Object.freeze([
   'runtime', 'secrets', 'browser', 'readiness', 'waf-sqli', 'waf-traversal', 'waf-xss',
-  'normal-api', 'private-list', 'private-object', 'console-admin', 'console-ui',
+  'normal-api', 'rate-limit', 'private-list', 'private-object', 'console-admin', 'console-ui',
   'signed-put', 'signed-get', 'tampered-key', 'tampered-signature', 'checksum-rejected',
   'direct-app', 'direct-minio', 'direct-console', 'host-bindings',
   'owner-booking', 'administrator-login', 'provider-onboarding', 'dispatch', 'evidence-report',
@@ -198,6 +198,13 @@ export async function main() {
       const response = await request.get(`${origin}/health/live`, { headers: { Cookie: `acceptance_probe=${canary}`, Authorization: `Bearer ${canary}` } });
       requireCondition(response.status() === 200 && (await response.json()).alive === true);
       return response.status();
+    });
+    await check('rate-limit', async () => {
+      const statuses = await Promise.all(Array.from({ length: 16 }, async (_, index) => (
+        await request.get(`${origin}/health/live`, { headers: { 'X-Forwarded-For': `203.0.113.${index + 1}` } })
+      ).status()));
+      requireCondition(statuses.includes(200) && statuses.includes(429));
+      return 429;
     });
     for (const [name, url, denied] of [
       ['private-list', `${storageOrigin}/${bucket}?list-type=2`, [403]],

@@ -112,7 +112,7 @@ function Write-LocalProductionStatus {
 
 function Write-LocalProductionVerification {
   param([string]$Output)
-  $names = @('runtime', 'secrets', 'browser', 'readiness', 'waf-sqli', 'waf-traversal', 'waf-xss', 'normal-api', 'private-list', 'private-object', 'console-admin', 'console-ui', 'signed-put', 'signed-get', 'tampered-key', 'tampered-signature', 'checksum-rejected', 'direct-app', 'direct-minio', 'direct-console', 'host-bindings', 'owner-booking', 'administrator-login', 'provider-onboarding', 'dispatch', 'evidence-report', 'owner-completion', 'restart', 'persisted-admin', 'persisted-order', 'persisted-evidence', 'application-logs', 'cleanup', 'acceptance')
+  $names = @('runtime', 'secrets', 'browser', 'readiness', 'waf-sqli', 'waf-traversal', 'waf-xss', 'normal-api', 'rate-limit', 'private-list', 'private-object', 'console-admin', 'console-ui', 'signed-put', 'signed-get', 'tampered-key', 'tampered-signature', 'checksum-rejected', 'direct-app', 'direct-minio', 'direct-console', 'host-bindings', 'owner-booking', 'administrator-login', 'provider-onboarding', 'dispatch', 'evidence-report', 'owner-completion', 'restart', 'persisted-admin', 'persisted-order', 'persisted-evidence', 'application-logs', 'cleanup', 'acceptance')
   foreach ($line in ($Output -split '\r?\n')) {
     if ($line -cmatch '^\[local-production\] ([a-z-]+) (PASS|FAIL) ([0-9]{1,3})$' -and $Matches[1] -cin $names -and [int]$Matches[3] -le 599) {
       Write-Output $line
