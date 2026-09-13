@@ -55,4 +55,4 @@
 - [x] **Step 1: Run all frontend tests** — `pnpm --filter @pet/admin exec vitest run --maxWorkers=1 --no-file-parallelism`，预期 0 失败。
 - [x] **Step 2: Run typecheck/build** — `pnpm --filter @pet/admin typecheck` 与 `pnpm --filter @pet/admin build`，预期退出码 0。
 - [x] **Step 3: Review change scope** — `git diff --check`，预期无空白错误；检查公开演示提示未移除。
-- [ ] **Step 4: Commit and push** — 仅提交本计划相关文件，推送 `origin/main`；公开网页只更新 UI，不声称生产后端上线。
+- [x] **Step 4: Commit and push** — 仅提交本计划相关文件，推送 `origin/main`；公开网页只更新 UI，不声称生产后端上线。
