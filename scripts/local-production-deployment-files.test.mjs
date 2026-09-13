@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const source = (path) => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
+const rawSource = (path) => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
+const source = async (path) => (await rawSource(path)).replace(/\r\n/g, '\n');
 const optionalSource = async (path) => source(path).catch((error) => {
   if (error?.code === 'ENOENT') return '';
   throw error;
@@ -228,4 +229,12 @@ test('local production runbook covers operation, recovery, and public-production
     '真实域名', 'DNS', 'WAF', '异机备份', '共享限流', '监控告警', '生产账号',
   ]) assert.ok(runbook.includes(item), `runbook is missing ${item}`);
   assert.match(readme, /deploy\/LOCAL_PRODUCTION\.md/);
+});
+
+test('container shell entrypoints retain LF line endings on Windows checkouts', async () => {
+  const attributes = await optionalSource('.gitattributes');
+  assert.match(attributes, /^\*\.sh text eol=lf$/m);
+  for (const script of ['deploy/local-production/minio-init.sh', 'deploy/local-production/admin-init.sh']) {
+    assert.doesNotMatch(await rawSource(script), /\r/, `${script} must be mounted with LF line endings`);
+  }
 });
