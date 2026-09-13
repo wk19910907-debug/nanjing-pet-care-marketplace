@@ -120,6 +120,9 @@ export function PublicLanding({
         <span className="store-brand-mark" aria-hidden="true"><CommerceIcon name="cat"/></span>
         <span className="store-brand-name"><strong>安心宠</strong><small>上门宠物照护</small></span>
       </a>
+      <button className="store-search-cta" type="button" disabled={!bookingAvailable || bookingPending} onClick={onStartOrder}>
+        上门服务 · 选择时间 <CommerceIcon name="arrow"/>
+      </button>
       <div className="store-nav-links">
         <a href="#services">上门服务</a>
         <a href="#process">服务流程</a>
@@ -129,8 +132,15 @@ export function PublicLanding({
       </div>
     </nav>
 
-    <main className="store-main">
-      <section id="top" className="store-hero">
+    <main id="top" className="store-main">
+      <nav className="store-quick-categories" aria-label="服务快捷入口">
+        {availableServices.map((service) => <button type="button" key={service.type} disabled={bookingPending} onClick={() => startService(service.type)}>
+          <span aria-hidden="true"><CommerceIcon name={service.icon}/></span><strong>{service.title}</strong><small>{service.duration}</small>
+        </button>)}
+        <button type="button" onClick={viewOrders}><span aria-hidden="true"><CommerceIcon name="orders"/></span><strong>我的订单</strong><small>查进度</small></button>
+        <a href="#safeguards"><span aria-hidden="true"><CommerceIcon name="verified"/></span><strong>安心保障</strong><small>看服务</small></a>
+      </nav>
+      <section className="store-hero">
         <div className="store-hero-copy">
           <span className="store-kicker">安心宠 · 上门照护</span>
           <h1>上门照顾好，<br/>让牵挂少一点</h1>
@@ -204,9 +214,10 @@ export function PublicLanding({
     </footer>
 
     <nav className="customer-quick-nav" aria-label="快捷导航">
-      <a href="#top">首页</a>
-      <button type="button" disabled={!bookingAvailable || bookingPending} onClick={onStartOrder}>{bookingPending ? '正在开启…' : '预约服务'}</button>
-      <button type="button" onClick={viewOrders}>我的订单</button>
+      <a href="#top"><CommerceIcon name="cat"/><span>首页</span></a>
+      <a href="#services"><CommerceIcon name="dog"/><span>服务</span></a>
+      <button type="button" disabled={!bookingAvailable || bookingPending} onClick={onStartOrder}><CommerceIcon name="arrow"/><span>预约</span></button>
+      <button type="button" onClick={viewOrders}><CommerceIcon name="orders"/><span>订单</span></button>
     </nav>
   </div>;
 }

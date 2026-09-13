@@ -26,10 +26,10 @@
 - Consumes: `catalog.services[type].enabled`、`onQuoteStartOrder(selection)`、`onViewOrders`、`onStartOrder`。
 - Produces: `aria-label="服务快捷入口"` 的导航；`aria-label="快捷导航"` 的四项底部导航。
 
-- [ ] **Step 1: Write the failing test** — 渲染 `PublicLanding`，断言“上门喂猫”快捷按钮把 `{serviceType:'CAT_FEEDING',district:'建邺区'}` 传给 `onQuoteStartOrder`；“我的订单”调用 `onViewOrders`；禁用遛狗后快捷入口消失。断言底部导航依次为首页、服务、预约、订单。
-- [ ] **Step 2: Run test to verify it fails** — `pnpm --filter @pet/admin exec vitest run src/demo/PublicLanding.test.tsx --maxWorkers=1 --no-file-parallelism`，应因缺少 `服务快捷入口` 失败。
-- [ ] **Step 3: Write minimal implementation** — 在页头加入预约胶囊按钮，首页横幅之前加入基于 `availableServices.map` 的服务快捷按钮，以及订单按钮和 `href="#safeguards"`；底栏改为四项，其中预约调用 `onStartOrder`。
-- [ ] **Step 4: Run test to verify it passes** — 同 Step 2，预期所有 `PublicLanding` 测试通过。
+- [x] **Step 1: Write the failing test** — 渲染 `PublicLanding`，断言“上门喂猫”快捷按钮把 `{serviceType:'CAT_FEEDING',district:'建邺区'}` 传给 `onQuoteStartOrder`；“我的订单”调用 `onViewOrders`；禁用遛狗后快捷入口消失。断言底部导航依次为首页、服务、预约、订单。
+- [x] **Step 2: Run test to verify it fails** — `pnpm --filter @pet/admin exec vitest run src/demo/PublicLanding.test.tsx --maxWorkers=1 --no-file-parallelism`，应因缺少 `服务快捷入口` 失败。
+- [x] **Step 3: Write minimal implementation** — 在页头加入预约胶囊按钮，首页横幅之前加入基于 `availableServices.map` 的服务快捷按钮，以及订单按钮和 `href="#safeguards"`；底栏改为四项，其中预约调用 `onStartOrder`。
+- [x] **Step 4: Run test to verify it passes** — 同 Step 2，预期所有 `PublicLanding` 测试通过。
 
 ### Task 2: 手机优先的小程序排版
 
@@ -41,10 +41,10 @@
 - Consumes: Task 1 的 `.store-search-cta`、`.store-quick-categories`、`.customer-quick-nav` 类名。
 - Produces: 760px 以下四列快捷入口、紧凑左右分栏横幅与四列固定底栏；桌面沿用已有白色设计变量。
 
-- [ ] **Step 1: Write the failing test** — 读取 CSS，断言末尾小屏规则包括 `grid-template-columns: repeat(4, minmax(0, 1fr))`、横幅 `grid-template-columns: minmax(0, 1fr) 35%` 和 `prefers-reduced-motion`。
-- [ ] **Step 2: Run test to verify it fails** — 同 Task 1 命令，预期因布局规则缺失失败。
-- [ ] **Step 3: Write minimal implementation** — 为新头部预约胶囊按钮、快捷入口图标和手机分栏横幅增加样式；页脚保持手机安全区；确保按钮至少 44px 点击区域。
-- [ ] **Step 4: Run test to verify it passes** — 同 Task 1 命令，预期通过。
+- [x] **Step 1: Write the failing test** — 读取 CSS，断言末尾小屏规则包括 `grid-template-columns: repeat(4, minmax(0, 1fr))`、横幅 `grid-template-columns: minmax(0, 1fr) 35%` 和 `prefers-reduced-motion`。
+- [x] **Step 2: Run test to verify it fails** — 同 Task 1 命令，预期因布局规则缺失失败。
+- [x] **Step 3: Write minimal implementation** — 为新头部预约胶囊按钮、快捷入口图标和手机分栏横幅增加样式；页脚保持手机安全区；确保按钮至少 44px 点击区域。
+- [x] **Step 4: Run test to verify it passes** — 同 Task 1 命令，预期通过。
 
 ### Task 3: 全量验证与发布
 
@@ -52,7 +52,7 @@
 - Verify: `apps/admin/src/demo/PublicLanding.tsx`、`apps/admin/src/demo/customer-web.css`
 - Update: `01-Projects/pet-home-service-platform/` 下的本次变更摘要。
 
-- [ ] **Step 1: Run all frontend tests** — `pnpm --filter @pet/admin exec vitest run --maxWorkers=1 --no-file-parallelism`，预期 0 失败。
-- [ ] **Step 2: Run typecheck/build** — `pnpm --filter @pet/admin typecheck` 与 `pnpm --filter @pet/admin build`，预期退出码 0。
-- [ ] **Step 3: Review change scope** — `git diff --check`，预期无空白错误；检查公开演示提示未移除。
+- [x] **Step 1: Run all frontend tests** — `pnpm --filter @pet/admin exec vitest run --maxWorkers=1 --no-file-parallelism`，预期 0 失败。
+- [x] **Step 2: Run typecheck/build** — `pnpm --filter @pet/admin typecheck` 与 `pnpm --filter @pet/admin build`，预期退出码 0。
+- [x] **Step 3: Review change scope** — `git diff --check`，预期无空白错误；检查公开演示提示未移除。
 - [ ] **Step 4: Commit and push** — 仅提交本计划相关文件，推送 `origin/main`；公开网页只更新 UI，不声称生产后端上线。

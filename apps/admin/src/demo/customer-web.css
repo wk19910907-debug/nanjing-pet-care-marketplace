@@ -93,6 +93,7 @@
   text-decoration: none;
 }
 .customer-web .store-nav-links a:hover { color: var(--store-brand); }
+.customer-web .store-search-cta { display: none; }
 .customer-web .public-nav :is(.header-orders, .header-booking) {
   min-height: 44px;
   padding: 10px 18px;
@@ -221,7 +222,7 @@
 
 .customer-web .store-quick-categories {
   width: min(calc(100% - 48px), 1120px);
-  margin: 30px auto 0;
+  margin: 18px auto 0;
   padding: 14px;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -944,4 +945,71 @@
   .customer-web .store-product-card:hover .store-product-media img {
     transform: none;
   }
+}
+
+/* Compact web-app home: the same functional shortcuts are shared by the demo and live entrance. */
+@media (max-width: 760px) {
+  .customer-web .public-nav { min-height: 64px; padding: 8px 12px; }
+  .customer-web .store-nav-links { display: none; }
+  .customer-web .store-search-cta {
+    min-width: 0;
+    min-height: 44px;
+    max-width: 62%;
+    padding: 9px 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    border: 1px solid var(--store-line);
+    border-radius: 999px;
+    color: var(--store-ink);
+    background: #f8faf7;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .customer-web .store-search-cta svg { width: 17px; height: 17px; flex: 0 0 auto; }
+  .customer-web .store-quick-categories {
+    width: calc(100% - 24px);
+    margin-top: 10px;
+    padding: 6px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 2px;
+    border-radius: 18px;
+    box-shadow: none;
+  }
+  .customer-web .store-quick-categories :is(button, a) { min-height: 82px; padding: 6px 2px; gap: 2px; }
+  .customer-web .store-quick-categories :is(button, a) > span {
+    width: 38px; height: 38px; margin-bottom: 2px; border: 0; background: #f2f7f0;
+  }
+  .customer-web .store-quick-categories svg { width: 21px; height: 21px; }
+  .customer-web .store-quick-categories strong { font-size: 12px; white-space: nowrap; }
+  .customer-web .store-quick-categories small { font-size: 12px; }
+  .customer-web .store-hero {
+    width: calc(100% - 24px);
+    min-height: 180px;
+    margin-top: 10px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 35%;
+    border-radius: 18px;
+  }
+  .customer-web .store-hero-copy { order: 0; min-width: 0; padding: 15px 7px 14px 17px; }
+  .customer-web .store-kicker { font-size: 12px; letter-spacing: .08em; }
+  .customer-web .store-hero h1 { margin: 5px 0 6px; font-size: clamp(24px, 6.8vw, 30px); line-height: 1.15; }
+  .customer-web .store-hero-copy > p { font-size: 12px; line-height: 1.4; }
+  .customer-web .store-primary { width: fit-content; min-height: 44px; margin-top: 9px; padding: 8px 12px; gap: 7px; font-size: 12px; }
+  .customer-web .store-hero-copy .store-hero-note { display: none; }
+  .customer-web .store-hero-media { order: 1; min-height: 180px; height: 100%; border-radius: 0 18px 18px 0; }
+  .customer-web .store-hero-media img { object-position: 54% center; }
+  .customer-web .store-services { padding-top: 22px; }
+  .customer-web .store-section-heading > p { display: none; }
+  .customer-web .store-product-grid { margin-top: 12px; }
+  .customer-web .customer-quick-nav {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 2px;
+    padding: 5px 7px calc(5px + env(safe-area-inset-bottom));
+  }
+  .customer-web .customer-quick-nav :is(a, button) { min-height: 56px; padding: 5px 2px; flex-direction: column; gap: 2px; font-size: 12px; }
+  .customer-web .customer-quick-nav svg { width: 20px; height: 20px; }
+  .customer-web .customer-quick-nav button:first-of-type { color: var(--store-brand); background: #f0f6ee; }
 }

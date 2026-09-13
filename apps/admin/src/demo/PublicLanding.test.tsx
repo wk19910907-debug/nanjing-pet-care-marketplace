@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PublicLanding } from './PublicLanding.js';
@@ -33,7 +33,7 @@ describe('PublicLanding', () => {
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(css).toContain('min-height: 44px');
     expect(css).toContain('.customer-web .store-process { margin-top: 12px; border: 1px solid var(--store-line); color: var(--store-ink); background: #f8faf7; }');
-    expect(css).toContain('.customer-web .store-hero-media { order: 0; min-height: 0; height: 168px;');
+    expect(css).toContain('.customer-web .store-hero-media { order: 1; min-height: 180px; height: 100%;');
     expect(css).toContain('.customer-web .store-product-card { min-height: 174px; display: grid;');
     expect(css).not.toContain('color: var(--store-gold)');
     expect(css).not.toMatch(/font-size: (9|10|11)px/);
@@ -78,7 +78,7 @@ describe('PublicLanding', () => {
 
     expect(screen.getByRole('heading', { name: /上门照顾好，\s*让牵挂少一点/ })).toBeTruthy();
     expect(screen.getByRole('heading', { name: '先选一项服务' })).toBeTruthy();
-    expect(screen.queryByRole('navigation', { name: '服务快捷入口' })).toBeNull();
+    expect(screen.getByRole('navigation', { name: '服务快捷入口' })).toBeTruthy();
     expect(document.body.textContent).not.toContain('南京');
     expect(document.body.textContent).not.toContain('NANJING');
     expect(screen.getByText('¥32 起')).toBeTruthy();
@@ -116,5 +116,46 @@ describe('PublicLanding', () => {
     expect(screen.queryByRole('button', { name: '预约上门遛狗' })).toBeNull();
     expect(screen.getByRole('option', { name: '鼓楼区' })).toBeTruthy();
     expect(screen.queryByRole('option', { name: '建邺区' })).toBeNull();
+  });
+
+  it('offers mini-program-like shortcuts that open real booking and orders actions', async () => {
+    const onQuoteStartOrder = vi.fn();
+    const onViewOrders = vi.fn();
+    const onStartOrder = vi.fn();
+    render(<PublicLanding pricingSource="server" catalog={catalog} onStartOrder={onStartOrder}
+      onQuoteStartOrder={onQuoteStartOrder} onViewOrders={onViewOrders}
+      quoteSelection={{ serviceType: 'DOG_WALKING', district: '鼓楼区' }} onQuoteChange={vi.fn()}>
+      <div>预约工作区</div>
+    </PublicLanding>);
+    const shortcuts = within(screen.getByRole('navigation', { name: '服务快捷入口' }));
+    await userEvent.click(screen.getByRole('button', { name: '上门服务 · 选择时间' }));
+    expect(onStartOrder).toHaveBeenCalledOnce();
+    await userEvent.click(shortcuts.getByRole('button', { name: /上门喂猫/ }));
+    expect(onQuoteStartOrder).toHaveBeenCalledWith({ serviceType: 'CAT_FEEDING', district: '鼓楼区' });
+    await userEvent.click(shortcuts.getByRole('button', { name: /我的订单/ }));
+    expect(onViewOrders).toHaveBeenCalledOnce();
+    expect(shortcuts.getByRole('link', { name: /安心保障/ }).getAttribute('href')).toBe('#safeguards');
+
+    const mobile = within(screen.getByRole('navigation', { name: '快捷导航' }));
+    expect(mobile.getAllByRole('link').map((item) => item.textContent)).toEqual(['首页', '服务']);
+    expect(mobile.getAllByRole('button').map((item) => item.textContent)).toEqual(['预约', '订单']);
+  });
+
+  it('never promotes a disabled service as a shortcut', () => {
+    render(<PublicLanding pricingSource="server" catalog={{ ...catalog, services: {
+      CAT_FEEDING: { enabled: true, basePriceFen: 3200 },
+      DOG_WALKING: { enabled: false, basePriceFen: 3700 },
+    } }} onStartOrder={vi.fn()} onQuoteStartOrder={vi.fn()}
+      quoteSelection={{ serviceType: 'CAT_FEEDING', district: '建邺区' }} onQuoteChange={vi.fn()}>{null}</PublicLanding>);
+    expect(within(screen.getByRole('navigation', { name: '服务快捷入口' })).queryByRole('button', { name: /上门遛狗/ })).toBeNull();
+    expect(screen.queryByText(/推荐宠托师|评分|销量/)).toBeNull();
+  });
+
+  it('uses a compact four-column mobile app layout without removing reduced-motion support', () => {
+    const css = readFileSync('src/demo/customer-web.css', 'utf8');
+    expect(css).toMatch(/\.customer-web \.store-quick-categories\s*\{[^}]*grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/s);
+    expect(css).toMatch(/\.customer-web \.store-hero\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\) 35%/s);
+    expect(css).toMatch(/\.customer-web \.customer-quick-nav\s*\{[^}]*grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/s);
+    expect(css).toContain('@media (prefers-reduced-motion: reduce)');
   });
 });
