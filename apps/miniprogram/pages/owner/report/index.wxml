@@ -1,1 +1,33 @@
-<view class="page"><view class="card">服务前后状态、检查表、照片和短视频将在此展示</view><textarea placeholder="如服务存在问题，请描述" bindinput="onReason"/><button class="danger" bindtap="dispute">提交投诉</button></view>
+<view class="page report-page">
+  <view class="card" wx:if="{{error}}"><view class="danger">{{error}}</view><button bindtap="reload" loading="{{loading}}">重新读取</button></view>
+  <view class="card" wx:if="{{loading && !loaded}}">正在读取服务报告…</view>
+  <block wx:if="{{loaded}}">
+    <view class="card"><view class="report-kicker">服务记录</view><view class="report-title">{{report.serviceName}}</view>
+      <view class="muted">订单 {{orderId}}</view></view>
+    <view class="card" wx:if="{{!report.reportReady}}"><view class="report-section-title">报告尚未提交</view>
+      <view class="muted">服务完成后，工作人员提交的清单与现场照片会显示在这里。</view><button bindtap="reload" loading="{{loading}}">刷新状态</button></view>
+    <block wx:else>
+      <view class="card"><view class="report-section-title">完成事项</view>
+        <view class="report-row" wx:for="{{report.checklist}}" wx:key="label"><text>{{item.label}}</text><text class="report-done">{{item.value}}</text></view>
+        <view class="muted report-note">{{report.notes || '服务人员未填写补充说明。'}}</view>
+        <view class="muted">提交时间：{{report.submittedAt}}</view></view>
+      <view class="card"><view class="report-section-title">现场照片</view>
+        <view class="muted">照片仅对订单相关人员开放；链接短时有效。</view>
+        <view wx:for="{{photos}}" wx:key="id" class="report-photo">
+          <button data-id="{{item.id}}" bindtap="viewEvidence" loading="{{item.loading}}" disabled="{{item.loading}}">{{item.url ? '重新读取' : item.label}}</button>
+          <image wx:if="{{item.url}}" src="{{item.url}}" mode="widthFix" data-id="{{item.id}}" binderror="evidenceError"/>
+          <view class="danger" wx:if="{{item.error}}">{{item.error}}</view>
+        </view>
+        <view class="muted" wx:if="{{photos.length === 0}}">现场照片暂不可查看，请联系平台核实。</view>
+      </view>
+      <view class="card" wx:if="{{report.status === 'DISPUTED'}}"><view class="report-section-title">售后处理中</view><view class="muted">平台已收到问题，请等待处理结果。</view></view>
+      <view class="card" wx:else><view class="report-section-title">服务有问题？</view>
+        <view class="muted">填写问题后由平台处理，不会直接公开给服务人员。</view>
+        <textarea placeholder="请简要描述问题" maxlength="1000" value="{{reason}}" bindinput="onReason" disabled="{{disputeBusy || disputeSubmitted}}"/>
+        <view class="danger" wx:if="{{disputeError}}">{{disputeError}}</view>
+        <view class="report-done" wx:if="{{disputeSubmitted}}">已提交，等待平台处理</view>
+        <button class="primary" wx:else bindtap="dispute" loading="{{disputeBusy}}" disabled="{{disputeBusy}}">提交售后问题</button>
+      </view>
+    </block>
+  </block>
+</view>

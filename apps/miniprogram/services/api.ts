@@ -2,6 +2,7 @@ import { PublicOperationsCatalogSchema, QuoteBreakdownSchema } from '@pet/contra
 import { parseAccountSession } from './account-models.js';
 import { parsePet, parseAddress, type PetDraft, type AddressDraft } from './booking-details.js';
 import { parseServiceOrder, parseUpload, uploadUrl, type UploadCapability } from './fulfillment-models.js';
+import { parseOwnerReport } from './owner-report.js';
 
 export type RequestSpec = {
   url: string;
@@ -83,6 +84,17 @@ export function createApiClient(config: {
     getServiceOrder: async (orderId: string) => parseServiceOrder(
       await request('GET', `/api/v1/pilot/orders/${encodeURIComponent(orderId)}`), orderId,
     ),
+    getOwnerReport: async (orderId: string) => parseOwnerReport(
+      await request('GET', `/api/v1/pilot/orders/${encodeURIComponent(orderId)}`), orderId,
+    ),
+    getEvidenceReadUrl: async (evidenceId: string) => {
+      const response = await request<unknown>('GET', `/api/v1/evidence/${encodeURIComponent(evidenceId)}/read-url`);
+      if (!response || typeof response !== 'object' || Array.isArray(response)) throw new Error('INVALID_EVIDENCE_RESPONSE');
+      const item = response as Record<string, unknown>;
+      if (typeof item.url !== 'string' || !Number.isInteger(item.expiresInSeconds)
+        || Number(item.expiresInSeconds) < 1 || Number(item.expiresInSeconds) > 3600) throw new Error('INVALID_EVIDENCE_RESPONSE');
+      return uploadUrl(item.url, config.baseUrl);
+    },
     listProviderTasks: () => request<unknown[]>('GET', '/api/v1/pilot/orders'),
     checkIn: (orderId: string, input: { beforeState: Record<string, unknown> }) => request('POST', `/api/v1/pilot/orders/${encodeURIComponent(orderId)}/check-in`, { beforeState: input.beforeState }),
     issueUpload: async (orderId: string, input: unknown) => parseUpload(

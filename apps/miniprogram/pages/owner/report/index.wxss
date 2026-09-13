@@ -1,0 +1,11 @@
+.report-page { padding-bottom: 72rpx; }
+.report-kicker { color: #738f82; font-size: 24rpx; letter-spacing: 3rpx; }
+.report-title { font-size: 42rpx; font-weight: 700; margin: 12rpx 0; }
+.report-section-title { font-size: 34rpx; font-weight: 600; margin-bottom: 20rpx; }
+.report-row { display: flex; justify-content: space-between; padding: 18rpx 0; border-bottom: 1rpx solid #edf0ed; }
+.report-done { color: #39715b; }
+.report-note { margin: 24rpx 0 10rpx; }
+.report-photo { margin-top: 24rpx; }
+.report-photo image { width: 100%; border-radius: 14rpx; margin-top: 12rpx; }
+.report-photo .danger { margin-top: 10rpx; }
+textarea { width: 100%; min-height: 160rpx; box-sizing: border-box; margin: 20rpx 0; padding: 18rpx; border: 1rpx solid #e4e9e5; border-radius: 12rpx; }
