@@ -248,6 +248,7 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
 
   if (session === null) {
     return <PublicLanding
+      pricingSource="server"
       catalog={publicCatalog}
       onStartOrder={() => void startOwnerSession()}
       onQuoteStartOrder={() => void startOwnerSession()}

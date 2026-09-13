@@ -8,10 +8,11 @@ import heroWebp from '../assets/premium-care-hero.webp';
 import type { PublicOperationsCatalog, ServiceType } from '../pilot/models.js';
 import { CommerceIcon, type CommerceIconName } from './CommerceIcon.js';
 import { calculateHeroParallax } from './heroMotion.js';
-import { PublicQuote } from './PublicQuotePanel.js';
+import { DEMO_PRICE_NOTE, PublicQuote } from './PublicQuotePanel.js';
 import type { PublicQuoteSelection } from './publicQuote.js';
 
 type PublicLandingProps = {
+  pricingSource: 'demo' | 'server';
   children: ReactNode;
   footerContent?: ReactNode;
   onStartOrder: () => void;
@@ -80,6 +81,7 @@ const processSteps = [
 ] as const;
 
 export function PublicLanding({
+  pricingSource,
   catalog,
   children,
   footerContent,
@@ -181,8 +183,8 @@ export function PublicLanding({
           </article>)}
           {!bookingAvailable && <div className="store-catalog-empty"><p className="pilot-empty">服务配置暂不可用，请稍后重试。</p>{onReloadCatalog && <button type="button" onClick={onReloadCatalog}>重新加载服务</button>}</div>}
         </div>
-        <p className="store-price-note">最终价格以确认预约时的服务器报价为准</p>
-        {catalog && <details className="optional-pricing"><summary>查看区域与参考价格</summary><PublicQuote catalog={catalog} selection={quoteSelection} onChange={onQuoteChange} onStartOrder={onQuoteStartOrder}/></details>}
+        <p className="store-price-note">{pricingSource === 'demo' ? DEMO_PRICE_NOTE : '最终价格以确认预约时的服务器报价为准'}</p>
+        {catalog && <details className="optional-pricing"><summary>查看区域与参考价格</summary><PublicQuote pricingSource={pricingSource} catalog={catalog} selection={quoteSelection} onChange={onQuoteChange} onStartOrder={onQuoteStartOrder}/></details>}
       </section>
 
       {children}

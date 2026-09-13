@@ -6,6 +6,12 @@ import { DemoApp } from './DemoApp.js';
 import { userEvent } from '@testing-library/user-event';
 
 describe('DemoApp public framing', () => {
+  it('labels browser-only prices as demo prices instead of promising a server quote', () => {
+    render(<DemoApp/>);
+    expect(screen.queryAllByText(/服务器报价/)).toHaveLength(0);
+    expect(screen.getAllByText('仅为功能演示价格，不构成真实服务报价')).toHaveLength(2);
+  });
+
   it('clears the receipt and starts an empty form when demo data is explicitly cleared', async () => {
     render(<DemoApp/>);
     const form = within(document.querySelector('form')!);

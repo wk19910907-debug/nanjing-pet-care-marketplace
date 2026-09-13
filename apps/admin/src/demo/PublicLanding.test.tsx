@@ -45,7 +45,7 @@ describe('PublicLanding', () => {
 
   it('offers orders access and keeps optional pricing collapsed before the booking workspace', async () => {
     const orders = vi.fn();
-    render(<PublicLanding catalog={catalog} onStartOrder={vi.fn()} onViewOrders={orders} onQuoteStartOrder={vi.fn()} quoteSelection={{ serviceType: 'CAT_FEEDING', district: '建邺区' }} onQuoteChange={vi.fn()}><div data-testid="booking">预约入口</div></PublicLanding>);
+    render(<PublicLanding pricingSource="server" catalog={catalog} onStartOrder={vi.fn()} onViewOrders={orders} onQuoteStartOrder={vi.fn()} quoteSelection={{ serviceType: 'CAT_FEEDING', district: '建邺区' }} onQuoteChange={vi.fn()}><div data-testid="booking">预约入口</div></PublicLanding>);
     await userEvent.click(screen.getAllByRole('button', { name: '我的订单' })[0]!);
     expect(orders).toHaveBeenCalledOnce();
     const pricing = screen.getByText('查看区域与参考价格').closest('details')!;
@@ -56,7 +56,7 @@ describe('PublicLanding', () => {
 
   it('uses the booking entry for orders when no signed-in orders callback exists', async () => {
     const start = vi.fn();
-    render(<PublicLanding catalog={catalog} onStartOrder={start} onQuoteStartOrder={vi.fn()} quoteSelection={{ serviceType: 'CAT_FEEDING', district: '建邺区' }} onQuoteChange={vi.fn()}>{null}</PublicLanding>);
+    render(<PublicLanding pricingSource="server" catalog={catalog} onStartOrder={start} onQuoteStartOrder={vi.fn()} quoteSelection={{ serviceType: 'CAT_FEEDING', district: '建邺区' }} onQuoteChange={vi.fn()}>{null}</PublicLanding>);
     await userEvent.click(screen.getAllByRole('button', { name: '我的订单' })[0]!);
     expect(start).toHaveBeenCalledOnce();
   });
@@ -67,6 +67,7 @@ describe('PublicLanding', () => {
     const onQuoteChange = vi.fn();
     const onViewOrders = vi.fn();
     render(<PublicLanding
+      pricingSource="server"
       catalog={catalog}
       onStartOrder={onStartOrder}
       onViewOrders={onViewOrders}
@@ -80,6 +81,7 @@ describe('PublicLanding', () => {
     expect(screen.getByText('¥32 起')).toBeTruthy();
     expect(screen.getByText('¥37 起')).toBeTruthy();
     expect(screen.getByText('最终价格以确认预约时的服务器报价为准')).toBeTruthy();
+    expect(screen.getByText('最终价格以预约确认页的服务器报价为准')).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/自主选人|五星|服务\d+次|用户\d+人/);
 
     await userEvent.click(screen.getByRole('button', { name: '快捷预约上门喂猫' }));
@@ -91,6 +93,7 @@ describe('PublicLanding', () => {
 
   it('uses live availability, price, districts, and announcement', () => {
     render(<PublicLanding
+      pricingSource="server"
       catalog={{
         ...catalog,
         services: {

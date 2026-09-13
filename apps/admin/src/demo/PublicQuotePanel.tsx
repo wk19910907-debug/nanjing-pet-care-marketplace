@@ -4,11 +4,14 @@ import { type PublicQuoteSelection } from './publicQuote.js';
 import type { ServiceType } from './workflow.js';
 
 type PublicQuoteProps = {
+  pricingSource: 'demo' | 'server';
   selection: PublicQuoteSelection;
   onChange: (selection: PublicQuoteSelection) => void;
   onStartOrder: () => void;
   catalog: PublicOperationsCatalog;
 };
+
+export const DEMO_PRICE_NOTE = '仅为功能演示价格，不构成真实服务报价';
 
 const serviceOptions: Array<{ value: ServiceType; label: string }> = [
   { value: 'CAT_FEEDING', label: '上门喂猫' },
@@ -19,7 +22,7 @@ function price(value: number): string {
   return `¥${new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(value / 100)}`;
 }
 
-export function PublicQuote({ selection, onChange, onStartOrder, catalog }: PublicQuoteProps) {
+export function PublicQuote({ pricingSource, selection, onChange, onStartOrder, catalog }: PublicQuoteProps) {
   const availableServices = serviceOptions.filter(({ value }) => catalog.services[value].enabled);
   const selectedService = availableServices.some(({ value }) => value === selection.serviceType)
     ? selection.serviceType
@@ -39,7 +42,7 @@ export function PublicQuote({ selection, onChange, onStartOrder, catalog }: Publ
     <div>
       <span className="eyebrow">预约参考</span>
       <h2>看看你的服务起步价</h2>
-      <p>最终价格以预约确认页的服务器报价为准</p>
+      <p>{pricingSource === 'demo' ? DEMO_PRICE_NOTE : '最终价格以预约确认页的服务器报价为准'}</p>
     </div>
     <div className="quote-controls">
       <label>服务类型

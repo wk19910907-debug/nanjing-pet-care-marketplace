@@ -97,6 +97,7 @@ test('keeps the landing page usable at phone width', async ({ page }) => {
 
 test('shows a transparent quote and updates the service price', async ({ page }) => {
   await page.goto('/?fixture=service-loop');
+  await expect(page.locator('.store-price-note')).toHaveText('仅为功能演示价格，不构成真实服务报价');
   await page.getByText('查看区域与参考价格', { exact: true }).click();
   const quote = page.getByRole('region', { name: '预约参考' });
   const summary = quote.locator('.quote-summary');
@@ -105,7 +106,8 @@ test('shows a transparent quote and updates the service price', async ({ page })
   await expect(quote.getByText('¥32', { exact: true })).toBeVisible();
   await quote.getByLabel('服务类型').selectOption('DOG_WALKING');
   await expect(quote.getByText('¥37', { exact: true })).toBeVisible();
-  await expect(quote.getByText('最终价格以预约确认页的服务器报价为准')).toBeVisible();
+  await expect(quote.getByText('仅为功能演示价格，不构成真实服务报价')).toBeVisible();
+  await expect(page.getByText(/服务器报价/)).toHaveCount(0);
 });
 
 test('carries the public quote into the owner order form', async ({ page }) => {

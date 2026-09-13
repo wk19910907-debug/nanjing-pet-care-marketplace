@@ -39,7 +39,7 @@ export function DemoApp() {
     setSelectedProviderId(preferredProviderId(state, selectedProviderId));
     setRole('PROVIDER');
   };
-  return <div className="demo-shell"><PublicLanding catalog={DEFAULT_OPERATIONS_CATALOG} onStartOrder={startOrderExperience} onViewOrders={viewOrders} onQuoteStartOrder={startQuoteOrderExperience} quoteSelection={quoteSelection} onQuoteChange={setQuoteSelection}>
+  return <div className="demo-shell"><PublicLanding pricingSource="demo" catalog={DEFAULT_OPERATIONS_CATALOG} onStartOrder={startOrderExperience} onViewOrders={viewOrders} onQuoteStartOrder={startQuoteOrderExperience} quoteSelection={quoteSelection} onQuoteChange={setQuoteSelection}>
     <section id="order-experience" className="demo-intro" aria-labelledby="demo-intro-title"><span className="eyebrow">PRODUCT DEMO</span><h2 id="demo-intro-title">平台功能演示</h2><p>演示数据仅保存在当前浏览器，不会形成真实订单。</p></section>
     <nav className="role-tabs" aria-label="功能演示角色"><button className={role === 'OWNER' ? 'active' : ''} onClick={() => setRole('OWNER')}>宠主</button><button className={role === 'OPERATOR' ? 'active' : ''} onClick={() => setRole('OPERATOR')}>平台运营</button><button className={role === 'PROVIDER' ? 'active' : ''} onClick={showProvider}>服务人员</button><button className="reset" onClick={reset}>清空演示数据</button></nav>
     <div className="notice" role="status">{notice}</div><div className="demo-main">
