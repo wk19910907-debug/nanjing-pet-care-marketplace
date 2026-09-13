@@ -33,7 +33,7 @@ test('Docker build context excludes local secrets, data and generated files', as
   const ignored = await source('.dockerignore');
   for (const required of [
     '.git', '.env*', 'node_modules', '**/dist', '*.dump', '*.backup',
-    'evidence', 'backups', '.superpowers', '.obsidian',
+    'evidence', 'backups', '.superpowers', '.obsidian', '.worktrees',
   ]) assert.ok(ignored.includes(required), `missing Docker ignore rule: ${required}`);
   assert.ok(ignored.split(/\r?\n/).includes('**/.env*'), 'nested environment files must be excluded');
   assert.match(ignored, /!deploy\/\.env\.production\.example/);
