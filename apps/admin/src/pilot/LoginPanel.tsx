@@ -40,8 +40,8 @@ export function LoginPanel({ api, onAuthenticated }: LoginPanelProps) {
 
   return <main className="pilot-auth-page">
     <section className="pilot-auth-card" aria-labelledby="pilot-login-title">
-      <p className="pilot-kicker">南京安心宠 · 上门宠物照护</p>
-      <h1 id="pilot-login-title">欢迎使用南京安心宠</h1>
+      <p className="pilot-kicker">安心宠 · 上门宠物照护</p>
+      <h1 id="pilot-login-title">欢迎使用安心宠</h1>
       <p className="pilot-lead">请选择身份进入对应的服务页面。</p>
       <div className="pilot-form" role="group" aria-label="身份入口">
         {ENTRY_OPTIONS.map(({ role, label, pendingLabel }) => <button

@@ -69,7 +69,7 @@ export function OwnerHome({ catalog, displayName, orders, loading, onBook, onRef
   return <section id="owner-home" className="owner-home">
     <header className="owner-hero">
       <div className="owner-hero-copy">
-        <p className="owner-location">南京 · {services.length > 0 ? '今日可预约' : '暂未开放预约'}</p>
+        <p className="owner-location">{services.length > 0 ? '今日可预约' : '暂未开放预约'}</p>
         <h1>今天需要照顾谁？</h1>
         <p>提交需求，平台为你匹配合适的服务人员。</p>
       </div>
@@ -79,7 +79,7 @@ export function OwnerHome({ catalog, displayName, orders, loading, onBook, onRef
     {catalog.announcement && <p className="owner-announcement" role="status">{catalog.announcement}</p>}
 
     <section className="owner-section" aria-labelledby="owner-services-title">
-      <div className="owner-section-heading"><div><p>南京本地服务</p><h2 id="owner-services-title">选择需要的照护</h2></div></div>
+      <div className="owner-section-heading"><div><p>上门服务</p><h2 id="owner-services-title">选择需要的照护</h2></div></div>
       <div className="owner-services">
         {services.map((service) => <article key={service.type} className="owner-service-card">
           <div className="owner-service-top"><span aria-hidden="true">{service.mark}</span><b>{startingPrice(catalog.services[service.type].basePriceFen)}</b></div>
@@ -120,7 +120,7 @@ export function OwnerHome({ catalog, displayName, orders, loading, onBook, onRef
 
     <section id="owner-account" className="owner-account" aria-labelledby="owner-account-title">
       <div><p>我的</p><h2 id="owner-account-title">{displayName}</h2></div>
-      <span>宠主账户 · 南京上门宠物照护</span>
+      <span>宠主账户 · 上门宠物照护</span>
     </section>
   </section>;
 }

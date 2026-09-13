@@ -1,5 +1,5 @@
 {
-  "description": "南京安心宠本地体验版",
+  "description": "安心宠本地体验版",
   "compileType": "miniprogram",
   "miniprogramRoot": "dist/",
   "appid": "touristappid",

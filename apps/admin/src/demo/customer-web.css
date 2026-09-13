@@ -1,15 +1,15 @@
 /* Customer-facing commerce system. All rules remain scoped to the public demo. */
 .customer-web {
-  --store-canvas: #f6f6f1;
+  --store-canvas: #ffffff;
   --store-surface: #ffffff;
-  --store-ink: #17231d;
+  --store-ink: #192c25;
   --store-brand: #1f4b3a;
   --store-brand-deep: #143428;
-  --store-muted: #6d746f;
-  --store-line: #e4e5df;
+  --store-muted: #67716c;
+  --store-line: #e6eae6;
   --store-gold: #b79a63;
-  --store-soft: #eef1ec;
-  --store-shadow: 0 22px 70px rgba(23, 35, 29, .08);
+  --store-soft: #f3f6f1;
+  --store-shadow: 0 16px 48px rgba(23, 35, 29, .055);
   color: var(--store-ink);
   background: var(--store-canvas);
   font-family: "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", sans-serif;
@@ -840,6 +840,96 @@
   .customer-web .public-staff-entry { width: 100%; justify-self: stretch; text-align: left; }
   .customer-web .access-card { padding: 22px; }
   .customer-web .access-actions { grid-template-columns: 1fr; }
+}
+
+/* Focused storefront: the two bookable services follow a short, useful hero. */
+.customer-web .public-nav {
+  min-height: 68px;
+  border-bottom-color: var(--store-line);
+  background: rgba(255, 255, 255, .97);
+}
+.customer-web .store-brand-name { display: block; width: auto; height: auto; background: transparent; }
+.customer-web .store-brand small { color: var(--store-muted); font-weight: 500; letter-spacing: .05em; }
+.customer-web .store-hero {
+  min-height: 470px;
+  margin-top: 20px;
+  border: 0;
+  border-radius: 24px;
+  background: #f4f7f2;
+  box-shadow: none;
+}
+.customer-web .store-hero-copy { padding: clamp(42px, 5vw, 72px); }
+.customer-web .store-hero h1 { max-width: 600px; margin: 14px 0 18px; font-size: clamp(42px, 5vw, 66px); line-height: 1.16; }
+.customer-web .store-hero-copy > p { max-width: 450px; line-height: 1.7; }
+.customer-web .store-hero-copy .store-hero-note { margin-top: 19px; font-size: 12px; color: #66776c; }
+.customer-web .store-primary { margin-top: 24px; min-height: 48px; box-shadow: none; }
+.customer-web .store-hero-media { position: relative; min-height: 100%; border-radius: 0; }
+.customer-web .store-hero-media img { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; transform: none; }
+.customer-web .landing-section { padding-top: 64px; padding-bottom: 64px; }
+.customer-web .store-services { padding-top: 52px; }
+.customer-web .landing-section h2 { margin-top: 8px; font-size: clamp(30px, 3.4vw, 44px); }
+.customer-web .store-section-heading { grid-template-columns: minmax(0, 1fr) minmax(260px, .8fr); gap: 28px; }
+.customer-web .store-product-grid { margin-top: 24px; gap: 18px; }
+.customer-web .store-product-card { border-radius: 18px; box-shadow: 0 10px 32px rgba(23, 35, 29, .045); }
+.customer-web .store-product-media { aspect-ratio: 16 / 8.5; }
+.customer-web .store-product-content { padding: 22px; }
+.customer-web .store-product-title { margin-top: 9px; }
+.customer-web .store-product-title h3 { font-size: 24px; }
+.customer-web .store-product-title > strong { font-size: 22px; }
+.customer-web .store-product-content > p { margin: 9px 0 12px; }
+.customer-web .store-product-content button { margin-top: 17px; }
+.customer-web .store-process { margin-top: 12px; border: 1px solid var(--store-line); color: var(--store-ink); background: #f8faf7; }
+.customer-web .store-process h2 { color: var(--store-ink); }
+.customer-web .store-process .store-kicker { color: var(--store-brand); }
+.customer-web .process-grid article,
+.customer-web .safeguard-grid article { border-radius: 14px; box-shadow: none; }
+.customer-web .store-footer { background: #f8faf7; }
+
+@media (max-width: 760px) {
+  .customer-web .public-nav { min-height: 62px; }
+  .customer-web .store-brand-name strong { font-size: 19px; }
+  .customer-web .store-hero {
+    width: calc(100% - 24px);
+    min-height: 0;
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    border-radius: 18px;
+  }
+  .customer-web .store-hero-media { order: 0; min-height: 0; height: 168px; aspect-ratio: auto; border-radius: 18px 18px 0 0; }
+  .customer-web .store-hero-copy { order: 1; padding: 22px 22px 24px; }
+  .customer-web .store-hero h1 { margin: 8px 0 10px; font-size: clamp(30px, 8.8vw, 38px); line-height: 1.18; }
+  .customer-web .store-hero-copy > p { font-size: 13px; line-height: 1.55; }
+  .customer-web .store-primary { width: 100%; min-height: 46px; margin-top: 18px; justify-content: center; }
+  .customer-web .store-hero-copy .store-hero-note { margin-top: 12px; text-align: center; font-size: 12px; }
+  .customer-web .landing-section { padding: 42px 12px; }
+  .customer-web .store-services { padding-top: 34px; }
+  .customer-web .landing-section h2 { font-size: 29px; }
+  .customer-web .store-section-heading { display: block; }
+  .customer-web .store-section-heading > p { margin-top: 8px; font-size: 13px; line-height: 1.6; }
+  .customer-web .store-product-grid { margin-top: 16px; gap: 12px; }
+  .customer-web .store-product-card { min-height: 174px; display: grid; grid-template-columns: 38% minmax(0, 1fr); border-radius: 16px; }
+  .customer-web .store-product-media { height: 100%; min-height: 174px; aspect-ratio: auto; }
+  .customer-web .store-product-content { min-width: 0; padding: 14px 13px; }
+  .customer-web .store-product-label { font-size: 12px; letter-spacing: .03em; }
+  .customer-web .store-product-title { display: block; margin-top: 4px; }
+  .customer-web .store-product-title h3 { font-size: 20px; }
+  .customer-web .store-product-title > strong { display: block; margin-top: 3px; font-size: 18px; }
+  .customer-web .store-product-content > p { display: none; }
+  .customer-web .store-product-content ul { display: none; }
+  .customer-web .store-product-content button { width: 100%; min-height: 42px; margin-top: 10px; padding: 8px 9px; font-size: 12px; }
+  .customer-web .store-product-content button svg { width: 16px; height: 16px; }
+  .customer-web .store-price-note { margin-top: 12px; }
+  .customer-web .store-process,
+  .customer-web .store-safeguards { padding-block: 42px; }
+  .customer-web .process-grid,
+  .customer-web .safeguard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .customer-web .process-grid article,
+  .customer-web .safeguard-grid article { padding: 14px; }
+  .customer-web .process-grid strong,
+  .customer-web .safeguard-grid strong { margin-top: 10px; font-size: 14px; }
+  .customer-web .process-grid p,
+  .customer-web .safeguard-grid p { font-size: 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

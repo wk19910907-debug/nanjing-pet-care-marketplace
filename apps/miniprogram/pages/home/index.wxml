@@ -1,5 +1,5 @@
 <view class="page">
-  <view class="hero"><text class="eyebrow">南京安心宠</text><text class="title">出门放心，宠物在家也被认真照顾</text><text class="subtitle">上门喂猫 · 上门遛狗，由平台统一匹配服务人员</text></view>
+  <view class="hero"><text class="eyebrow">安心宠 · 上门照护</text><text class="title">出门放心，宠物在家也被认真照顾</text><text class="subtitle">上门喂猫 · 上门遛狗，由平台统一匹配服务人员</text></view>
   <view wx:if="{{announcement}}" class="announcement">{{announcement}}</view>
   <view wx:if="{{status==='loading'}}" class="state">正在加载服务信息…</view>
   <view wx:elif="{{status==='error'}}" class="state error"><text>{{errorMessage}}</text><button bindtap="loadCatalog">重新加载</button></view>

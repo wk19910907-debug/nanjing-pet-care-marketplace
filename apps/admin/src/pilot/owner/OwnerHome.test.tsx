@@ -21,7 +21,7 @@ describe('OwnerHome', () => {
     const onBook = vi.fn();
     render(<OwnerHome catalog={catalog} displayName="建邺宠主" orders={[]} loading={false} onBook={onBook} onRefresh={vi.fn()}/>);
 
-    expect(screen.getByText('南京 · 今日可预约')).toBeTruthy();
+    expect(screen.getByText('今日可预约')).toBeTruthy();
     expect(screen.getByRole('heading', { name: '今天需要照顾谁？' })).toBeTruthy();
     expect(screen.getByText('¥32 起')).toBeTruthy();
     expect(screen.getByText('¥37 起')).toBeTruthy();

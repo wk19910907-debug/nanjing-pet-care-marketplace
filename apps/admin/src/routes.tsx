@@ -17,5 +17,5 @@ export function OperatorView(props: {
   if (props.path === '/metrics') return <MetricsPanel/>;
   if (props.path === '/settings') return <Settings/>;
   if (props.path === '/audit') return <section><h2>审计记录</h2>{props.audit.map((item) => <div className="card" key={item}>{item}</div>)}</section>;
-  return <section><h2>南京试点运营概览</h2><div className="card">仅展示当前角色有权处理的任务。</div></section>;
+  return <section><h2>试点运营概览</h2><div className="card">仅展示当前角色有权处理的任务。</div></section>;
 }

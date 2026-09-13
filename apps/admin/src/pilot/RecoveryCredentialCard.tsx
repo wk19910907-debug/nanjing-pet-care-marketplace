@@ -33,7 +33,7 @@ export function RecoveryCredentialCard({ credential, onClose }: RecoveryCredenti
     let objectUrl = '';
     try {
       const contents = [
-        '南京安心宠 — 账户恢复凭据',
+        '安心宠 — 账户恢复凭据',
         '',
         `站点：${window.location.origin}`,
         `恢复链接：${recoveryUrl(credential.recoveryPath)}`,

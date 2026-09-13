@@ -298,8 +298,8 @@ export function PilotApp({ api = pilotApi }: PilotAppProps) {
   return <div className="pilot-shell">
     <header className="pilot-header">
       <div>
-        <strong>南京安心宠</strong>
-        <span>南京 · 上门宠物照护</span>
+        <strong>安心宠</strong>
+        <span>上门宠物照护</span>
       </div>
       <div className="pilot-session-summary">
         <span>{session.displayName} · {ROLE_LABELS[session.role]}</span>

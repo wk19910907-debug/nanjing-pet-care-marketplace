@@ -26,15 +26,15 @@ describe('PublicLanding', () => {
   it('locks the customer website to one premium white commerce system', () => {
     const css = readFileSync('src/demo/customer-web.css', 'utf8').toLowerCase().replaceAll('\r\n', '\n');
     for (const token of [
-      '--store-canvas: #f6f6f1', '--store-surface: #ffffff', '--store-ink: #17231d',
+      '--store-canvas: #ffffff', '--store-surface: #ffffff', '--store-ink: #192c25',
       '--store-brand: #1f4b3a', '--store-brand-deep: #143428', '--store-gold: #b79a63',
     ]) expect(css).toContain(token);
     expect(css).toContain('@media (max-width: 760px)');
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(css).toContain('min-height: 44px');
-    expect(css).toContain('background: var(--store-brand-deep)');
-    expect(css).toContain('.customer-web .store-hero-copy { order: 1;');
-    expect(css).toContain('order: 2;\n    min-height: 0;\n    aspect-ratio: 16 / 10;');
+    expect(css).toContain('.customer-web .store-process { margin-top: 12px; border: 1px solid var(--store-line); color: var(--store-ink); background: #f8faf7; }');
+    expect(css).toContain('.customer-web .store-hero-media { order: 0; min-height: 0; height: 168px;');
+    expect(css).toContain('.customer-web .store-product-card { min-height: 174px; display: grid;');
     expect(css).not.toContain('color: var(--store-gold)');
     expect(css).not.toMatch(/font-size: (9|10|11)px/);
     expect(css).toMatch(/\.store-nav-links a \{[^}]*min-height: 44px/s);
@@ -76,15 +76,18 @@ describe('PublicLanding', () => {
       onQuoteChange={onQuoteChange}
     ><div>预约工作区</div></PublicLanding>);
 
-    expect(screen.getByRole('heading', { name: '熟悉的家，安心的照护' })).toBeTruthy();
-    expect(screen.getByRole('navigation', { name: '服务快捷入口' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /上门照顾好，\s*让牵挂少一点/ })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '先选一项服务' })).toBeTruthy();
+    expect(screen.queryByRole('navigation', { name: '服务快捷入口' })).toBeNull();
+    expect(document.body.textContent).not.toContain('南京');
+    expect(document.body.textContent).not.toContain('NANJING');
     expect(screen.getByText('¥32 起')).toBeTruthy();
     expect(screen.getByText('¥37 起')).toBeTruthy();
     expect(screen.getByText('最终价格以确认预约时的服务器报价为准')).toBeTruthy();
     expect(screen.getByText('最终价格以预约确认页的服务器报价为准')).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/自主选人|五星|服务\d+次|用户\d+人/);
 
-    await userEvent.click(screen.getByRole('button', { name: '快捷预约上门喂猫' }));
+    await userEvent.click(screen.getByRole('button', { name: '预约上门喂猫' }));
     expect(onQuoteChange).toHaveBeenCalledWith({ serviceType: 'CAT_FEEDING', district: '建邺区' });
     expect(onQuoteStartOrder).toHaveBeenCalledWith({ serviceType: 'CAT_FEEDING', district: '建邺区' });
     await userEvent.click(screen.getAllByRole('button', { name: '我的订单' })[0]!);

@@ -74,9 +74,9 @@ describe('PilotApp', () => {
     });
     render(<PilotApp api={api}/>);
 
-    expect(await screen.findByRole('button', { name: '立即预约' })).toBeTruthy();
+    expect((await screen.findAllByRole('button', { name: '立即预约' })).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: '员工登录' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: '熟悉的家，安心的照护' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /上门照顾好，\s*让牵挂少一点/ })).toBeTruthy();
     expect(screen.queryByLabelText('邀请码')).toBeNull();
     expect(screen.queryByText('以服务人员身份进入')).toBeNull();
     expect(screen.queryByText('以平台管理员身份进入')).toBeNull();
@@ -492,7 +492,7 @@ describe('PilotApp', () => {
   it('renders the admin workspace without invitation management in the formal service shell', async () => {
     render(<PilotApp api={fakeApi()}/>);
     expect(await screen.findByRole('heading', { name: '平台工作区' })).toBeTruthy();
-    expect(screen.getByText('南京 · 上门宠物照护')).toBeTruthy();
+    expect(screen.getByText('上门宠物照护')).toBeTruthy();
     expect(document.body.textContent).not.toContain('本地试运营');
     expect(screen.queryByText('邀请码管理')).toBeNull();
     expect(screen.queryByText('邀请制试运营')).toBeNull();

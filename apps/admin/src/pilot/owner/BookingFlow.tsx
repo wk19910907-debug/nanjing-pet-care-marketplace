@@ -134,12 +134,11 @@ export function BookingFlow(props: BookingFlowProps) {
       <section aria-labelledby="owner-address-info-title"><h2 id="owner-address-info-title">上门地址</h2>
         {openAddresses.length > 0 && <label>选择已有地址<select value={draft.addressMode === 'EXISTING' ? draft.addressId : ''} onChange={(event) => setDraft((current) => ({
           ...current, addressMode: 'EXISTING', addressId: event.target.value, addressDetail: '',
-        }))}><option value="">请选择</option>{openAddresses.map((address) => <option key={address.id} value={address.id}>{address.city} · {address.district}</option>)}</select></label>}
+        }))}><option value="">请选择</option>{openAddresses.map((address) => <option key={address.id} value={address.id}>{address.district}</option>)}</select></label>}
         <button type="button" className="owner-add-button" onClick={() => setDraft((current) => ({
           ...current, addressMode: 'NEW', addressId: '', addressDetail: '',
         }))}>添加新地址</button>
         {(draft.addressMode === 'NEW' || openAddresses.length === 0) && <div className="owner-new-resource">
-          <p className="owner-fixed-value">城市：南京市</p>
           <label>服务区<select value={draft.districtName} onChange={(event) => update('districtName', event.target.value)}>{openDistricts.map(({ district }) => <option key={district}>{district}</option>)}</select></label>
           <label>详细服务地址<input value={draft.addressDetail} maxLength={300} autoComplete="street-address" onChange={(event) => update('addressDetail', event.target.value)}/></label>
           <p className="pilot-privacy-hint">仅填写完成上门服务所需的信息，请勿填写门锁密码。</p>

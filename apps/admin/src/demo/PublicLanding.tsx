@@ -116,9 +116,9 @@ export function PublicLanding({
 
   return <div className="customer-web">
     <nav className="public-nav store-nav" aria-label="官网导航">
-      <a className="public-brand store-brand" href="#top">
+      <a className="store-brand" href="#top">
         <span className="store-brand-mark" aria-hidden="true"><CommerceIcon name="cat"/></span>
-        <span><strong>安心宠</strong><small>PET CARE · NANJING</small></span>
+        <span className="store-brand-name"><strong>安心宠</strong><small>上门宠物照护</small></span>
       </a>
       <div className="store-nav-links">
         <a href="#services">上门服务</a>
@@ -132,13 +132,13 @@ export function PublicLanding({
     <main className="store-main">
       <section id="top" className="store-hero">
         <div className="store-hero-copy">
-          <span className="store-kicker">PREMIUM PET CARE · NANJING</span>
-          <h1>熟悉的家，安心的照护</h1>
-          <p>南京上门喂猫与遛狗服务。提交需求后，由平台匹配经过资料审核的服务人员。</p>
+          <span className="store-kicker">安心宠 · 上门照护</span>
+          <h1>上门照顾好，<br/>让牵挂少一点</h1>
+          <p>喂猫、遛狗，选好服务和时间。后续由平台确认需求、匹配服务人员。</p>
           <button className="store-primary" disabled={!bookingAvailable || bookingPending} onClick={onStartOrder}>
-            {bookingPending ? '正在开启…' : '探索上门服务'} <CommerceIcon name="arrow"/>
+            {bookingPending ? '正在开启…' : '立即预约'} <CommerceIcon name="arrow"/>
           </button>
-          <ul className="store-trust"><li>身份资料审核</li><li>平台统一匹配</li><li>服务过程留痕</li></ul>
+          <p className="store-hero-note">服务人员由平台安排 · 订单进度可查看</p>
         </div>
         <picture className="store-hero-media" onPointerMove={moveHeroMedia} onPointerLeave={resetHeroMedia}>
           <source srcSet={heroAvif} type="image/avif"/>
@@ -148,31 +148,19 @@ export function PublicLanding({
 
       {catalog?.announcement && <p className="public-announcement" role="status">{catalog.announcement}</p>}
 
-      <nav className="store-quick-categories" aria-label="服务快捷入口">
-        <button type="button" disabled={!catalog?.services.CAT_FEEDING.enabled || bookingPending} aria-label="快捷预约上门喂猫" onClick={() => startService('CAT_FEEDING')}>
-          <span><CommerceIcon name="cat"/></span><strong>上门喂猫</strong><small>日常照护</small>
-        </button>
-        <button type="button" disabled={!catalog?.services.DOG_WALKING.enabled || bookingPending} aria-label="快捷预约上门遛狗" onClick={() => startService('DOG_WALKING')}>
-          <span><CommerceIcon name="dog"/></span><strong>上门遛狗</strong><small>自在散步</small>
-        </button>
-        <a href="#safeguards"><span><CommerceIcon name="verified"/></span><strong>安心保障</strong><small>过程留痕</small></a>
-        <button type="button" onClick={viewOrders}><span><CommerceIcon name="orders"/></span><strong>我的订单</strong><small>进度可查</small></button>
-      </nav>
-
       <section id="services" className="landing-section store-services" aria-labelledby="services-title">
         <header className="store-section-heading">
-          <div><span className="store-kicker">CURATED SERVICES</span><h2 id="services-title">为日常离家时刻，准备两项专业照护</h2></div>
-          <p>服务项目保持简单，预约信息尽量精简。平台依据区域、时间与需求统一匹配人员。</p>
+          <div><span className="store-kicker">选择服务</span><h2 id="services-title">先选一项服务</h2></div>
+          <p>目前只做上门喂猫和遛狗。点选后填写时间与必要信息即可。</p>
         </header>
         <div className="store-product-grid">
           {availableServices.map((service) => <article className="store-product-card" key={service.type}>
             <picture className="store-product-media">
               <source srcSet={service.imageAvif} type="image/avif"/>
               <img src={service.imageWebp} width="960" height="720" alt={service.imageAlt} loading="lazy"/>
-              <span>{service.duration}</span>
             </picture>
             <div className="store-product-content">
-              <span className="store-product-label">NANJING HOME SERVICE</span>
+              <span className="store-product-label">上门照护 · {service.duration}</span>
               <div className="store-product-title"><h3>{service.title}</h3><strong>{startingPrice(catalog!.services[service.type].basePriceFen)}</strong></div>
               <p>{service.copy}</p>
               <ul>{service.details.map((detail) => <li key={detail}>{detail}</li>)}</ul>
@@ -190,27 +178,27 @@ export function PublicLanding({
       {children}
 
       <section id="process" className="landing-section public-process store-process" aria-labelledby="process-title">
-        <span className="store-kicker">HOW IT WORKS</span><h2 id="process-title">从提交需求到查看记录</h2>
+        <span className="store-kicker">服务流程</span><h2 id="process-title">从提交需求到查看记录</h2>
         <div className="process-grid">{processSteps.map(([number, title, copy]) => <article key={number}><span>{number}</span><strong>{title}</strong><p>{copy}</p></article>)}</div>
       </section>
 
       <section id="safeguards" className="landing-section safeguards store-safeguards" aria-labelledby="safeguards-title">
-        <span className="store-kicker">CARE STANDARD</span><h2 id="safeguards-title">每一次匹配和服务，都有清晰交代</h2>
+        <span className="store-kicker">安心保障</span><h2 id="safeguards-title">每一次匹配和服务，都有清晰交代</h2>
         <div className="safeguard-grid">{safeguards.map(([title, copy]) => <article key={title}><span aria-hidden="true"><CommerceIcon name="verified"/></span><strong>{title}</strong><p>{copy}</p></article>)}</div>
       </section>
 
       <section id="faq" className="landing-section faq store-faq" aria-labelledby="faq-title">
-        <span className="store-kicker">SERVICE NOTES</span><h2 id="faq-title">预约前想了解的事</h2>
+        <span className="store-kicker">常见问题</span><h2 id="faq-title">预约前想了解的事</h2>
         <details><summary>目前提供哪些服务？</summary><p>首期只提供上门喂猫与上门遛狗，其他需求暂不承接。</p></details>
         <details><summary>平台如何安排服务人员？</summary><p>宠主提交需求后，由平台根据服务区域、预约时间和服务能力统一匹配，服务人员由平台安排。</p></details>
-        <details><summary>价格如何确定？</summary><p>页面显示起步价，提交前会展示服务器生成的最终报价。</p></details>
-        <details><summary>南京哪些区域可以预约？</summary><p>可在预约页选择当前开放区域，是否能在指定时间接单以平台确认结果为准。</p></details>
+        <details><summary>价格如何确定？</summary><p>{pricingSource === 'demo' ? DEMO_PRICE_NOTE : '页面显示起步价，提交前会展示服务器生成的最终报价。'}</p></details>
+        <details><summary>哪些区域可以预约？</summary><p>可在预约页选择当前开放区域，是否能在指定时间接单以平台确认结果为准。</p></details>
       </section>
     </main>
 
     <footer className="store-footer">
-      <a className="store-brand" href="#top"><span className="store-brand-mark" aria-hidden="true"><CommerceIcon name="cat"/></span><span><strong>安心宠</strong><small>PET CARE · NANJING</small></span></a>
-      <p>南京上门喂猫与遛狗服务 · 页面为试运营信息展示，服务范围与价格以预约确认结果为准。请勿填写门锁密码等敏感信息。</p>
+      <a className="store-brand" href="#top"><span className="store-brand-mark" aria-hidden="true"><CommerceIcon name="cat"/></span><span className="store-brand-name"><strong>安心宠</strong><small>上门宠物照护</small></span></a>
+      <p>{pricingSource === 'demo' ? '当前为功能演示，不会形成真实订单。请勿填写真实个人信息。' : '服务范围与价格以预约确认结果为准。请勿填写门锁密码等敏感信息。'}</p>
       <nav aria-label="页脚导航"><a href="#services">服务</a><a href="#safeguards">保障</a><a href="#faq">常见问题</a></nav>
       {footerContent}
     </footer>

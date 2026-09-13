@@ -9,7 +9,7 @@ describe('DemoApp public framing', () => {
   it('labels browser-only prices as demo prices instead of promising a server quote', () => {
     render(<DemoApp/>);
     expect(screen.queryAllByText(/服务器报价/)).toHaveLength(0);
-    expect(screen.getAllByText('仅为功能演示价格，不构成真实服务报价')).toHaveLength(2);
+    expect(screen.getAllByText('仅为功能演示价格，不构成真实服务报价')).toHaveLength(3);
   });
 
   it('clears the receipt and starts an empty form when demo data is explicitly cleared', async () => {
@@ -51,6 +51,6 @@ describe('DemoApp public framing', () => {
     expect(screen.getByRole('button', { name: '清空演示数据' })).toBeTruthy();
     expect(document.querySelectorAll('main main')).toHaveLength(0);
     expect(screen.getAllByRole('contentinfo')).toHaveLength(1);
-    expect(screen.getByText(/请勿填写门锁密码等敏感信息/)).toBeTruthy();
+    expect(screen.getByText(/请勿填写真实个人信息/)).toBeTruthy();
   });
 });

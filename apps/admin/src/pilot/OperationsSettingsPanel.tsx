@@ -135,7 +135,7 @@ export function OperationsSettingsPanel({ api, onError }: Props) {
       </fieldset>
     </div>
     <fieldset className="pilot-settings-districts">
-      <legend>南京开放区域</legend>
+      <legend>开放服务区域</legend>
       {NANJING_DISTRICTS.map(({ code, name }) => <label key={code}><input type="checkbox" checked={draft.openDistricts.includes(code)} onChange={() => toggleDistrict(code)}/>{name}</label>)}
     </fieldset>
     <label className="pilot-settings-announcement">运营公告<textarea aria-label="运营公告" maxLength={120} value={draft.announcement} onChange={(event) => setDraft({ ...draft, announcement: event.target.value })} placeholder="为空时不展示公告"/></label>

@@ -3,10 +3,10 @@ import { expect, test } from '@playwright/test';
 test('publishes truthful search and sharing metadata', async ({ page }) => {
   await page.goto('/?fixture=service-loop');
 
-  await expect(page).toHaveTitle('南京安心宠｜南京上门喂猫与遛狗预约平台');
+  await expect(page).toHaveTitle('安心宠｜上门喂猫与遛狗预约');
   await expect(page.locator('meta[name="description"]')).toHaveAttribute(
     'content',
-    '南京上门喂猫与遛狗预约平台，宠主提交需求后由平台匹配服务人员，并可查看订单进度与服务记录。',
+    '上门喂猫与遛狗预约，宠主提交需求后由平台匹配服务人员，并可查看订单进度与服务记录。',
   );
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
     'href',
@@ -14,7 +14,7 @@ test('publishes truthful search and sharing metadata', async ({ page }) => {
   );
   await expect(page.locator('meta[property="og:title"]')).toHaveAttribute(
     'content',
-    '南京安心宠｜南京上门喂猫与遛狗预约平台',
+    '安心宠｜上门喂猫与遛狗预约',
   );
   await expect(page.locator('meta[property="og:url"]')).toHaveAttribute(
     'content',
@@ -25,7 +25,7 @@ test('publishes truthful search and sharing metadata', async ({ page }) => {
 test('explains the offer and moves visitors into owner ordering', async ({ page }) => {
   await page.goto('/?fixture=service-loop');
 
-  await expect(page.getByRole('heading', { name: '为日常离家时刻，准备两项专业照护' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '先选一项服务' })).toBeVisible();
   const catCard = page.locator('.store-product-card').filter({ hasText: '上门喂猫' });
   const dogCard = page.locator('.store-product-card').filter({ hasText: '上门遛狗' });
   await expect(catCard.getByText('¥32 起', { exact: true })).toBeVisible();
@@ -64,6 +64,12 @@ test('lays out pricing side by side on desktop', async ({ page }) => {
 test('keeps the landing page usable at phone width', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/?fixture=service-loop');
+
+  await expect(page.locator('.store-hero-media img')).toHaveJSProperty('complete', true);
+  expect(await page.locator('.store-hero-media img').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+  expect(await page.locator('.store-product-card').first().evaluate((card) => card.getBoundingClientRect().top)).toBeLessThan(844);
+  expect(await page.locator('.customer-web').innerText()).not.toContain('南京');
+  expect(await page.locator('.customer-web').innerText()).not.toContain('NANJING');
 
   const widths = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,

@@ -29,7 +29,7 @@
     <view class="card"><view class="section-row"><text class="heading">去哪里照顾？</text><button wx:if="{{addressMode==='EXISTING'}}" class="text-button" bindtap="useNewAddress" disabled="{{busy || detailPending || pendingAttempt}}">＋ 添加</button></view>
       <picker wx:if="{{addressMode==='EXISTING'}}" range="{{addresses}}" range-key="label" value="{{addressIndex}}" bindchange="chooseAddress" disabled="{{busy || detailPending || pendingAttempt}}"><view class="field address">{{addresses[addressIndex].label}} <text class="muted">点击切换</text></view></picker>
       <view wx:else>
-        <picker range="{{districts}}" range-key="name" value="{{districtIndex}}" bindchange="chooseDistrict" disabled="{{busy || detailPending || pendingAttempt}}"><view class="field">南京市 · {{districts[districtIndex].name || '请选择开放区域'}}</view></picker>
+        <picker range="{{districts}}" range-key="name" value="{{districtIndex}}" bindchange="chooseDistrict" disabled="{{busy || detailPending || pendingAttempt}}"><view class="field">{{districts[districtIndex].name || '请选择开放区域'}}</view></picker>
         <textarea class="field textarea" value="{{newAddressDetail}}" maxlength="300" bindinput="changeAddressDetail" disabled="{{busy || detailPending || pendingAttempt}}" placeholder="小区 / 街道、楼栋、门牌号"/>
         <text class="hint compact">请勿填写门锁密码。门牌用于履约，仅向获授权人员展示。</text>
         <button class="secondary" bindtap="saveAddress" disabled="{{busy || pendingAttempt || (detailPending && detailPending!=='address')}}" loading="{{busy && detailPending==='address'}}">{{detailPending==='address'?'重试确认地址':'保存地址'}}</button>
