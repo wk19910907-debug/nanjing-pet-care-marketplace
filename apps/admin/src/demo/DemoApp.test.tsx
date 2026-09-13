@@ -12,7 +12,6 @@ describe('DemoApp public framing', () => {
     fireEvent.change(form.getByLabelText('上门时间'), { target: { value: '2026-09-01T19:00' } });
     await userEvent.click(form.getByRole('button', { name: '下一步：填写上门信息' }));
     fireEvent.change(form.getByLabelText('宠物昵称'), { target: { value: '测试宠物' } });
-    fireEvent.change(form.getByLabelText('详细地址'), { target: { value: '测试路' } });
     await userEvent.click(form.getByRole('button', { name: '下一步：确认预约' }));
     await userEvent.click(form.getByRole('button', { name: '提交订单' }));
     expect(screen.getByRole('heading', { name: '演示预约已提交' })).toBeTruthy();

@@ -182,7 +182,7 @@ test('approves an applicant before including them in eligible order matching', a
   await expect(page.getByLabel('匹配服务人员')).toContainText('小林 · 秦淮区 · 已认证');
 
   await page.getByRole('button', { name: '宠主', exact: true }).click();
-  await submitDemoOrder(page, { petName: '奶糖', address: '体验地址 2 号' });
+  await submitDemoOrder(page, { petName: '奶糖' });
 
   await page.getByRole('button', { name: '平台运营', exact: true }).click();
   const matchers = page.getByLabel('匹配服务人员');

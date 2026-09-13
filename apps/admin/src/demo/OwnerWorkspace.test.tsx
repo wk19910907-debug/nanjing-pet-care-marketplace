@@ -9,6 +9,22 @@ import { createInitialState } from './workflow.js';
 describe('OwnerWorkspace', () => {
   afterEach(cleanup);
 
+  it('uses a fixed fictional address instead of asking public demo visitors for a real home address', async () => {
+    const user = userEvent.setup();
+    const create = vi.fn(() => true);
+    render(<OwnerWorkspace state={createInitialState()} consumePrefill={vi.fn()} create={create} confirm={vi.fn()}/>);
+
+    await user.type(screen.getByLabelText('上门时间'), '2026-09-01T19:00');
+    await user.click(screen.getByRole('button', { name: '下一步：填写上门信息' }));
+    expect(screen.queryByLabelText('详细地址')).toBeNull();
+    expect(screen.getByText('演示地址（非真实住址）')).toBeTruthy();
+
+    await user.type(screen.getByLabelText('宠物昵称'), '团子');
+    await user.click(screen.getByRole('button', { name: '下一步：确认预约' }));
+    await user.click(screen.getByRole('button', { name: '提交订单' }));
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ address: '演示地址（非真实住址）' }));
+  });
+
   it('collects a booking in three short steps', async () => {
     const user = userEvent.setup();
     const create = vi.fn(() => true);
@@ -31,21 +47,20 @@ describe('OwnerWorkspace', () => {
     expect(screen.queryByLabelText('服务备注')).toBeNull();
     await user.type(screen.getByLabelText('宠物昵称'), '团子');
     await user.selectOptions(screen.getByLabelText('服务区域'), '秦淮区');
-    await user.type(screen.getByLabelText('详细地址'), '测试路 1 号');
     await user.click(screen.getByRole('button', { name: '补充服务备注（选填）' }));
     await user.type(screen.getByLabelText('服务备注'), '出门前检查牵引绳');
     await user.click(screen.getByRole('button', { name: '下一步：确认预约' }));
 
     expect(screen.getByRole('heading', { name: '确认预约' })).toBeTruthy();
     expect(screen.getByText('团子')).toBeTruthy();
-    expect(screen.getByText('秦淮区 · 测试路 1 号')).toBeTruthy();
+    expect(screen.getByText('秦淮区 · 演示地址（非真实住址）')).toBeTruthy();
     await user.click(screen.getByRole('button', { name: '提交订单' }));
 
     expect(create).toHaveBeenCalledWith({
       serviceType: 'DOG_WALKING',
       petName: '团子',
       district: '秦淮区',
-      address: '测试路 1 号',
+      address: '演示地址（非真实住址）',
       scheduledAt: '2026-09-01T19:00',
       notes: '出门前检查牵引绳',
     });
@@ -65,7 +80,6 @@ describe('OwnerWorkspace', () => {
     await user.type(screen.getByLabelText('上门时间'), '2026-09-01T19:00');
     await user.click(screen.getByRole('button', { name: '下一步：填写上门信息' }));
     await user.type(screen.getByLabelText('宠物昵称'), '团子');
-    await user.type(screen.getByLabelText('详细地址'), '测试路');
     await user.click(screen.getByRole('button', { name: '下一步：确认预约' }));
     await user.click(screen.getByRole('button', { name: '提交订单' }));
     expect(screen.queryByRole('heading', { name: '演示预约已提交' })).toBeNull();

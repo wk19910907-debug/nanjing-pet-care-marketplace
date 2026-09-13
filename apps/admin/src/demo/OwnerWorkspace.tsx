@@ -19,13 +19,14 @@ export function OrderCard(props: { order: DemoOrder; providerName?: string | und
 }
 
 type BookingStep = 1 | 2 | 3;
+const DEMO_ADDRESS = '演示地址（非真实住址）';
 
 const stepLabels: Readonly<Record<BookingStep, string>> = {
   1: '服务与时间', 2: '上门信息', 3: '确认预约',
 };
 
 const emptyDraft = (): OrderDraft => ({
-  serviceType: 'CAT_FEEDING', petName: '', district: '建邺区', address: '', scheduledAt: '', notes: '',
+  serviceType: 'CAT_FEEDING', petName: '', district: '建邺区', address: DEMO_ADDRESS, scheduledAt: '', notes: '',
 });
 
 export function OwnerWorkspace(props: { state: DemoState; prefill?: OrderPrefill | undefined; consumePrefill(): void; create(draft: OrderDraft): boolean; confirm(orderId: string): void }) {
@@ -48,7 +49,7 @@ export function OwnerWorkspace(props: { state: DemoState; prefill?: OrderPrefill
     setSubmitted(true);
   };
   const serviceStepComplete = Boolean(draft.scheduledAt);
-  const visitStepComplete = Boolean(draft.petName.trim() && draft.address.trim() && draft.district);
+  const visitStepComplete = Boolean(draft.petName.trim() && draft.district);
   return <section className="workspace customer-owner"><div className="section-title"><div><span className="eyebrow">轻松预约</span><h2>预约上门服务</h2></div><p>提交需求后，由平台匹配已认证服务人员。</p></div>
     {submitted ? <section className="booking-receipt" aria-labelledby="receipt-title" role="status"><span className="receipt-mark" aria-hidden="true">✓</span><h3 id="receipt-title">演示预约已提交</h3><p>{draft.petName}的{draft.serviceType === 'CAT_FEEDING' ? '喂猫' : '遛狗'}需求已记录，接下来由平台匹配服务人员。</p><p>仅保存在当前浏览器，不会形成真实订单或费用。</p><div className="demo-booking-actions"><a href="#demo-owner-orders">查看我的订单</a><button type="button" onClick={() => { setDraft(emptyDraft()); setShowNotes(false); setStep(1); setSubmitted(false); }}>再预约一次</button></div></section> : <form className="order-form demo-booking-form" onSubmit={submit}>
       <ol className="owner-booking-progress wide" aria-label="预约进度">
@@ -65,8 +66,7 @@ export function OwnerWorkspace(props: { state: DemoState; prefill?: OrderPrefill
       {step === 2 && <div className="demo-booking-step wide">
         <label>宠物昵称<input required value={draft.petName} maxLength={50} onChange={(event) => change('petName', event.target.value)} placeholder="例如：团子"/></label>
         <label>服务区域<select value={draft.district} onChange={(event) => change('district', event.target.value)}><option>建邺区</option><option>鼓楼区</option><option>玄武区</option><option>秦淮区</option></select></label>
-        <label>详细地址<input required value={draft.address} maxLength={300} onChange={(event) => change('address', event.target.value)} placeholder="请勿填写门锁密码"/></label>
-        <p className="pilot-privacy-hint">地址只用于本次体验，请勿填写门锁密码等敏感信息。</p>
+        <p className="pilot-privacy-hint">演示地点：<strong>{DEMO_ADDRESS}</strong>。请勿填写真实住址、联系方式或门锁密码。</p>
         <button className="demo-optional-toggle" type="button" aria-expanded={showNotes} onClick={() => setShowNotes((current) => !current)}>补充服务备注（选填）</button>
         {showNotes && <label>服务备注<textarea value={draft.notes} maxLength={500} onChange={(event) => change('notes', event.target.value)} placeholder="例如宠物习惯、用品位置"/></label>}
         <div className="demo-booking-actions"><button type="button" onClick={() => setStep(1)}>返回</button><button className="primary" type="button" disabled={!visitStepComplete} onClick={() => setStep(3)}>下一步：确认预约</button></div>

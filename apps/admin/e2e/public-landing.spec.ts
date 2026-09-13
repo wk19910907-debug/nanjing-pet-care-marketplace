@@ -25,16 +25,16 @@ test('publishes truthful search and sharing metadata', async ({ page }) => {
 test('explains the offer and moves visitors into owner ordering', async ({ page }) => {
   await page.goto('/?fixture=service-loop');
 
-  await expect(page.getByRole('heading', { name: '只做两件事，把每次上门做好' })).toBeVisible();
-  const catCard = page.locator('.price-card').filter({ hasText: '上门喂猫' });
-  const dogCard = page.locator('.price-card').filter({ hasText: '上门遛狗' });
+  await expect(page.getByRole('heading', { name: '为日常离家时刻，准备两项专业照护' })).toBeVisible();
+  const catCard = page.locator('.store-product-card').filter({ hasText: '上门喂猫' });
+  const dogCard = page.locator('.store-product-card').filter({ hasText: '上门遛狗' });
   await expect(catCard.getByText('¥32 起', { exact: true })).toBeVisible();
   await expect(dogCard.getByText('¥37 起', { exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '匹配和服务过程都有交代' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '每一次匹配和服务，都有清晰交代' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '预约前想了解的事' })).toBeVisible();
 
   await page.getByRole('button', { name: '平台运营', exact: true }).click();
-  await page.locator('.hero-cta').click();
+  await page.locator('.store-primary').click();
 
   await expect(page.getByRole('button', { name: '宠主', exact: true })).toHaveClass(/active/);
   await expect(page.getByRole('heading', { name: '预约上门服务' })).toBeVisible();
@@ -49,14 +49,16 @@ test('lays out pricing side by side on desktop', async ({ page }) => {
   }));
   expect(widths.scroll).toBeLessThanOrEqual(widths.client);
 
-  const cards = page.locator('.price-card');
+  const cards = page.locator('.store-product-card');
   const first = await cards.nth(0).boundingBox();
   const second = await cards.nth(1).boundingBox();
 
   expect(first).not.toBeNull();
   expect(second).not.toBeNull();
   expect(Math.abs(first!.y - second!.y)).toBeLessThan(2);
-  await expect(page.locator('.hero-cta')).toHaveCSS('min-height', '44px');
+  const heroAction = await page.locator('.store-primary').boundingBox();
+  expect(heroAction).not.toBeNull();
+  expect(heroAction!.height).toBeGreaterThanOrEqual(44);
 });
 
 test('keeps the landing page usable at phone width', async ({ page }) => {
@@ -69,7 +71,7 @@ test('keeps the landing page usable at phone width', async ({ page }) => {
   }));
   expect(widths.scroll).toBeLessThanOrEqual(widths.client);
 
-  const cards = page.locator('.price-card');
+  const cards = page.locator('.store-product-card');
   const first = await cards.nth(0).boundingBox();
   const second = await cards.nth(1).boundingBox();
   expect(first).not.toBeNull();
@@ -154,7 +156,7 @@ test('consumes quote prefills without blocking a repeated quote', async ({ page 
   await expect(form.getByLabel('服务区域')).toHaveValue('秦淮区');
 
   await page.getByRole('button', { name: '平台运营', exact: true }).click();
-  await page.locator('.hero-cta').click();
+  await page.locator('.store-primary').click();
   await expect(form.getByLabel('服务类型')).toHaveValue('CAT_FEEDING');
   await form.getByLabel('上门时间').fill('2026-09-01T19:00');
   await form.getByRole('button', { name: '下一步：填写上门信息' }).click();
