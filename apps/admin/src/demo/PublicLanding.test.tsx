@@ -20,7 +20,7 @@ describe('PublicLanding', () => {
 
   it('offsets the home anchor below the sticky public header', () => {
     const css = readFileSync('src/demo/customer-web.css', 'utf8');
-    expect(css).toContain('.customer-web #top { scroll-margin-top: 88px; }');
+    expect(css).toMatch(/\.customer-web #top,\s*\.customer-web #lost-pet \{ scroll-margin-top: 88px; \}/);
   });
 
   it('locks the customer website to one premium white commerce system', () => {
@@ -134,10 +134,10 @@ describe('PublicLanding', () => {
     expect(onQuoteStartOrder).toHaveBeenCalledWith({ serviceType: 'CAT_FEEDING', district: '鼓楼区' });
     await userEvent.click(shortcuts.getByRole('button', { name: /我的订单/ }));
     expect(onViewOrders).toHaveBeenCalledOnce();
-    expect(shortcuts.getByRole('link', { name: /安心保障/ }).getAttribute('href')).toBe('#safeguards');
+    expect(shortcuts.getByRole('link', { name: /寻宠/ }).getAttribute('href')).toBe('#lost-pet');
 
     const mobile = within(screen.getByRole('navigation', { name: '快捷导航' }));
-    expect(mobile.getAllByRole('link').map((item) => item.textContent)).toEqual(['首页', '服务']);
+    expect(mobile.getAllByRole('link').map((item) => item.textContent)).toEqual(['首页', '服务', '寻宠']);
     expect(mobile.getAllByRole('button').map((item) => item.textContent)).toEqual(['预约', '订单']);
   });
 
@@ -181,11 +181,41 @@ describe('PublicLanding', () => {
     expect(guide.getByText('检查并扣好牵引绳')).toBeTruthy();
   });
 
-  it('uses a compact four-column mobile app layout without removing reduced-motion support', () => {
+  it('puts a working service finder ahead of the quick links and keeps platform matching', async () => {
+    const onQuoteStartOrder = vi.fn();
+    render(<PublicLanding pricingSource="server" catalog={catalog} onStartOrder={vi.fn()}
+      onQuoteStartOrder={onQuoteStartOrder} quoteSelection={{ serviceType: 'CAT_FEEDING', district: '鼓楼区' }}
+      onQuoteChange={vi.fn()}>{null}</PublicLanding>);
+    const finder = within(screen.getByRole('region', { name: '预约服务' }));
+    expect(finder.getByText('平台安排服务人员')).toBeTruthy();
+    expect(finder.queryByText('搜索宠托师')).toBeNull();
+    await userEvent.click(finder.getByRole('tab', { name: '上门遛狗' }));
+    await userEvent.click(finder.getByRole('button', { name: '选择时间并预约上门遛狗' }));
+    expect(onQuoteStartOrder).toHaveBeenCalledWith({ serviceType: 'DOG_WALKING', district: '鼓楼区' });
+    const hero = screen.getByRole('heading', { name: /上门照顾好，\s*让牵挂少一点/ }).closest('section')!;
+    const shortcuts = screen.getByRole('navigation', { name: '服务快捷入口' });
+    expect(hero.compareDocumentPosition(screen.getByRole('region', { name: '预约服务' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole('region', { name: '预约服务' }).compareDocumentPosition(shortcuts) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(shortcuts.compareDocumentPosition(screen.getByRole('heading', { name: '先选一项服务' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('keeps lost-pet help visible without claiming a guaranteed recovery or exposing private contact data', () => {
+    render(<PublicLanding pricingSource="demo" catalog={catalog} onStartOrder={vi.fn()} onQuoteStartOrder={vi.fn()}
+      quoteSelection={{ serviceType: 'CAT_FEEDING', district: '鼓楼区' }} onQuoteChange={vi.fn()}>{null}</PublicLanding>);
+    const lost = within(screen.getByRole('region', { name: '寻宠帮助' }));
+    expect(lost.getByRole('heading', { name: '宠物走失，先把线索整理清楚' })).toBeTruthy();
+    expect(lost.getByText(/记录最后出现的时间与大致区域/)).toBeTruthy();
+    expect(lost.getByText(/制作便于转发的寻宠启事/)).toBeTruthy();
+    expect(lost.getByText(/不保证找回/)).toBeTruthy();
+    expect(lost.getByText(/不要公开门牌号/)).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/100%找回|官方合作|猫巷/);
+  });
+
+  it('uses a compact five-column mobile navigation without removing reduced-motion support', () => {
     const css = readFileSync('src/demo/customer-web.css', 'utf8');
     expect(css).toMatch(/\.customer-web \.store-quick-categories\s*\{[^}]*grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/s);
     expect(css).toMatch(/\.customer-web \.store-hero\s*\{[^}]*grid-template-columns: minmax\(0, 1fr\) 35%/s);
-    expect(css).toMatch(/\.customer-web \.customer-quick-nav\s*\{[^}]*grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/s);
+    expect(css).toMatch(/\.customer-web \.customer-quick-nav\s*\{[^}]*grid-template-columns: repeat\(5, minmax\(0, 1fr\)\)/s);
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
   });
 });

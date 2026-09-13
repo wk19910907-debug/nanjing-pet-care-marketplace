@@ -30,7 +30,8 @@
 .customer-web a { color: inherit; }
 .customer-web svg { display: block; width: 24px; height: 24px; }
 .customer-web #order-experience,
-.customer-web #top { scroll-margin-top: 88px; }
+.customer-web #top,
+.customer-web #lost-pet { scroll-margin-top: 88px; }
 
 .customer-web .public-nav {
   position: sticky;
@@ -812,7 +813,7 @@
     bottom: 0;
     left: 0;
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 7px;
     padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
     border-top: 1px solid var(--store-line);
@@ -885,6 +886,37 @@
 .customer-web .process-grid article,
 .customer-web .safeguard-grid article { border-radius: 14px; box-shadow: none; }
 .customer-web .store-footer { background: #f8faf7; }
+.customer-web .store-finder {
+  width: min(calc(100% - 48px), 1120px);
+  margin: 18px auto 0;
+  padding: 24px 28px;
+  display: grid;
+  grid-template-columns: minmax(220px, .8fr) minmax(0, 1.6fr);
+  gap: 28px;
+  align-items: center;
+  border: 1px solid var(--store-line);
+  border-radius: 22px;
+  background: var(--store-surface);
+  box-shadow: var(--store-shadow);
+}
+.customer-web .store-finder-intro strong { display: block; margin-top: 6px; font-size: 23px; }
+.customer-web .store-finder-intro p { margin: 7px 0 0; color: var(--store-muted); font-size: 13px; }
+.customer-web .store-finder-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding: 5px; border-radius: 16px; background: #f2f6f1; }
+.customer-web .store-finder-tabs button { min-height: 46px; border-radius: 12px; color: var(--store-muted); background: transparent; font-weight: 800; }
+.customer-web .store-finder-tabs button[aria-selected="true"] { color: var(--store-brand); background: white; box-shadow: 0 4px 14px rgba(23, 35, 29, .07); }
+.customer-web .store-finder-submit { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 11px; }
+.customer-web .store-finder-submit > span { color: var(--store-muted); font-size: 13px; }
+.customer-web .store-finder-submit button { min-height: 44px; padding: 9px 16px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 999px; color: white; background: var(--store-brand); font-size: 13px; font-weight: 800; }
+.customer-web .store-finder-submit svg { width: 16px; height: 16px; }
+.customer-web .store-lost-pet { margin-top: 12px; }
+.customer-web .store-lost-heading { max-width: 750px; }
+.customer-web .store-lost-heading p { margin: 12px 0 0; color: var(--store-muted); line-height: 1.7; }
+.customer-web .store-lost-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 26px; }
+.customer-web .store-lost-steps article { min-width: 0; padding: 24px; border: 1px solid var(--store-line); border-radius: 18px; background: #f8faf7; }
+.customer-web .store-lost-steps article > span { display: block; color: var(--store-brand); font-size: 13px; font-weight: 900; }
+.customer-web .store-lost-steps strong { display: block; margin-top: 12px; font-size: 19px; }
+.customer-web .store-lost-steps p { margin: 10px 0 0; color: var(--store-muted); font-size: 14px; line-height: 1.7; }
+.customer-web .store-lost-safety { margin: 18px 0 0; padding: 14px 18px; border-left: 3px solid var(--store-gold); color: #5b665f; background: #f8f7f2; font-size: 13px; line-height: 1.7; }
 .customer-web .store-care-content { padding-top: 40px; }
 .customer-web .store-care-heading > p { max-width: 600px; margin: 10px 0 0; color: var(--store-muted); line-height: 1.6; }
 .customer-web .store-care-tabs { display: flex; gap: 8px; margin: 24px 0 14px; }
@@ -1034,11 +1066,28 @@
   .customer-web .store-section-heading > p { display: none; }
   .customer-web .store-product-grid { margin-top: 12px; }
   .customer-web .customer-quick-nav {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 2px;
     padding: 5px 7px calc(5px + env(safe-area-inset-bottom));
   }
   .customer-web .customer-quick-nav :is(a, button) { min-height: 56px; padding: 5px 2px; flex-direction: column; gap: 2px; font-size: 12px; }
   .customer-web .customer-quick-nav svg { width: 20px; height: 20px; }
   .customer-web .customer-quick-nav button:first-of-type { color: var(--store-brand); background: #f0f6ee; }
+}
+
+@media (max-width: 760px) {
+  .customer-web .store-finder { width: calc(100% - 24px); margin-top: 10px; padding: 16px; grid-template-columns: 1fr; gap: 12px; border-radius: 18px; }
+  .customer-web .store-finder-intro strong { margin-top: 3px; font-size: 18px; }
+  .customer-web .store-finder-intro p { margin-top: 3px; font-size: 12px; }
+  .customer-web .store-finder-tabs button { min-height: 44px; font-size: 14px; }
+  .customer-web .store-finder-submit { display: block; margin-top: 9px; }
+  .customer-web .store-finder-submit > span { display: block; margin-bottom: 8px; font-size: 12px; }
+  .customer-web .store-finder-submit button { width: 100%; min-height: 46px; }
+  .customer-web .store-lost-pet { padding-top: 38px; }
+  .customer-web .store-lost-heading p { font-size: 13px; }
+  .customer-web .store-lost-steps { grid-template-columns: 1fr; gap: 9px; margin-top: 18px; }
+  .customer-web .store-lost-steps article { padding: 15px 17px; }
+  .customer-web .store-lost-steps strong { margin-top: 5px; font-size: 16px; }
+  .customer-web .store-lost-steps p { margin-top: 5px; font-size: 12px; }
+  .customer-web .store-lost-safety { padding: 12px; font-size: 12px; }
 }

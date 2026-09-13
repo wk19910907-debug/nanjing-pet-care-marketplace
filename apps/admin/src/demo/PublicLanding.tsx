@@ -96,7 +96,7 @@ export function PublicLanding({
   quoteSelection,
   onQuoteChange,
 }: PublicLandingProps) {
-  const [viewedServiceType, setViewedServiceType] = useState<ServiceType>('CAT_FEEDING');
+  const [viewedServiceType, setViewedServiceType] = useState<ServiceType>(quoteSelection.serviceType);
   const availableServices = catalog
     ? services.filter(({ type }) => catalog.services[type].enabled)
     : [];
@@ -104,6 +104,7 @@ export function PublicLanding({
   const viewedService = availableServices.find(({ type }) => type === viewedServiceType) ?? availableServices[0];
   const viewOrders = onViewOrders ?? onStartOrder;
   const startService = (type: ServiceType) => {
+    setViewedServiceType(type);
     const selection = { ...quoteSelection, serviceType: type };
     onQuoteChange(selection);
     onQuoteStartOrder(selection);
@@ -132,19 +133,13 @@ export function PublicLanding({
         <a href="#services">上门服务</a>
         <a href="#process">服务流程</a>
         <a href="#safeguards">安心保障</a>
+        <a href="#lost-pet">寻宠帮助</a>
         <button className="header-orders" type="button" onClick={viewOrders}>我的订单</button>
         <button className="header-booking" type="button" disabled={!bookingAvailable || bookingPending} onClick={onStartOrder}>{bookingPending ? '正在开启…' : '立即预约'}</button>
       </div>
     </nav>
 
     <main id="top" className="store-main">
-      <nav className="store-quick-categories" aria-label="服务快捷入口">
-        {availableServices.map((service) => <button type="button" key={service.type} disabled={bookingPending} onClick={() => startService(service.type)}>
-          <span aria-hidden="true"><CommerceIcon name={service.icon}/></span><strong>{service.title}</strong><small>{service.duration}</small>
-        </button>)}
-        <button type="button" onClick={viewOrders}><span aria-hidden="true"><CommerceIcon name="orders"/></span><strong>我的订单</strong><small>查进度</small></button>
-        <a href="#safeguards"><span aria-hidden="true"><CommerceIcon name="verified"/></span><strong>安心保障</strong><small>看服务</small></a>
-      </nav>
       <section className="store-hero">
         <div className="store-hero-copy">
           <span className="store-kicker">安心宠 · 上门照护</span>
@@ -160,6 +155,25 @@ export function PublicLanding({
           <img src={heroWebp} width="1600" height="1000" alt="猫和狗在明亮整洁的家中休息"/>
         </picture>
       </section>
+
+      {viewedService && <section className="store-finder" aria-label="预约服务">
+        <div className="store-finder-intro"><span className="store-kicker">上门照护</span><strong>选好服务，其余交给我们</strong><p>平台安排服务人员</p></div>
+        <div className="store-finder-actions">
+          <div className="store-finder-tabs" role="tablist" aria-label="选择上门服务">
+            {availableServices.map((service) => <button type="button" role="tab" key={service.type}
+              aria-selected={viewedService.type === service.type} onClick={() => setViewedServiceType(service.type)}>{service.title}</button>)}
+          </div>
+          <div className="store-finder-submit"><span>下一步选择上门时间</span><button type="button" disabled={bookingPending} onClick={() => startService(viewedService.type)}>选择时间并预约{viewedService.title} <CommerceIcon name="arrow"/></button></div>
+        </div>
+      </section>}
+
+      <nav className="store-quick-categories" aria-label="服务快捷入口">
+        {availableServices.map((service) => <button type="button" key={service.type} disabled={bookingPending} onClick={() => startService(service.type)}>
+          <span aria-hidden="true"><CommerceIcon name={service.icon}/></span><strong>{service.title}</strong><small>{service.duration}</small>
+        </button>)}
+        <a href="#lost-pet"><span aria-hidden="true"><CommerceIcon name="search"/></span><strong>寻宠帮助</strong><small>整理线索</small></a>
+        <button type="button" onClick={viewOrders}><span aria-hidden="true"><CommerceIcon name="orders"/></span><strong>我的订单</strong><small>查进度</small></button>
+      </nav>
 
       {catalog?.announcement && <p className="public-announcement" role="status">{catalog.announcement}</p>}
 
@@ -205,6 +219,16 @@ export function PublicLanding({
         </div>
       </section>}
 
+      <section id="lost-pet" className="landing-section store-lost-pet" aria-label="寻宠帮助">
+        <div className="store-lost-heading"><span className="store-kicker">寻宠帮助</span><h2>宠物走失，先把线索整理清楚</h2><p>越早记录关键信息，越方便向物业、邻居和附近宠物群求助。</p></div>
+        <div className="store-lost-steps">
+          <article><span>01</span><strong>确认最后线索</strong><p>记录最后出现的时间与大致区域，先查看附近通道、监控和常去地点。</p></article>
+          <article><span>02</span><strong>准备清晰照片</strong><p>选近期正面与全身照片，写明宠物特征、是否胆小及辨认方式。</p></article>
+          <article><span>03</span><strong>发布寻宠信息</strong><p>制作便于转发的寻宠启事，向物业、邻居和可信的本地群组同步线索。</p></article>
+        </div>
+        <p className="store-lost-safety">寻宠信息整理不能替代线下寻找，也不保证找回。公开启事不要公开门牌号、门锁信息或其他敏感资料；联系方式仅向可信渠道提供。</p>
+      </section>
+
       {children}
 
       <section id="process" className="landing-section public-process store-process" aria-labelledby="process-title">
@@ -229,7 +253,7 @@ export function PublicLanding({
     <footer className="store-footer">
       <a className="store-brand" href="#top"><span className="store-brand-mark" aria-hidden="true"><CommerceIcon name="cat"/></span><span className="store-brand-name"><strong>安心宠</strong><small>上门宠物照护</small></span></a>
       <p>{pricingSource === 'demo' ? '当前为功能演示，不会形成真实订单。请勿填写真实个人信息。' : '服务范围与价格以预约确认结果为准。请勿填写门锁密码等敏感信息。'}</p>
-      <nav aria-label="页脚导航"><a href="#services">服务</a><a href="#safeguards">保障</a><a href="#faq">常见问题</a></nav>
+      <nav aria-label="页脚导航"><a href="#services">服务</a><a href="#lost-pet">寻宠帮助</a><a href="#safeguards">保障</a><a href="#faq">常见问题</a></nav>
       {footerContent}
     </footer>
 
@@ -237,6 +261,7 @@ export function PublicLanding({
       <a href="#top"><CommerceIcon name="cat"/><span>首页</span></a>
       <a href="#services"><CommerceIcon name="dog"/><span>服务</span></a>
       <button type="button" disabled={!bookingAvailable || bookingPending} onClick={onStartOrder}><CommerceIcon name="arrow"/><span>预约</span></button>
+      <a href="#lost-pet"><CommerceIcon name="search"/><span>寻宠</span></a>
       <button type="button" onClick={viewOrders}><CommerceIcon name="orders"/><span>订单</span></button>
     </nav>
   </div>;
