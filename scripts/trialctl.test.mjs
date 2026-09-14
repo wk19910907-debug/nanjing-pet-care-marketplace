@@ -15,7 +15,7 @@ function run(script) {
 test('trial updater classifies documentation, app, WAF, and blocked infrastructure changes', () => {
   const result = run(`set -e
     source ./scripts/trialctl-lib.sh
-    printf '%s\\n' 'docs/README.md' 'scripts/trialctl.test.mjs' 'deploy/trial/petcare-trial-verify.timer' | trial_classify_diff
+    printf '%s\\n' 'docs/README.md' 'scripts/trialctl.test.mjs' 'deploy/trial/petcare-trial-verify.timer' 'deploy/TRIAL_AUTOMATION.md' | trial_classify_diff
     printf '%s\\n' 'apps/api/src/app.ts' 'deploy/local-production/Dockerfile.waf' | trial_classify_diff
     printf '%s\\n' 'prisma/migrations/001/init.sql' | trial_classify_diff
     printf '%s\\n' 'deploy/local-production/Caddyfile' | trial_classify_diff`);

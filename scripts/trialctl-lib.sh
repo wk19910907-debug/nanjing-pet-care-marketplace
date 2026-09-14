@@ -32,7 +32,7 @@ trial_classify_diff() {
   local path app=0 waf=0 blocked=0
   while IFS= read -r path; do
     case "$path" in
-      ''|docs/*|scripts/*|deploy/trial/*|.github/*|README*|AGENTS.md) ;;
+      ''|docs/*|scripts/*|deploy/trial/*|deploy/TRIAL_AUTOMATION.md|.github/*|README*|AGENTS.md) ;;
       deploy/local-production/Dockerfile.waf) waf=1 ;;
       deploy/compose.local-production.yml|deploy/local-production/*|prisma/migrations/*) blocked=1 ;;
       *) app=1 ;;
