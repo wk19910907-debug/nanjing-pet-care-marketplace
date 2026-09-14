@@ -156,6 +156,7 @@ case "$command_name" in
         echo RELEASE_PREPARATION_FAILED; exit 1;
       }
     fi
+    trial_prepare_bind_mounts "$release" || { echo BIND_MOUNT_PREPARATION_FAILED; exit 1; }
     if [[ $classification == *'app=0 waf=0'* ]]; then
       verify_at "$release"
       write_state "$target" "$release"

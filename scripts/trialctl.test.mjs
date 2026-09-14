@@ -84,6 +84,28 @@ test('trial updater captures failed edge startup evidence before rollback', () =
   assert.match(controller, /failed-ps\.log/);
 });
 
+test('trial release exposes only public bind-mount files to non-root containers', () => {
+  const result = run(`set -e
+    source ./scripts/trialctl-lib.sh
+    release=$(mktemp -d)
+    mkdir -p "$release/deploy/local-production"
+    for name in Caddyfile coraza.conf minio-init.sh admin-init.sh; do
+      touch "$release/deploy/local-production/$name"
+      chmod 600 "$release/deploy/local-production/$name"
+    done
+    trial_prepare_bind_mounts "$release"
+    for name in Caddyfile coraza.conf minio-init.sh admin-init.sh; do
+      [[ $(stat -c %a "$release/deploy/local-production/$name") == 644 ]]
+      rm -- "$release/deploy/local-production/$name"
+    done
+    rmdir "$release/deploy/local-production" "$release/deploy" "$release"
+    printf '%s\\n' BIND_MOUNTS_READABLE`);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), 'BIND_MOUNTS_READABLE');
+  const controller = readFileSync(path.join(repository, 'scripts/trialctl.sh'), 'utf8');
+  assert.match(controller, /trial_prepare_bind_mounts "\$release"/);
+});
+
 test('trial controller exposes explicit commands and rejects malformed updates before side effects', () => {
   const help = run('bash ./scripts/trialctl.sh --help');
   assert.equal(help.status, 0, help.stderr);
