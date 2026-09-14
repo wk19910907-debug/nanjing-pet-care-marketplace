@@ -24,6 +24,8 @@ bash /opt/petcare-trial/current/scripts/trialctl.sh update 0123456789abcdef01234
 
 若试用机连不上 GitHub，可在可信任的本机仓库先生成仅含基线之后对象的 Git bundle（例如 `git bundle create petcare-update.bundle main ^<当前提交>`），经腾讯云命令通道分块传到试用机仓库外的受限目录，再在试用机运行 `git -C /opt/petcare-trial/repo bundle verify <bundle文件>` 与 `git -C /opt/petcare-trial/repo fetch <bundle文件> main`。完整目标提交已经在本机仓库后，`update <完整提交>` 不再依赖外网抓取；仍会校验完整提交、快进关系和变更范围。bundle 只允许来自本项目可信任仓库，不应把任意下载文件作为发布源。
 
+本次固定发布包 `deploy/trial/bundles/petcare-220a46b-from-a0470bf.bundle` 仅包含基线 `a0470bfd811c1aa407efa978b3f791595237e441` 到目标 `220a46b77a45b9c49e6a55905614dd5607c1ffc6` 的新增 Git 对象，SHA-256 为 `D160D60261AF08C4CCAFCD526F8B089A795B7D289D219178A544BE1688288E1A`。它不含凭据或试用机数据，仅用于这两个固定提交间的离线补丁；其他基线应重新生成并验证 bundle。
+
 ## 自动健康检查
 
 将仓库内 `deploy/trial/petcare-trial-verify.service` 和 `.timer` 安装到 `/etc/systemd/system/`，然后启用 timer。它开机 3 分钟后首次检查，之后每 15 分钟检查一次；**不自动拉取代码、不自动发布、不自动创建订单**。失败可通过 `systemctl status petcare-trial-verify.service` 与 `journalctl -u petcare-trial-verify.service` 查看。不要将环境文件、管理员密码或原始应用日志复制到聊天或公开渠道。
