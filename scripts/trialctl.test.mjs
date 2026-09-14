@@ -124,3 +124,55 @@ test('scheduled maintenance verifies only and never fetches or deploys', () => {
   assert.match(timer, /^OnUnitActiveSec=15min$/m);
   assert.match(timer, /^Persistent=true$/m);
 });
+
+test('trial backup validates a private archive and detects corruption', () => {
+  const result = run(`set -e
+    source ./scripts/trial-backup-lib.sh
+    backup=$(mktemp -d)
+    printf '%s' 'database export' > "$backup/orders.dump"
+    mkdir -p "$backup/object"
+    printf '%s' 'synthetic image' > "$backup/object/image.txt"
+    tar -cf "$backup/minio-data.tar" -C "$backup/object" .
+    trial_backup_write_checksums "$backup"
+    trial_backup_validate_checksums "$backup"
+    printf '%s' 'corrupt' >> "$backup/orders.dump"
+    if trial_backup_validate_checksums "$backup"; then exit 9; fi
+    rm -r -- "$backup"
+    printf '%s\\n' CORRUPTION_DETECTED`);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), 'CORRUPTION_DETECTED');
+});
+
+test('trial backup retention removes only old complete directories inside its own root', () => {
+  const result = run(`set -e
+    source ./scripts/trial-backup-lib.sh
+    root=$(mktemp -d)
+    for stamp in 20260910T000000Z 20260911T000000Z 20260912T000000Z 20260913T000000Z; do
+      mkdir "$root/$stamp"
+      touch "$root/$stamp/SHA256SUMS"
+    done
+    mkdir "$root/.partial-test" "$root/notes"
+    trial_backup_prune "$root" 3
+    [[ ! -e "$root/20260910T000000Z" ]]
+    [[ -d "$root/20260911T000000Z" && -d "$root/20260913T000000Z" ]]
+    [[ -d "$root/.partial-test" && -d "$root/notes" ]]
+    rm -r -- "$root"
+    printf '%s\\n' RETENTION_SCOPED`);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), 'RETENTION_SCOPED');
+});
+
+test('trial backup is daily and never exposes data or changes the running stack', () => {
+  const script = readFileSync(path.join(repository, 'scripts/trial-backup.sh'), 'utf8');
+  const service = readFileSync(path.join(repository, 'deploy/trial/petcare-trial-backup.service'), 'utf8');
+  const timer = readFileSync(path.join(repository, 'deploy/trial/petcare-trial-backup.timer'), 'utf8');
+  assert.match(script, /trialctl\.sh" verify/);
+  assert.match(script, /pg_dump/);
+  assert.match(script, /pg_restore -l/);
+  assert.match(script, /minio_data/);
+  assert.match(script, /trial_backup_validate_checksums/);
+  assert.doesNotMatch(script, /docker compose[^\n]* (up|down)|git fetch|trialctl\.sh" update/);
+  assert.match(service, /^ExecStart=\/bin\/bash \/opt\/petcare-trial\/current\/scripts\/trial-backup\.sh$/m);
+  assert.match(timer, /^OnCalendar=\*-\*-\* 03:30:00$/m);
+  assert.match(timer, /^Persistent=true$/m);
+});

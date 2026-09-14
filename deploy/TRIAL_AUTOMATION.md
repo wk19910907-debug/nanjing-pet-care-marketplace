@@ -34,6 +34,12 @@ bash /opt/petcare-trial/current/scripts/trialctl.sh update 0123456789abcdef01234
 
 将仓库内 `deploy/trial/petcare-trial-verify.service` 和 `.timer` 安装到 `/etc/systemd/system/`，然后启用 timer。它开机 3 分钟后首次检查，之后每 15 分钟检查一次；**不自动拉取代码、不自动发布、不自动创建订单**。失败可通过 `systemctl status petcare-trial-verify.service` 与 `journalctl -u petcare-trial-verify.service` 查看。不要将环境文件、管理员密码或原始应用日志复制到聊天或公开渠道。
 
+## 每日私有备份
+
+安装 `deploy/trial/petcare-trial-backup.service` 和 `.timer` 到 `/etc/systemd/system/`，执行 `systemctl daemon-reload` 后先用 `systemctl start petcare-trial-backup.service` 做一次真实备份，再核对 `systemctl show petcare-trial-backup.service -p Result -p ExecMainStatus` 和 `/opt/petcare-trial/backups/<UTC时间>/` 内的 `orders.dump`、`minio-data.tar`、`SHA256SUMS`、`MANIFEST`。备份成功后再启用 `systemctl enable --now petcare-trial-backup.timer`。定时器每天服务器时间 03:30 左右运行，开机错过会补跑；每次先验证服务健康和至少 4 GiB 可用空间，导出 PostgreSQL 与 MinIO 卷，并验证数据库导出清单、tar 列表及 SHA-256。只在新备份成功后保留最新 3 份完整备份；失败会保留原有完整备份并让 systemd 记录失败。备份目录为 `0700`，文件为 `0600`，不能复制到公开仓库或聊天。
+
+数据库和图片为相近时间点的两次导出，**不是跨系统原子快照**。这只适用于当前虚构数据试用环境，仍须完成隔离恢复演练和异机加密备份才能承载真实订单。由于试用机 2026-10-14 到期，本机备份不能抵御实例到期或磁盘损坏。备份任务不会执行恢复、不会开放端口、不会自动发布版本。需要排查时查看 `journalctl -u petcare-trial-backup.service --since today`，不要向外发送原始数据。
+
 ## 仍未覆盖的正式运营条件
 
 试用机只有 1 个月期限、2 GB 内存和单机卷；本控制器没有异机加密备份、恢复演练、有效公网域名和证书、备案、托管 WAF/跨实例限流、支付或真实人员履约验收。正式接单前必须单独解决，不得把此私有自动化误称为生产上线。
