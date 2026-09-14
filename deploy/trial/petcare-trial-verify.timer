@@ -1,0 +1,11 @@
+[Unit]
+Description=Verify private pet-care trial stack every 15 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=15min
+Persistent=true
+Unit=petcare-trial-verify.service
+
+[Install]
+WantedBy=timers.target

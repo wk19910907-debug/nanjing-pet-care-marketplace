@@ -36,7 +36,8 @@
     "local-production:status": "pwsh -NoProfile -File scripts/local-production.ps1 status",
     "local-production:stop": "pwsh -NoProfile -File scripts/local-production.ps1 stop",
     "local-production:verify": "pwsh -NoProfile -File scripts/local-production.ps1 verify",
-    "test:local-production:verify": "node --test scripts/verify-local-production.test.mjs"
+    "test:local-production:verify": "node --test scripts/verify-local-production.test.mjs",
+    "test:trialctl": "node --test scripts/trialctl.test.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.16.1"

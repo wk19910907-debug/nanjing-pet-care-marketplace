@@ -1,0 +1,12 @@
+[Unit]
+Description=Pet-care trial private stack verification
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/petcare-trial/repo
+ExecStart=/bin/bash /opt/petcare-trial/current/scripts/trialctl.sh verify
+NoNewPrivileges=true
+PrivateTmp=true
+TimeoutStartSec=90
