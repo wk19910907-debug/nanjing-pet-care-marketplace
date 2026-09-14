@@ -28,6 +28,8 @@ bash /opt/petcare-trial/current/scripts/trialctl.sh update 0123456789abcdef01234
 
 发布目录由受限权限创建。控制器只把仓库跟踪的 `Caddyfile`、`coraza.conf`、`minio-init.sh`、`admin-init.sh` 调整到 Git 原有的 `0644` 权限，供容器内非 root 用户读取；仓库外 `/opt/petcare-trial/secrets` 仍保持 `0700/0600`。这是新发布 WAF 能启动的必要条件，不能通过放宽秘密文件权限来替代。
 
+包含上述修复的固定发布包是 `deploy/trial/bundles/petcare-2d8e348-from-a0470bf.bundle`，基线为 `a0470bfd811c1aa407efa978b3f791595237e441`、目标为 `2d8e348b236c676cd246b72b8afbbf0168bd3c46`，SHA-256 为 `7DB21DF97A433FAC8085A4BA53E9AE3B046750D89703C4B7969ED43A1B4B571D`。旧的 `220a46b` 包仅用于排查历史，不能作为当前修复完成的证据。
+
 ## 自动健康检查
 
 将仓库内 `deploy/trial/petcare-trial-verify.service` 和 `.timer` 安装到 `/etc/systemd/system/`，然后启用 timer。它开机 3 分钟后首次检查，之后每 15 分钟检查一次；**不自动拉取代码、不自动发布、不自动创建订单**。失败可通过 `systemctl status petcare-trial-verify.service` 与 `journalctl -u petcare-trial-verify.service` 查看。不要将环境文件、管理员密码或原始应用日志复制到聊天或公开渠道。
