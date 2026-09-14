@@ -36,6 +36,8 @@ bash /opt/petcare-trial/current/scripts/trialctl.sh update 0123456789abcdef01234
 
 ## 每日私有备份
 
+本功能的固定离线发布包是 `deploy/trial/bundles/petcare-51d74f6-from-2d8e348.bundle`，基线 `2d8e348b236c676cd246b72b8afbbf0168bd3c46`，目标 `51d74f65aed5cfde28fe5060b73d0e7c3679013c`，SHA-256 `09D7BEFF3BEEC83BAD5B4C2A18F04640C574A9FD6DB3B44912CFD7007A71D242`。此包只含 Git 代码对象，不含试用机数据或密钥。
+
 安装 `deploy/trial/petcare-trial-backup.service` 和 `.timer` 到 `/etc/systemd/system/`，执行 `systemctl daemon-reload` 后先用 `systemctl start petcare-trial-backup.service` 做一次真实备份，再核对 `systemctl show petcare-trial-backup.service -p Result -p ExecMainStatus` 和 `/opt/petcare-trial/backups/<UTC时间>/` 内的 `orders.dump`、`minio-data.tar`、`SHA256SUMS`、`MANIFEST`。备份成功后再启用 `systemctl enable --now petcare-trial-backup.timer`。定时器每天服务器时间 03:30 左右运行，开机错过会补跑；每次先验证服务健康和至少 4 GiB 可用空间，导出 PostgreSQL 与 MinIO 卷，并验证数据库导出清单、tar 列表及 SHA-256。只在新备份成功后保留最新 3 份完整备份；失败会保留原有完整备份并让 systemd 记录失败。备份目录为 `0700`，文件为 `0600`，不能复制到公开仓库或聊天。
 
 数据库和图片为相近时间点的两次导出，**不是跨系统原子快照**。这只适用于当前虚构数据试用环境，仍须完成隔离恢复演练和异机加密备份才能承载真实订单。由于试用机 2026-10-14 到期，本机备份不能抵御实例到期或磁盘损坏。备份任务不会执行恢复、不会开放端口、不会自动发布版本。需要排查时查看 `journalctl -u petcare-trial-backup.service --since today`，不要向外发送原始数据。
