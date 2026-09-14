@@ -185,6 +185,8 @@ case "$command_name" in
       write_state "$target" "$release"
       echo "UPDATED:$target"
     else
+      compose_at "$release" ps --all >"$state_dir/failed-ps.log" 2>&1 || true
+      compose_at "$release" logs --no-color --tail=40 waf >"$state_dir/failed-waf.log" 2>&1 || true
       docker tag "$old_app" nanjing-petcare:local
       docker tag "$old_waf" nanjing-petcare-waf:local
       compose_at "$current_release" up -d --no-build --force-recreate app waf >"$state_dir/rollback.log" 2>&1 || true

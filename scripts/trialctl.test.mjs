@@ -76,6 +76,14 @@ test('trial updater can recognize a locally imported complete commit without net
   assert.match(controller, /if ! trial_has_local_commit "\$repo" "\$target"; then\s+if ! timeout 90 git/s);
 });
 
+test('trial updater captures failed edge startup evidence before rollback', () => {
+  const controller = readFileSync(path.join(repository, 'scripts/trialctl.sh'), 'utf8');
+  const capture = controller.indexOf('failed-waf.log');
+  const rollback = controller.indexOf('docker tag "$old_app" nanjing-petcare:local');
+  assert.ok(capture > 0 && capture < rollback);
+  assert.match(controller, /failed-ps\.log/);
+});
+
 test('trial controller exposes explicit commands and rejects malformed updates before side effects', () => {
   const help = run('bash ./scripts/trialctl.sh --help');
   assert.equal(help.status, 0, help.stderr);
