@@ -4,6 +4,22 @@ trial_valid_sha() {
   [[ ${1:-} =~ ^[0-9a-f]{40}$ ]]
 }
 
+# Compose can report an app healthy before the reverse proxy accepts TLS.
+# Poll the actual end-to-end verification condition, with a strict bound.
+trial_wait_for_verify() {
+  local max_attempts=$1 delay_seconds=$2 attempt
+  shift 2
+  for ((attempt = 1; attempt <= max_attempts; attempt++)); do
+    if "$@" >/dev/null 2>&1; then
+      return 0
+    fi
+    if ((attempt < max_attempts)); then
+      sleep "$delay_seconds"
+    fi
+  done
+  return 1
+}
+
 # Classify a git diff without interpreting paths as shell commands.
 # Unknown application files are rebuilt conservatively; infrastructure and
 # migrations require an explicit migration/security review outside this tool.

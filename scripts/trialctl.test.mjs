@@ -38,6 +38,32 @@ test('trial updater accepts only complete lowercase commit IDs', () => {
   assert.equal(result.status, 0, result.stderr);
 });
 
+test('trial activation waits for a temporarily unready service and stops on success', () => {
+  const result = run(`set -e
+    source ./scripts/trialctl-lib.sh
+    attempts=0
+    probe() {
+      attempts=$((attempts + 1))
+      [[ $attempts -ge 3 ]]
+    }
+    trial_wait_for_verify 4 0 probe
+    printf '%s\\n' "$attempts"`);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), '3');
+});
+
+test('trial activation reports failure after bounded readiness attempts', () => {
+  const result = run(`set -e
+    source ./scripts/trialctl-lib.sh
+    attempts=0
+    probe() { attempts=$((attempts + 1)); return 1; }
+    if trial_wait_for_verify 3 0 probe; then exit 9; fi
+    [[ $attempts -eq 3 ]]
+    printf '%s\\n' 'retry-exhausted'`);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), 'retry-exhausted');
+});
+
 test('trial controller exposes explicit commands and rejects malformed updates before side effects', () => {
   const help = run('bash ./scripts/trialctl.sh --help');
   assert.equal(help.status, 0, help.stderr);

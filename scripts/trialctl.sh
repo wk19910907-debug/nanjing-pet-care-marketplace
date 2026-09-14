@@ -179,14 +179,14 @@ case "$command_name" in
     [[ $classification != *'app=1'* ]] || docker tag "nanjing-petcare:trial-$short" nanjing-petcare:local
     [[ $classification != *'waf=1'* ]] || docker tag "nanjing-petcare-waf:trial-$short" nanjing-petcare-waf:local
     if compose_at "$release" up -d --no-build --force-recreate app waf >"$state_dir/activate.log" 2>&1 \
-       && verify_at "$release"; then
+       && trial_wait_for_verify 25 2 verify_at "$release"; then
       write_state "$target" "$release"
       echo "UPDATED:$target"
     else
       docker tag "$old_app" nanjing-petcare:local
       docker tag "$old_waf" nanjing-petcare-waf:local
       compose_at "$current_release" up -d --no-build --force-recreate app waf >"$state_dir/rollback.log" 2>&1 || true
-      verify_at "$current_release" >/dev/null || true
+      trial_wait_for_verify 25 2 verify_at "$current_release" || true
       echo UPDATE_FAILED_ROLLBACK_ATTEMPTED
       exit 1
     fi
