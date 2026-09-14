@@ -56,12 +56,13 @@ test('trial activation reports failure after bounded readiness attempts', () => 
   const result = run(`set -e
     source ./scripts/trialctl-lib.sh
     attempts=0
-    probe() { attempts=$((attempts + 1)); return 1; }
+    probe() { attempts=$((attempts + 1)); echo PROBE_UNREADY >&2; return 1; }
     if trial_wait_for_verify 3 0 probe; then exit 9; fi
     [[ $attempts -eq 3 ]]
     printf '%s\\n' 'retry-exhausted'`);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), 'retry-exhausted');
+  assert.equal((result.stderr.match(/PROBE_UNREADY/g) ?? []).length, 1);
 });
 
 test('trial updater can recognize a locally imported complete commit without network', () => {

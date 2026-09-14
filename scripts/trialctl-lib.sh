@@ -15,12 +15,14 @@ trial_wait_for_verify() {
   local max_attempts=$1 delay_seconds=$2 attempt
   shift 2
   for ((attempt = 1; attempt <= max_attempts; attempt++)); do
+    if ((attempt == max_attempts)); then
+      "$@"
+      return $?
+    fi
     if "$@" >/dev/null 2>&1; then
       return 0
     fi
-    if ((attempt < max_attempts)); then
-      sleep "$delay_seconds"
-    fi
+    sleep "$delay_seconds"
   done
   return 1
 }
