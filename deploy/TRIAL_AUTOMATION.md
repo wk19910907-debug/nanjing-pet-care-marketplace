@@ -22,6 +22,8 @@ bash /opt/petcare-trial/current/scripts/trialctl.sh update 0123456789abcdef01234
 
 上面的提交只是格式示例，不能直接作为部署目标。目标和当前版本相同时，控制器输出 `UNCHANGED`，不拉取或重建镜像。目标有变化时，它从公开 GitHub 仓库抓取这个**固定提交**，只在应用或 WAF 文件改变时构建对应镜像；仅文档、测试和运维脚本变化时只切换版本目录，不重建应用。`/opt/petcare-trial/current` 指向已验收版本，定时服务从那里执行控制器，因此控制器本身也随固定提交前进。若发现 Prisma 迁移或入口/Compose 配置变化，直接拒绝自动更新。抓取、构建失败时旧服务保持运行；切换后健康验收失败则尝试恢复旧镜像和旧 Compose 来源。发布日志位于服务器受限的 `/opt/petcare-trial/state/`，普通输出不含密钥。更新不会删除旧发布目录或命名卷。
 
+若试用机连不上 GitHub，可在可信任的本机仓库先生成仅含基线之后对象的 Git bundle（例如 `git bundle create petcare-update.bundle main ^<当前提交>`），经腾讯云命令通道分块传到试用机仓库外的受限目录，再在试用机运行 `git -C /opt/petcare-trial/repo bundle verify <bundle文件>` 与 `git -C /opt/petcare-trial/repo fetch <bundle文件> main`。完整目标提交已经在本机仓库后，`update <完整提交>` 不再依赖外网抓取；仍会校验完整提交、快进关系和变更范围。bundle 只允许来自本项目可信任仓库，不应把任意下载文件作为发布源。
+
 ## 自动健康检查
 
 将仓库内 `deploy/trial/petcare-trial-verify.service` 和 `.timer` 安装到 `/etc/systemd/system/`，然后启用 timer。它开机 3 分钟后首次检查，之后每 15 分钟检查一次；**不自动拉取代码、不自动发布、不自动创建订单**。失败可通过 `systemctl status petcare-trial-verify.service` 与 `journalctl -u petcare-trial-verify.service` 查看。不要将环境文件、管理员密码或原始应用日志复制到聊天或公开渠道。

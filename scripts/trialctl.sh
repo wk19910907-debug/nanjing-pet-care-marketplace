@@ -136,10 +136,12 @@ case "$command_name" in
       echo "UNCHANGED:$target"
       exit 0
     fi
-    if ! timeout 90 git -C "$repo" -c http.version=HTTP/1.1 fetch --no-tags origin "$target" >/dev/null 2>&1; then
-      echo FETCH_FAILED_OLD_RELEASE_RETAINED; exit 1
+    if ! trial_has_local_commit "$repo" "$target"; then
+      if ! timeout 90 git -C "$repo" -c http.version=HTTP/1.1 fetch --no-tags origin "$target" >/dev/null 2>&1; then
+        echo FETCH_FAILED_OLD_RELEASE_RETAINED; exit 1
+      fi
     fi
-    git -C "$repo" cat-file -e "$target^{commit}" || { echo COMMIT_NOT_FOUND; exit 1; }
+    trial_has_local_commit "$repo" "$target" || { echo COMMIT_NOT_FOUND; exit 1; }
     git -C "$repo" merge-base --is-ancestor "$current_sha" "$target" || {
       echo NON_FAST_FORWARD_REJECTED; exit 1;
     }

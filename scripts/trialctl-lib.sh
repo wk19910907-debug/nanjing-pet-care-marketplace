@@ -4,6 +4,11 @@ trial_valid_sha() {
   [[ ${1:-} =~ ^[0-9a-f]{40}$ ]]
 }
 
+trial_has_local_commit() {
+  local repository=$1 sha=$2
+  trial_valid_sha "$sha" && git -C "$repository" cat-file -e "$sha^{commit}" 2>/dev/null
+}
+
 # Compose can report an app healthy before the reverse proxy accepts TLS.
 # Poll the actual end-to-end verification condition, with a strict bound.
 trial_wait_for_verify() {

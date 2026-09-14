@@ -64,6 +64,17 @@ test('trial activation reports failure after bounded readiness attempts', () => 
   assert.equal(result.stdout.trim(), 'retry-exhausted');
 });
 
+test('trial updater can recognize a locally imported complete commit without network', () => {
+  const result = run(`set -e
+    source ./scripts/trialctl-lib.sh
+    sha=$(git rev-parse HEAD)
+    trial_has_local_commit . "$sha"
+    ! trial_has_local_commit . 0000000000000000000000000000000000000000`);
+  assert.equal(result.status, 0, result.stderr);
+  const controller = readFileSync(path.join(repository, 'scripts/trialctl.sh'), 'utf8');
+  assert.match(controller, /if ! trial_has_local_commit "\$repo" "\$target"; then\s+if ! timeout 90 git/s);
+});
+
 test('trial controller exposes explicit commands and rejects malformed updates before side effects', () => {
   const help = run('bash ./scripts/trialctl.sh --help');
   assert.equal(help.status, 0, help.stderr);
