@@ -1,5 +1,7 @@
 FROM caddy:2.11.4-builder AS builder
 
+ARG GOPROXY=https://proxy.golang.org,direct
+
 RUN xcaddy build --with github.com/corazawaf/coraza-caddy/v2@v2.5.0 \
   --with github.com/mholt/caddy-ratelimit@5625512f24f6f59d6f64fb3aafe5eecff0b286db
 

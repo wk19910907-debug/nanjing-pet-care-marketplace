@@ -101,6 +101,8 @@ test('local production WAF is the sole TLS edge and protects only the applicatio
   const minio = compose.match(/\n  minio:\n[\s\S]*?(?=\n  \w[\w-]*:\n|\nnetworks:)/)?.[0] ?? '';
 
   assert.match(dockerfile, /^FROM caddy:2\.11\.4-builder AS builder$/m);
+  assert.match(dockerfile, /^ARG GOPROXY=https:\/\/proxy\.golang\.org,direct$/m, 'WAF build must allow an explicit Go proxy without changing the default');
+  assert.doesNotMatch(dockerfile, /GOSUMDB=off|GOINSECURE=/, 'mirror selection must not disable Go module integrity checks');
   assert.match(dockerfile, /xcaddy build --with github\.com\/corazawaf\/coraza-caddy\/v2@v2\.5\.0/);
   assert.match(dockerfile, /^FROM caddy:2\.11\.4-alpine$/m);
   assert.match(dockerfile, /addgroup -S -g 1000 waf/);
