@@ -12,6 +12,19 @@ trial_backup_validate_checksums() {
   (cd -- "$directory" && sha256sum -c --status SHA256SUMS)
 }
 
+trial_backup_latest() {
+  local root=$1 entry name
+  [[ -d $root && ! -L $root ]] || return 1
+  while IFS= read -r entry; do
+    name=${entry##*/}
+    if [[ $name =~ ^[0-9]{8}T[0-9]{6}Z$ && -d $entry && ! -L $entry && -f $entry/SHA256SUMS ]]; then
+      printf '%s\n' "$entry"
+      return 0
+    fi
+  done < <(find "$root" -mindepth 1 -maxdepth 1 -type d -print | sort -r)
+  return 1
+}
+
 # Prune only verified-name completed snapshots under the dedicated backup root.
 # Never touch partial exports, symlinks, notes, or a caller-supplied parent path.
 trial_backup_prune() {

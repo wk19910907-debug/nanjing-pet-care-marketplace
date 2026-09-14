@@ -1,0 +1,12 @@
+[Unit]
+Description=Pet-care private trial isolated restore drill
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/petcare-trial/repo
+ExecStart=/bin/bash /opt/petcare-trial/current/scripts/trial-restore-drill.sh
+NoNewPrivileges=true
+PrivateTmp=true
+TimeoutStartSec=900

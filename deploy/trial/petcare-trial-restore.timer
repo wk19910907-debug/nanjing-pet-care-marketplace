@@ -1,0 +1,11 @@
+[Unit]
+Description=Drill private pet-care backup recovery weekly
+
+[Timer]
+OnCalendar=Sun *-*-* 04:00:00
+RandomizedDelaySec=10min
+Persistent=true
+Unit=petcare-trial-restore.service
+
+[Install]
+WantedBy=timers.target

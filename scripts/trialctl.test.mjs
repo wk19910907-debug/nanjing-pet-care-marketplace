@@ -176,3 +176,48 @@ test('trial backup is daily and never exposes data or changes the running stack'
   assert.match(timer, /^OnCalendar=\*-\*-\* 03:30:00$/m);
   assert.match(timer, /^Persistent=true$/m);
 });
+
+test('restore drill selects only the latest complete private backup', () => {
+  const result = run(`set -e
+    source ./scripts/trial-backup-lib.sh
+    root=$(mktemp -d)
+    mkdir "$root/20260910T000000Z" "$root/20260911T000000Z" "$root/20260913T000000Z" "$root/.partial-20260912T000000Z" "$root/notes"
+    touch "$root/20260910T000000Z/SHA256SUMS" "$root/20260911T000000Z/SHA256SUMS"
+    selected=$(trial_backup_latest "$root")
+    [[ $selected == "$root/20260911T000000Z" ]]
+    rm -r -- "$root"
+    printf '%s\\n' LATEST_COMPLETE_SELECTED`);
+  assert.equal(result.status, 0, result.stderr + '\n' + result.stdout);
+  assert.equal(result.stdout.trim(), 'LATEST_COMPLETE_SELECTED');
+});
+
+test('restore drill accepts only its own temporary database names', () => {
+  const result = run(`set -e
+    source ./scripts/trial-restore-lib.sh
+    trial_restore_valid_db petcare_restore_20260914190000_1234
+    ! trial_restore_valid_db petcare
+    ! trial_restore_valid_db postgres
+    ! trial_restore_valid_db 'petcare_restore_20260914190000_1;drop database petcare'
+    printf '%s\\n' RESTORE_NAME_SCOPED`);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), 'RESTORE_NAME_SCOPED');
+});
+
+test('weekly restore drill uses isolated database and object volume, never the live database', () => {
+  const script = readFileSync(path.join(repository, 'scripts/trial-restore-drill.sh'), 'utf8');
+  const service = readFileSync(path.join(repository, 'deploy/trial/petcare-trial-restore.service'), 'utf8');
+  const timer = readFileSync(path.join(repository, 'deploy/trial/petcare-trial-restore.timer'), 'utf8');
+  assert.match(script, /trial_backup_latest/);
+  assert.match(script, /trial_backup_validate_checksums/);
+  assert.match(script, /trial_restore_valid_db/);
+  assert.match(script, /createdb/);
+  assert.match(script, /pg_restore/);
+  assert.match(script, /dropdb/);
+  assert.match(script, /docker volume create/);
+  assert.match(script, /docker volume rm/);
+  assert.match(script, /trap on_exit EXIT/);
+  assert.doesNotMatch(script, /docker compose[^\n]* (up|down)|git fetch|trialctl\.sh" update/);
+  assert.match(service, /^ExecStart=\/bin\/bash \/opt\/petcare-trial\/current\/scripts\/trial-restore-drill\.sh$/m);
+  assert.match(timer, /^OnCalendar=Sun \*-\*-\* 04:00:00$/m);
+  assert.match(timer, /^Persistent=true$/m);
+});

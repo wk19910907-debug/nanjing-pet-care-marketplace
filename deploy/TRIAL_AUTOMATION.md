@@ -42,6 +42,14 @@ bash /opt/petcare-trial/current/scripts/trialctl.sh update 0123456789abcdef01234
 
 数据库和图片为相近时间点的两次导出，**不是跨系统原子快照**。这只适用于当前虚构数据试用环境，仍须完成隔离恢复演练和异机加密备份才能承载真实订单。由于试用机 2026-10-14 到期，本机备份不能抵御实例到期或磁盘损坏。备份任务不会执行恢复、不会开放端口、不会自动发布版本。需要排查时查看 `journalctl -u petcare-trial-backup.service --since today`，不要向外发送原始数据。
 
+## 每周隔离恢复演练
+
+`scripts/trial-restore-drill.sh` 选择最新一份完整备份并先核对 SHA-256、数据库归档目录、对象 tar 目录和每份归档不超过 64 MiB 的试用机容量上限。随后只在同一个 PostgreSQL 集群里创建名称受限的**临时数据库**，实际执行 `pg_restore` 并查询已恢复的表；对象归档解压到名称受限的**临时 Docker 卷**并验证有文件。无论成功或失败都尝试清理这两个由本次演练创建的临时资源，失败详情只留在服务器受限的 `/opt/petcare-trial/state/restore-drill.log`。它不会对在线订单数据库或在线 MinIO 卷执行恢复、清空或覆盖。
+
+先安装 `deploy/trial/petcare-trial-restore.service` 和 `.timer` 到 `/etc/systemd/system/`，执行 `systemctl daemon-reload`、`systemctl start petcare-trial-restore.service`，核对 `Result=success`、`ExecMainStatus=0` 和临时数据库/卷已消失，再启用 `systemctl enable --now petcare-trial-restore.timer`。每周日服务器时间 04:00 左右演练一次，避开每日 03:30 左右的备份；两者共用备份锁，避免备份保留清理与恢复同时发生。失败必须查看 `journalctl -u petcare-trial-restore.service`，不得把原始恢复日志或订单数据复制到聊天。
+
+这仍是**同机恢复演练**：可证明备份能被当前 PostgreSQL 和 tar 环境读出，却不能证明跨主机灾难恢复、业务端到端图片可访问或支付/履约流程。正式上线还需要异机加密副本及单独隔离主机的恢复演练。
+
 ## 仍未覆盖的正式运营条件
 
 试用机只有 1 个月期限、2 GB 内存和单机卷；本控制器没有异机加密备份、恢复演练、有效公网域名和证书、备案、托管 WAF/跨实例限流、支付或真实人员履约验收。正式接单前必须单独解决，不得把此私有自动化误称为生产上线。
